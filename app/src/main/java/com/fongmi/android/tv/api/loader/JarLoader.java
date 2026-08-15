@@ -69,7 +69,6 @@ public class JarLoader {
         }
         if (!file.setReadOnly()) {
             SpiderDebug.log("jar-loader", "load skip readonly failed key=%s file=%s size=%s", key, file.getAbsolutePath(), file.length());
-            return;
         }
         String cachePath = Path.jar().getAbsolutePath();
         SpiderDebug.log("jar-loader", "load start key=%s file=%s size=%s cache=%s", key, file.getAbsolutePath(), file.length(), cachePath);
