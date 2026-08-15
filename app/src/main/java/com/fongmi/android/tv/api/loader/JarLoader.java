@@ -80,7 +80,7 @@ public class JarLoader {
             loaders.put(key, loader);
             SpiderDebug.log("jar-loader", "load done key=%s cost=%sms", key, System.currentTimeMillis() - start);
         } catch (Throwable e) {
-            SpiderDebug.log("jar-loader", "key=%s file=%s load error", key, file.getAbsolutePath());
+            SpiderDebug.log("jar-loader", "load failed key=%s error=%s", key, error(e));
         }
     }
 
