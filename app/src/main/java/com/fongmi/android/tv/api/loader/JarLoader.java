@@ -70,14 +70,18 @@ public class JarLoader {
         if (!file.setReadOnly()) {
             SpiderDebug.log("jar-loader", "load skip readonly failed key=%s file=%s size=%s", key, file.getAbsolutePath(), file.length());
         }
-        String cachePath = Path.jar().getAbsolutePath();
-        SpiderDebug.log("jar-loader", "load start key=%s file=%s size=%s cache=%s", key, file.getAbsolutePath(), file.length(), cachePath);
-        DexClassLoader loader = new CspDexClassLoader(file.getAbsolutePath(), cachePath, cachePath, App.get().getClassLoader());
-        invokeInit(key, loader);
-        invokeNetworkCompat(key, loader);
-        invokeProxy(key, loader);
-        loaders.put(key, loader);
-        SpiderDebug.log("jar-loader", "load done key=%s cost=%sms", key, System.currentTimeMillis() - start);
+        try {
+            String cachePath = Path.jar().getAbsolutePath();
+            SpiderDebug.log("jar-loader", "load start key=%s file=%s size=%s cache=%s", key, file.getAbsolutePath(), file.length(), cachePath);
+            DexClassLoader loader = new CspDexClassLoader(file.getAbsolutePath(), cachePath, cachePath, App.get().getClassLoader());
+            invokeInit(key, loader);
+            invokeNetworkCompat(key, loader);
+            invokeProxy(key, loader);
+            loaders.put(key, loader);
+            SpiderDebug.log("jar-loader", "load done key=%s cost=%sms", key, System.currentTimeMillis() - start);
+        } catch (Throwable e) {
+            SpiderDebug.log("jar-loader", "key=%s file=%s load error", key, file.getAbsolutePath());
+        }
     }
 
     private void invokeNetworkCompat(String key, DexClassLoader loader) {
