@@ -90,8 +90,8 @@ public class HistoryDialog extends BaseAlertDialog implements ConfigAdapter.OnCl
     }
 
     @Override
-    public void onDeleteClick(Config item) {
-        if (adapter.remove(item) == 0) dismiss();
+    public void onDeleteClick(Config item, int position) {
+        if (adapter.remove(item, position) == 0) dismiss();
     }
 
     @Override
