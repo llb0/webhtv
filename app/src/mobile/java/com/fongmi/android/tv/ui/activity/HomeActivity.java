@@ -102,6 +102,16 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         });
         initFragment(savedInstanceState);
         initConfig();
+        int width = MobileWindow.getWidth(this);
+        int height = MobileWindow.getHeight(this);
+        if(width > 0 && height > 0){
+            boolean wide = width > height;
+            if(wide){
+                mBinding.navigation.setVisibility(View.GONE);
+            }else{
+                mBinding.navigation.setVisibility(View.VISIBLE);
+            }
+        }
     }
 
     @Override
@@ -408,6 +418,11 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         boolean wide = width > height;
         if (wideWindow != wide) {
             wideWindow = wide;
+            if(wide){
+                mBinding.navigation.setVisibility(View.GONE);
+            }else{
+                mBinding.navigation.setVisibility(View.VISIBLE);
+            }
             RefreshEvent.home();
         }
     }
