@@ -59,7 +59,7 @@
                     android:focusableInTouchMode="true"
                     android:clickable="true"
                     android:background="@drawable/selector_tv_focus_border"
-                    android:src="@drawable/ic_live"/>
+                    android:src="@drawable/ic_nav_live"/>
 
                 <androidx.appcompat.widget.AppCompatImageView
                     android:id="@+id/topSettingBtn"
@@ -71,7 +71,7 @@
                     android:focusableInTouchMode="true"
                     android:clickable="true"
                     android:background="@drawable/selector_tv_focus_border"
-                    android:src="@drawable/ic_setting"/>
+                    android:src="@drawable/ic_nav_setting"/>
 
             </androidx.appcompat.widget.LinearLayoutCompat>
 
