@@ -37,9 +37,11 @@
                 android:ellipsize="marquee"
                 android:singleLine="true"
                 android:text="@string/app_name"
-                android:textAppearance="@style/ToolbarTextAppearance" />
+                android:textAppearance="@style/ToolbarTextAppearance"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:background="@drawable/selector_tv_focus_border"/>
 
-            <!-- ================= TV横屏右上角扩展按钮：直播 + 设置 ================= -->
             <androidx.appcompat.widget.LinearLayoutCompat
                 android:id="@+id/topExtraBtn"
                 android:layout_width="wrap_content"
@@ -56,7 +58,7 @@
                     android:focusable="true"
                     android:focusableInTouchMode="true"
                     android:clickable="true"
-                    android:background="@drawable/selector_toolbar_focus"
+                    android:background="@drawable/selector_tv_focus_border"
                     android:src="@drawable/ic_live"/>
 
                 <androidx.appcompat.widget.AppCompatImageView
@@ -68,7 +70,7 @@
                     android:focusable="true"
                     android:focusableInTouchMode="true"
                     android:clickable="true"
-                    android:background="@drawable/selector_toolbar_focus"
+                    android:background="@drawable/selector_tv_focus_border"
                     android:src="@drawable/ic_setting"/>
 
             </androidx.appcompat.widget.LinearLayoutCompat>
@@ -105,7 +107,10 @@
                 android:layout_height="40dp"
                 android:layout_gravity="center_vertical"
                 android:layout_marginStart="2dp"
-                android:background="@android:color/transparent"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:clickable="true"
+                android:background="@drawable/selector_tv_focus_border"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
                 android:padding="8dp"
