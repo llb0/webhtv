@@ -112,6 +112,8 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     private void setRecyclerView() {
         mBinding.recycler.setTranslationY(-ResUtil.dp2px(getY()));
         mBinding.recycler.setHasFixedSize(true);
+        mBinding.recycler.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        mBinding.recycler.setFocusable(false);
         setStyle(getStyle());
     }
 
