@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.fragment;
 
 import android.net.Uri;
 import android.text.TextUtils;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -86,6 +87,9 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     private String mChromeMode = WebHomeChrome.NORMAL;
     private int mHomeWebTopMargin;
     private Device pendingApkDevice;
+    private View topExtraBtn;
+    private android.widget.ImageView topLiveBtn;
+    private android.widget.ImageView topSettingBtn;
 
     public static VodFragment newInstance() {
         return new VodFragment();
@@ -120,6 +124,58 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         setTitle();
         setLogo();
         updateToolbarMenu();
+
+        topExtraBtn = mBinding.toolbar.findViewById(R.id.topExtraBtn);
+        topLiveBtn = mBinding.toolbar.findViewById(R.id.topLiveBtn);
+        topSettingBtn = mBinding.toolbar.findViewById(R.id.topSettingBtn);
+        mBinding.title.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    if(topLiveBtn != null) topLiveBtn.requestFocus();
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                    if(topSettingBtn != null) topSettingBtn.requestFocus();
+                    return true;
+                }
+            }
+            return false;
+        });
+        if(topLiveBtn != null){
+            topLiveBtn.setOnClickListener(v -> {
+                com.fongmi.android.tv.ui.activity.LiveActivity.start(requireActivity());
+            });
+            topLiveBtn.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) return false;
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        topSettingBtn.requestFocus();
+                        return true;
+                    }
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                        mBinding.title.requestFocus();
+                        return true;
+                    }
+                }
+                return false;
+            });
+        }
+        if(topSettingBtn != null){
+            topSettingBtn.setOnClickListener(v -> {
+                HomeActivity activity = homeActivity();
+                if(activity != null) activity.change(1);
+            });
+            topSettingBtn.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) return false;
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                        topLiveBtn.requestFocus();
+                        return true;
+                    }
+                }
+                return false;
+            });
+        }
     }
 
     @Override
@@ -521,6 +577,11 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     public void onResume() {
         super.onResume();
         if (mWeb != null) mWeb.onResume();
+        View decor = requireActivity().getWindow().getDecorView();
+        int width = decor.getWidth();
+        int height = decor.getHeight();
+        boolean wide = width > height;
+        refreshWideUi(wide);
     }
 
     @Override
@@ -650,6 +711,15 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
 
     public void openVodHome() {
         homeContent();
+    }
+
+    public void refreshWideUi(boolean wide) {
+        if(topExtraBtn == null) return;
+        if (wide) {
+            topExtraBtn.setVisibility(View.VISIBLE);
+        } else {
+            topExtraBtn.setVisibility(View.GONE);
+        }
     }
 
     private void setHomeWebTopMargin(int margin) {
