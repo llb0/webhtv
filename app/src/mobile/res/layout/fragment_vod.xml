@@ -31,12 +31,47 @@
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/title"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:ellipsize="marquee"
                 android:singleLine="true"
                 android:text="@string/app_name"
                 android:textAppearance="@style/ToolbarTextAppearance" />
+
+            <!-- ================= TV横屏右上角扩展按钮：直播 + 设置 ================= -->
+            <androidx.appcompat.widget.LinearLayoutCompat
+                android:id="@+id/topExtraBtn"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:id="@+id/topLiveBtn"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="center_vertical"
+                    android:padding="10dp"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:clickable="true"
+                    android:background="@drawable/selector_toolbar_focus"
+                    android:src="@drawable/ic_live"/>
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:id="@+id/topSettingBtn"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="center_vertical"
+                    android:padding="10dp"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:clickable="true"
+                    android:background="@drawable/selector_toolbar_focus"
+                    android:src="@drawable/ic_setting"/>
+
+            </androidx.appcompat.widget.LinearLayoutCompat>
 
         </com.google.android.material.appbar.MaterialToolbar>
 
