@@ -26,8 +26,7 @@ public class ConfigAdapter extends RecyclerView.Adapter<ConfigAdapter.ViewHolder
     public interface OnClickListener {
 
         void onTextClick(Config item);
-
-        void onDeleteClick(Config item);
+        void onDeleteClick(Config item, int position);
     }
 
     public ConfigAdapter readOnly(boolean readOnly) {
@@ -46,10 +45,10 @@ public class ConfigAdapter extends RecyclerView.Adapter<ConfigAdapter.ViewHolder
         return this;
     }
 
-    public int remove(Config item) {
-        int position = mItems.indexOf(item);
-        if (position == -1) return -1;
-        item.delete();
+    public int remove(Config item, int position) {
+        if (position < 0 || position >= mItems.size()) return -1;
+        Config target = mItems.get(position);
+        target.delete();
         mItems.remove(position);
         notifyItemRemoved(position);
         return getItemCount();
@@ -72,7 +71,7 @@ public class ConfigAdapter extends RecyclerView.Adapter<ConfigAdapter.ViewHolder
         holder.binding.text.setText(item.getDesc());
         holder.binding.text.setOnClickListener(v -> listener.onTextClick(item));
         holder.binding.delete.setVisibility(readOnly ? View.GONE : View.VISIBLE);
-        holder.binding.delete.setOnClickListener(v -> listener.onDeleteClick(item));
+        holder.binding.delete.setOnClickListener(v -> listener.onDeleteClick(item, holder.getAdapterPosition()));
     }
 
     public class ViewHolder extends RecyclerView.ViewHolder {
