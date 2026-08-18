@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 获得焦点：白色外圈边框 -->
+    <item android:state_focused="true">
+        <shape>
+            <solid android:color="@android:color/transparent" />
+            <stroke
+                android:width="3dp"
+                android:color="#FFFFFFFF" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <!-- OK键按下 -->
+    <item android:state_pressed="true">
+        <shape>
+            <solid android:color="@android:color/transparent" />
+            <stroke
+                android:width="4dp"
+                android:color="#FFE5E5E5" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <!-- 默认无焦点：透明 -->
+    <item>
+        <shape>
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+</selector>
