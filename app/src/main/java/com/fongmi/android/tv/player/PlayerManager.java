@@ -4505,8 +4505,7 @@ public class PlayerManager implements ParseCallback {
         }
         if (desiredKernel != playerType) {
             final Integer target = desiredKernel;
-            App.postDelayed(() -> switchPlayer(target, false), 200);
-        }
+            App.post(() -> switchPlayer(target, false), 200);
     }
 
     public void parse(String key, Result result, boolean useParse, MediaMetadata metadata) {
