@@ -38,8 +38,6 @@
                 android:singleLine="true"
                 android:text="@string/app_name"
                 android:textAppearance="@style/ToolbarTextAppearance"
-                android:focusable="true"
-                android:focusableInTouchMode="true"
                 android:background="@drawable/selector_tv_focus_border"/>
 
             <androidx.appcompat.widget.LinearLayoutCompat
@@ -55,9 +53,6 @@
                     android:layout_height="44dp"
                     android:layout_gravity="center_vertical"
                     android:padding="10dp"
-                    android:focusable="true"
-                    android:focusableInTouchMode="true"
-                    android:clickable="true"
                     android:background="@drawable/selector_tv_focus_border"
                     android:src="@drawable/ic_nav_live"/>
 
@@ -67,9 +62,6 @@
                     android:layout_height="44dp"
                     android:layout_gravity="center_vertical"
                     android:padding="10dp"
-                    android:focusable="true"
-                    android:focusableInTouchMode="true"
-                    android:clickable="true"
                     android:background="@drawable/selector_tv_focus_border"
                     android:src="@drawable/ic_nav_setting"/>
 
@@ -107,9 +99,6 @@
                 android:layout_height="40dp"
                 android:layout_gravity="center_vertical"
                 android:layout_marginStart="2dp"
-                android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:clickable="true"
                 android:background="@drawable/selector_tv_focus_border"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
