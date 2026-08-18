@@ -41,9 +41,9 @@ android {
     flavorDimensions = ["mode", "abi"]
 
     productFlavors {
-        leanback {
-            dimension "mode"
-        }
+//        leanback {
+//            dimension "mode"
+//        }
         mobile {
             dimension "mode"
         }
@@ -155,9 +155,9 @@ dependencies {
     implementation libs.textdrawable
     implementation libs.tensorflow.lite
     implementation libs.zxing.core
-    leanbackImplementation libs.leanback
-    leanbackImplementation libs.androidautosize
-    leanbackImplementation libs.zxing.android.embedded
+//    leanbackImplementation libs.leanback
+//    leanbackImplementation libs.androidautosize
+//    leanbackImplementation libs.zxing.android.embedded
     mobileImplementation libs.biometric
     mobileImplementation libs.zxing.android.embedded
     annotationProcessor libs.room.compiler
