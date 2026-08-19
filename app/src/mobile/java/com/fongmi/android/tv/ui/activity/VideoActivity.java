@@ -23,6 +23,7 @@ import android.text.TextUtils;
 import android.text.style.ClickableSpan;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
