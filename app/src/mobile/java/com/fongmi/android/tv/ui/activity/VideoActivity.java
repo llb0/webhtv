@@ -891,8 +891,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
                 if (isFullscreen() && mBinding.control.getRoot().getVisibility() != View.VISIBLE) {
-                    if (player().player.getPlayWhenReady()
-                            && player().player.getPlaybackState() == androidx.media3.common.Player.STATE_READY) {
+                    if (player().isPlaying()) {
                         player().pause();
                     } else {
                         player().play();
