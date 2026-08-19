@@ -31,6 +31,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
+                android:descendantFocusability="afterDescendants"
                 android:orientation="horizontal">
 
                 <androidx.appcompat.widget.LinearLayoutCompat
@@ -41,6 +42,8 @@
                     android:layout_weight="1"
                     android:background="@drawable/shape_item"
                     android:foreground="@drawable/tv_focus_border"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
                     android:orientation="horizontal">
 
                     <com.google.android.material.textview.MaterialTextView
@@ -348,6 +351,7 @@
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
                 android:foreground="@drawable/tv_focus_border"
+                android:nextFocusDown="@+id/backup"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -384,8 +388,6 @@
                     android:layout_weight="1"
                     android:background="?android:attr/selectableItemBackground"
                     android:foreground="@drawable/tv_focus_border"
-                    android:focusable="true"
-                    android:focusableInTouchMode="true"
                     android:paddingStart="12dp"
                     android:paddingTop="8dp"
                     android:paddingEnd="12dp"
@@ -401,8 +403,6 @@
                     android:layout_weight="1"
                     android:background="?android:attr/selectableItemBackground"
                     android:foreground="@drawable/tv_focus_border"
-                    android:focusable="true"
-                    android:focusableInTouchMode="true"
                     android:gravity="end"
                     android:paddingStart="12dp"
                     android:paddingTop="8dp"
@@ -421,6 +421,7 @@
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
                 android:foreground="@drawable/tv_focus_border"
+                android:nextFocusUp="@+id/restore"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView

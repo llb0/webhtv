@@ -36,6 +36,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
     
                 <com.google.android.material.textview.MaterialTextView
@@ -63,6 +64,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -90,6 +92,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -117,6 +120,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -144,6 +148,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -171,6 +176,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -200,6 +206,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -229,6 +236,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -256,6 +264,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal"
                 android:visibility="gone">
 
@@ -286,6 +295,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -315,6 +325,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -342,6 +353,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -369,6 +381,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -396,6 +409,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -423,6 +437,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -450,6 +465,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
@@ -479,6 +495,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:background="@drawable/shape_item"
+                android:foreground="@drawable/tv_focus_border"
                 android:orientation="horizontal">
 
                 <com.google.android.material.textview.MaterialTextView
