@@ -5,14 +5,14 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:layout_margin="8dp"
-    android:foreground="@drawable/shape_vod">
+    android:foreground="@drawable/tv_focus_border"
+    android:background="@drawable/shape_vod">
 
     <com.google.android.material.imageview.ShapeableImageView
         android:id="@+id/image"
         android:layout_width="match_parent"
         android:layout_height="80dp"
         android:background="@color/black_20"
-        android:foreground="@drawable/tv_focus_border"
         app:shapeAppearanceOverlay="@style/Vod.Grid" />
 
     <com.google.android.material.textview.MaterialTextView

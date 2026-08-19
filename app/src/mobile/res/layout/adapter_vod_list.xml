@@ -6,7 +6,7 @@
     android:layout_height="wrap_content"
     android:layout_margin="8dp"
     android:background="@drawable/shape_vod_list"
-    android:foreground="@drawable/shape_vod"
+    android:foreground="@drawable/tv_focus_border"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:padding="12dp">
@@ -16,7 +16,6 @@
         android:layout_width="40dp"
         android:layout_height="40dp"
         android:layout_marginEnd="12dp"
-        android:foreground="@drawable/tv_focus_border"
         app:shapeAppearanceOverlay="@style/Vod.Grid.Large" />
 
     <androidx.appcompat.widget.LinearLayoutCompat
