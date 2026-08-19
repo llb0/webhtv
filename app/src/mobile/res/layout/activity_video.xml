@@ -34,6 +34,7 @@
         android:layout_below="@+id/statusBar"
         android:background="@color/black"
         android:foreground="@drawable/tv_focus_border"
+        android:focusableInTouchMode="true"
         android:clickable="true"
         android:focusable="true">
 
@@ -565,8 +566,7 @@
                             style="@style/Video.ContextText"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:foreground="@drawable/tv_focus_border"
-                            android:layout_marginStart="4dp"
+                                android:layout_marginStart="4dp"
                             android:layout_weight="1"
                             android:ellipsize="end"
                             android:lineSpacingExtra="3dp"
@@ -590,25 +590,25 @@
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/shortDisplay"
                             style="@style/VideoActionButton"
-                            android:foreground="@drawable/tv_focus_border"
                             android:layout_marginEnd="8dp"
+                            android:foreground="@drawable/tv_focus_border"
                             android:text="@string/play_short_display"
                             app:drawableTopCompat="@drawable/ic_action_short_display_shadow" />
 
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/search"
                             style="@style/VideoActionButton"
-                            android:layout_marginEnd="8dp"
                             android:foreground="@drawable/tv_focus_border"
-                            android:text="@string/play_search"
+                            android:layout_marginEnd="8dp"
+                                android:text="@string/play_search"
                             app:drawableTopCompat="@drawable/ic_action_search_shadow" />
 
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/castAction"
                             style="@style/VideoActionButton"
-                            android:layout_marginEnd="8dp"
                             android:foreground="@drawable/tv_focus_border"
-                            android:text="@string/play_cast"
+                            android:layout_marginEnd="8dp"
+                                android:text="@string/play_cast"
                             app:drawableTopCompat="@drawable/ic_control_cast_shadow" />
 
                         <com.google.android.material.textview.MaterialTextView
@@ -633,8 +633,7 @@
                             style="@style/Video.ContextText"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:foreground="@drawable/tv_focus_border"
-                            android:text="@string/detail_flag"
+                                android:text="@string/detail_flag"
                             android:textColor="@color/white"
                             android:textSize="16sp" />
 
@@ -653,7 +652,6 @@
                         android:clipChildren="false"
                         android:clipToPadding="false"
                         android:orientation="horizontal"
-                        android:foreground="@drawable/tv_focus_border"
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"
                         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
@@ -668,7 +666,6 @@
                         android:layout_marginEnd="16dp"
                         android:text="@string/detail_quality"
                         android:textColor="@color/white"
-                        android:foreground="@drawable/tv_focus_border"
                         android:textSize="16sp"
                         android:visibility="gone"
                         tools:visibility="visible" />
@@ -681,7 +678,6 @@
                         android:clipChildren="false"
                         android:clipToPadding="false"
                         android:orientation="horizontal"
-                        android:foreground="@drawable/tv_focus_border"
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"
                         android:visibility="gone"
@@ -700,8 +696,7 @@
                             style="@style/Video.ContextText"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:foreground="@drawable/tv_focus_border"
-                            android:text="@string/detail_episode"
+                                android:text="@string/detail_episode"
                             android:textColor="@color/white"
                             android:textSize="16sp" />
 
@@ -710,8 +705,7 @@
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:layout_marginStart="8dp"
-                            android:foreground="@drawable/tv_focus_border"
-                            android:background="?attr/selectableItemBackgroundBorderless"
+                                android:background="?attr/selectableItemBackgroundBorderless"
                             android:src="@drawable/ic_action_reverse"
                             android:visibility="gone"
                             tools:visibility="visible" />
@@ -725,8 +719,7 @@
                             android:id="@+id/more"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:foreground="@drawable/tv_focus_border"
-                            android:background="?attr/selectableItemBackgroundBorderless"
+                                android:background="?attr/selectableItemBackgroundBorderless"
                             android:src="@drawable/ic_action_more"
                             android:visibility="gone"
                             tools:visibility="visible" />
@@ -741,7 +734,6 @@
                         android:clipChildren="false"
                         android:clipToPadding="false"
                         android:orientation="horizontal"
-                        android:foreground="@drawable/tv_focus_border"
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"
                         android:visibility="gone"
@@ -760,7 +752,6 @@
                         android:clipToPadding="true"
                         android:nestedScrollingEnabled="false"
                         android:overScrollMode="never"
-                        android:foreground="@drawable/tv_focus_border"
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"
                         app:layoutManager="androidx.recyclerview.widget.GridLayoutManager"
@@ -776,7 +767,6 @@
                         android:clipChildren="false"
                         android:clipToPadding="false"
                         android:nestedScrollingEnabled="false"
-                        android:foreground="@drawable/tv_focus_border"
                         android:paddingStart="8dp"
                         android:paddingEnd="8dp"
                         android:visibility="gone"

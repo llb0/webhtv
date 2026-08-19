@@ -5,6 +5,7 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:background="@drawable/shape_video_item"
+    android:foreground="@drawable/tv_focus_border"
     android:gravity="center"
     android:textColor="@color/selector_video_text"
     android:textSize="14sp"
