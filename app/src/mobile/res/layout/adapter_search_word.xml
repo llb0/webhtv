@@ -6,6 +6,7 @@
     android:layout_height="wrap_content"
     android:layout_margin="8dp"
     android:background="@drawable/shape_item_round"
+    android:foreground="@drawable/tv_focus_border"
     android:ellipsize="marquee"
     android:singleLine="true"
     android:textColor="@color/white"

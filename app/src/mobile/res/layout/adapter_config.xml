@@ -18,6 +18,7 @@
         android:textColor="@color/dialog_outlined_button_text"
         android:textSize="14sp"
         app:backgroundTint="@color/dialog_outlined_button_bg"
+        android:foreground="@drawable/tv_focus_border"
         app:strokeColor="@color/dialog_outlined_button_stroke"
         tools:text="https://fongmi.github.io/cat.json" />
 
@@ -27,6 +28,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
         android:background="?attr/selectableItemBackgroundBorderless"
+        android:foreground="@drawable/tv_focus_border"
         android:src="@drawable/ic_setting_delete"
         app:tint="@color/dialog_outlined_button_text" />
 

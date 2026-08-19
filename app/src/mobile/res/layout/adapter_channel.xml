@@ -6,6 +6,7 @@
     android:layout_marginTop="4dp"
     android:layout_marginBottom="4dp"
     android:background="@drawable/shape_live"
+    android:foreground="@drawable/tv_focus_border"
     android:gravity="center_vertical"
     android:orientation="horizontal">
 

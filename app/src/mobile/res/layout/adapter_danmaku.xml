@@ -5,6 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/selector_player_child_sheet_button"
+    android:foreground="@drawable/tv_focus_border"
     android:clickable="true"
     android:ellipsize="marquee"
     android:focusable="true"

@@ -18,6 +18,7 @@
         android:layout_width="54dp"
         android:layout_height="68dp"
         android:background="@color/black_10"
+        android:foreground="@drawable/tv_focus_border"
         android:scaleType="centerCrop"
         app:shapeAppearanceOverlay="@style/Vod.Grid.Large" />
 

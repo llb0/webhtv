@@ -13,6 +13,7 @@
         android:layout_width="96dp"
         android:layout_height="match_parent"
         android:background="@color/black_10"
+        android:foreground="@drawable/tv_focus_border"
         app:shapeAppearanceOverlay="@style/Vod.Grid.Large" />
 
     <com.google.android.material.textview.MaterialTextView
