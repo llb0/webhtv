@@ -878,6 +878,32 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            int keyCode = event.getKeyCode();
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (mBinding.control.getRoot().getVisibility() != View.VISIBLE) {
+                    showControl();
+                    mBinding.control.getRoot().requestFocus();
+                }
+                return false;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
+                if (isFullscreen() && mBinding.control.getRoot().getVisibility() != View.VISIBLE) {
+                    if (player().player.getPlayWhenReady()
+                            && player().player.getPlaybackState() == androidx.media3.common.Player.STATE_READY) {
+                        player().pause();
+                    } else {
+                        player().play();
+                    }
+                    return true;
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
         if (mAudioStageVisible && isSystemNavigationTouch(event)) return false;
         if (dispatchAudioStageTouch(event)) return true;
@@ -3902,6 +3928,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setSizeText();
         setRotate(player().isPortrait());
         mKeyDown.resetScale();
+        mBinding.getRoot().clearFocus();
         App.post(mR3, 2000);
         hideControl();
         logVideoFrame("enterFullscreen after");
