@@ -46,7 +46,9 @@
             android:layout_height="40dp"
             android:text="@string/select_all"
             android:textSize="14sp"
-            app:cornerRadius="8dp"/>
+            app:cornerRadius="8dp"
+            app:textColor="@color/dialog_outlined_button_text"
+            app:strokeColor="@color/dialog_outlined_border"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/select_none"
@@ -56,7 +58,9 @@
             android:layout_marginStart="6dp"
             android:text="@string/select_none"
             android:textSize="14sp"
-            app:cornerRadius="8dp"/>
+            app:cornerRadius="8dp"
+            app:textColor="@color/dialog_outlined_button_text"
+            app:strokeColor="@color/dialog_outlined_border"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/select_invert"
@@ -66,7 +70,9 @@
             android:layout_marginStart="6dp"
             android:text="@string/select_invert"
             android:textSize="14sp"
-            app:cornerRadius="8dp"/>
+            app:cornerRadius="8dp"
+            app:textColor="@color/dialog_outlined_button_text"
+            app:strokeColor="@color/dialog_outlined_border"/>
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
@@ -87,19 +93,16 @@
         android:gravity="end"
         android:orientation="horizontal">
 
-        <TextView
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/confirm"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/selector_control_sheet_button"
-            android:gravity="center"
-            android:minWidth="96dp"
-            android:paddingHorizontal="20dp"
-            android:paddingVertical="10dp"
+            android:layout_height="40dp"
             android:text="@string/confirm"
-            android:textColor="@color/dialog_outlined_button_text"
             android:textSize="14sp"
-            android:textStyle="bold" />
+            app:cornerRadius="8dp"
+            app:textColor="@color/dialog_outlined_button_text"
+            app:strokeColor="@color/dialog_outlined_border"/>
     </LinearLayout>
 
 </LinearLayout>
