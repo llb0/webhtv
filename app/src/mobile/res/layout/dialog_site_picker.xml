@@ -47,7 +47,7 @@
             android:text="@string/select_all"
             android:textSize="14sp"
             app:cornerRadius="8dp"
-            app:textColor="@android:color/black"
+            android:textColor="@android:color/black"
             app:strokeColor="@android:color/darker_gray"/>
 
         <com.google.android.material.button.MaterialButton
@@ -59,7 +59,7 @@
             android:text="@string/select_none"
             android:textSize="14sp"
             app:cornerRadius="8dp"
-            app:textColor="@android:color/black"
+            android:textColor="@android:color/black"
             app:strokeColor="@android:color/darker_gray"/>
 
         <com.google.android.material.button.MaterialButton
@@ -71,7 +71,7 @@
             android:text="@string/select_invert"
             android:textSize="14sp"
             app:cornerRadius="8dp"
-            app:textColor="@android:color/black"
+            android:textColor="@android:color/black"
             app:strokeColor="@android:color/darker_gray"/>
     </LinearLayout>
 
@@ -101,7 +101,7 @@
             android:text="@string/confirm"
             android:textSize="14sp"
             app:cornerRadius="8dp"
-            app:textColor="@android:color/black"
+            android:textColor="@android:color/black"
             app:strokeColor="@android:color/darker_gray"/>
     </LinearLayout>
 
