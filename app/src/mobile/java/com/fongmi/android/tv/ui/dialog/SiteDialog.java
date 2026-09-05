@@ -118,25 +118,28 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                     return true;
                 }
                 RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
+                final int finalTargetPos = targetPos;
                 if (lm instanceof LinearLayoutManager llm) {
-                    llm.scrollToPosition(targetPos);
+                    llm.scrollToPosition(finalTargetPos);
+                    final LinearLayoutManager finalLlm = llm;
                     binding.recycler.post(() -> {
-                        View itemView = llm.findViewByPosition(targetPos);
+                        View itemView = finalLlm.findViewByPosition(finalTargetPos);
                         if (itemView == null) return;
                         int rvHeight = binding.recycler.getHeight();
                         int itemHeight = itemView.getHeight();
                         int desiredOffset = rvHeight / 2 - itemHeight / 2;
-                        llm.scrollToPositionWithOffset(targetPos, desiredOffset);
+                        finalLlm.scrollToPositionWithOffset(finalTargetPos, desiredOffset);
                     });
                 } else if (lm instanceof GridLayoutManager glm) {
-                    glm.scrollToPosition(targetPos);
+                    glm.scrollToPosition(finalTargetPos);
+                    final GridLayoutManager finalGlm = glm;
                     binding.recycler.post(() -> {
-                        View itemView = glm.findViewByPosition(targetPos);
+                        View itemView = finalGlm.findViewByPosition(finalTargetPos);
                         if (itemView == null) return;
                         int rvHeight = binding.recycler.getHeight();
                         int itemHeight = itemView.getHeight();
                         int desiredOffset = rvHeight / 2 - itemHeight / 2;
-                        glm.scrollToPositionWithOffset(targetPos, desiredOffset);
+                        finalGlm.scrollToPositionWithOffset(finalTargetPos, desiredOffset);
                     });
                 }
                 return true;
