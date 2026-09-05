@@ -190,8 +190,8 @@ public final class UpdateSettingsDialog {
         binding.save.setOnKeyListener((view, keyCode, event) -> event.getAction() == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_UP && focusLastControl(binding, state));
         tvFocusable(binding.githubProxy);
         tvFocusable(binding.ociMirror);
-        binding.githubProxy.setBackgroundResource(R.drawable.selector_dialog_btn_focus);
-        binding.ociMirror.setBackgroundResource(R.drawable.selector_dialog_btn_focus);
+        binding.githubProxy.setBackgroundResource(R.drawable.selector_mpv_tab_focus);
+        binding.ociMirror.setBackgroundResource(R.drawable.selector_mpv_tab_focus);
         binding.githubProxy.setOnKeyListener((view, keyCode, event) -> focusFromPrimary(binding, keyCode, event));
         binding.ociMirror.setOnKeyListener((view, keyCode, event) -> focusFromPrimary(binding, keyCode, event));
         configureTabFocus(binding, state);
