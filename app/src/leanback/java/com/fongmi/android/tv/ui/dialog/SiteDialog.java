@@ -132,21 +132,25 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         directDialog.setOnShowListener(dialogInterface -> {
             if (binding == null || adapter == null) return;
             binding.recycler.post(() -> {
-                List<Site> showList = adapter.getItems();
-                Site active = VodConfig.get().getHome();
-                int targetPos = -1;
-                for (int i = 0; i < showList.size(); i++) {
-                    if (showList.get(i).getKey().equals(active.getKey())) {
-                        targetPos = i;
-                        break;
+                binding.recycler.post(() -> {
+                    List<Site> showList = adapter.getItems();
+                    Site active = VodConfig.get().getHome();
+                    int targetPos = -1;
+                    for (int i = 0; i < showList.size(); i++) {
+                        if (showList.get(i).getKey().equals(active.getKey())) {
+                            targetPos = i;
+                            break;
+                        }
                     }
-                }
-                if (targetPos < 0) return;
-                View realItem = binding.recycler.findViewByPosition(targetPos);
-                if (realItem != null) {
-                    boolean ret = realItem.requestFocus();
-                    log("onShow real request focus pos=%d ret=%b", targetPos, ret);
-                }
+                    if (targetPos < 0) return;
+                    RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(targetPos);
+                    if (holder != null && holder.itemView != null) {
+                        boolean ret = holder.itemView.requestFocus();
+                        log("onShow real request focus pos=%d ret=%b", targetPos, ret);
+                    } else {
+                        log("onShow holder null pos=%d", targetPos);
+                    }
+                });
             });
         });
 
