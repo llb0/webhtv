@@ -76,6 +76,7 @@
     <string name="control_track">轨道</string>
     <string name="control_other">其它</string>
     <string name="live_control_play">来源</string>
+    <string name="title_block_source">选择要屏蔽的站源来源</string>
     <string name="live_control_config">订阅接口</string>
     <string name="live_control_source">直播源</string>
     <string name="live_control_epg">EPG源</string>
