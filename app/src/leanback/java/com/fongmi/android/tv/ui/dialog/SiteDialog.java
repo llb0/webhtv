@@ -128,6 +128,28 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             binding = null;
             this.activity = null;
         });
+
+        directDialog.setOnShowListener(dialogInterface -> {
+            if (binding == null || adapter == null) return;
+            binding.recycler.post(() -> {
+                List<Site> showList = adapter.getItems();
+                Site active = VodConfig.get().getHome();
+                int targetPos = -1;
+                for (int i = 0; i < showList.size(); i++) {
+                    if (showList.get(i).getKey().equals(active.getKey())) {
+                        targetPos = i;
+                        break;
+                    }
+                }
+                if (targetPos < 0) return;
+                View realItem = binding.recycler.findViewByPosition(targetPos);
+                if (realItem != null) {
+                    boolean ret = realItem.requestFocus();
+                    log("onShow real request focus pos=%d ret=%b", targetPos, ret);
+                }
+            });
+        });
+
         runAfterFirstPreDraw("shell preDraw", () -> loadList(false));
         long showDialogStart = System.currentTimeMillis();
         log("show call start total=%sms", cost());
@@ -202,19 +224,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 int recyclerHeight = binding.recycler.getHeight();
                 int offset = recyclerHeight / 2;
                 glm.scrollToPositionWithOffset(targetPos, offset);
-                Site oldSelectSite = null;
-                for (Site s : showList) {
-                    if (s.isSelected()) oldSelectSite = s;
-                    s.setSelected(false);
-                }
-                Site targetSite = showList.get(targetPos);
-                targetSite.setSelected(true);
-        
-                if(oldSelectSite != null){
-                    int oldPos = showList.indexOf(oldSelectSite);
-                    if(oldPos >= 0) adapter.notifyItemChanged(oldPos);
-                }
-                adapter.notifyItemChanged(targetPos);
             }
         });
     }
@@ -415,6 +424,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         super.onStart();
         Window window = getDialog() == null ? null : getDialog().getWindow();
         applyWindow(window);
-        if (adapter.getItemCount() == 0) dismiss();
+        if (adapter != null && adapter.getItemCount() == 0) dismiss();
     }
 }
