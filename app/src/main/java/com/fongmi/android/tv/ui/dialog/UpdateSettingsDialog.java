@@ -188,15 +188,9 @@ public final class UpdateSettingsDialog {
         tvFocusable(binding.save);
         binding.close.setOnKeyListener((view, keyCode, event) -> event.getAction() == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_DOWN && focusSelectedTab(binding));
         binding.save.setOnKeyListener((view, keyCode, event) -> event.getAction() == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_UP && focusLastControl(binding, state));
-        tvFocusable(binding.githubProxy);
-        tvFocusable(binding.ociMirror);
-        binding.githubProxy.setBackgroundResource(R.drawable.selector_mpv_tab_focus);
-        binding.ociMirror.setBackgroundResource(R.drawable.selector_mpv_tab_focus);
         binding.githubProxy.setOnKeyListener((view, keyCode, event) -> focusFromPrimary(binding, keyCode, event));
         binding.ociMirror.setOnKeyListener((view, keyCode, event) -> focusFromPrimary(binding, keyCode, event));
         configureTabFocus(binding, state);
-        binding.githubCustom.setMinHeight(ResUtil.dp2px(48));
-        binding.ociCustom.setMinHeight(ResUtil.dp2px(48));
         focusSelectedTab(binding);
     }
 
@@ -249,9 +243,7 @@ public final class UpdateSettingsDialog {
 
     private static void tvFocusable(View view) {
         view.setFocusable(true);
-        if (!(view instanceof android.widget.EditText)) {
-            view.setFocusableInTouchMode(true);
-        }
+        view.setFocusableInTouchMode(true);
     }
 
     private static final class State {
