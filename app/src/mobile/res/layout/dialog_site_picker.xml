@@ -47,8 +47,8 @@
             android:text="@string/select_all"
             android:textSize="14sp"
             app:cornerRadius="8dp"
-            app:textColor="@color/dialog_outlined_button_text"
-            app:strokeColor="@color/dialog_outlined_border"/>
+            app:textColor="@android:color/black"
+            app:strokeColor="@android:color/darker_gray"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/select_none"
@@ -59,8 +59,8 @@
             android:text="@string/select_none"
             android:textSize="14sp"
             app:cornerRadius="8dp"
-            app:textColor="@color/dialog_outlined_button_text"
-            app:strokeColor="@color/dialog_outlined_border"/>
+            app:textColor="@android:color/black"
+            app:strokeColor="@android:color/darker_gray"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/select_invert"
@@ -71,8 +71,8 @@
             android:text="@string/select_invert"
             android:textSize="14sp"
             app:cornerRadius="8dp"
-            app:textColor="@color/dialog_outlined_button_text"
-            app:strokeColor="@color/dialog_outlined_border"/>
+            app:textColor="@android:color/black"
+            app:strokeColor="@android:color/darker_gray"/>
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
@@ -101,8 +101,8 @@
             android:text="@string/confirm"
             android:textSize="14sp"
             app:cornerRadius="8dp"
-            app:textColor="@color/dialog_outlined_button_text"
-            app:strokeColor="@color/dialog_outlined_border"/>
+            app:textColor="@android:color/black"
+            app:strokeColor="@android:color/darker_gray"/>
     </LinearLayout>
 
 </LinearLayout>
