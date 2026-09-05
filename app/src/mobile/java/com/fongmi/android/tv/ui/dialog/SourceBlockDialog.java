@@ -45,7 +45,10 @@ public class SourceBlockDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
-        binding.search.setVisibility(View.GONE);
+        binding.search.setVisibility(View.VISIBLE);
+        binding.search.setFocusable(false);
+        binding.search.setCursorVisible(false);
+        binding.search.setText(R.string.title_block_source);
         binding.count.setVisibility(View.GONE);
         adapter = new SourceCheckAdapter();
         binding.recycler.setAdapter(adapter);
