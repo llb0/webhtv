@@ -191,7 +191,13 @@ public final class UpdateSettingsDialog {
         binding.githubProxy.setOnKeyListener((view, keyCode, event) -> focusFromPrimary(binding, keyCode, event));
         binding.ociMirror.setOnKeyListener((view, keyCode, event) -> focusFromPrimary(binding, keyCode, event));
         configureTabFocus(binding, state);
+        binding.githubCustom.setMinHeight(dp(48));
+        binding.ociCustom.setMinHeight(dp(48));
         focusSelectedTab(binding);
+    }
+
+    private static int dp(int value) {
+        return (int)(value * binding.githubCustom.getResources().getDisplayMetrics().density +0.5f);
     }
 
     private static void configureTabFocus(DialogUpdateSettingsBinding binding, State state) {
@@ -243,7 +249,9 @@ public final class UpdateSettingsDialog {
 
     private static void tvFocusable(View view) {
         view.setFocusable(true);
-        view.setFocusableInTouchMode(true);
+        if (!(view instanceof android.widget.EditText)) {
+            view.setFocusableInTouchMode(true);
+        }
     }
 
     private static final class State {
