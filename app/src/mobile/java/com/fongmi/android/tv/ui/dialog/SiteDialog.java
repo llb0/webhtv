@@ -118,12 +118,26 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                     return true;
                 }
                 RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
-                int realHeight = binding.recycler.getHeight();
-                int offset = realHeight / 2;
                 if (lm instanceof LinearLayoutManager llm) {
-                    llm.scrollToPositionWithOffset(targetPos, offset);
+                    llm.scrollToPosition(targetPos);
+                    binding.recycler.post(() -> {
+                        View itemView = llm.findViewByPosition(targetPos);
+                        if (itemView == null) return;
+                        int rvHeight = binding.recycler.getHeight();
+                        int itemHeight = itemView.getHeight();
+                        int desiredOffset = rvHeight / 2 - itemHeight / 2;
+                        llm.scrollToPositionWithOffset(targetPos, desiredOffset);
+                    });
                 } else if (lm instanceof GridLayoutManager glm) {
-                    glm.scrollToPositionWithOffset(targetPos, offset);
+                    glm.scrollToPosition(targetPos);
+                    binding.recycler.post(() -> {
+                        View itemView = glm.findViewByPosition(targetPos);
+                        if (itemView == null) return;
+                        int rvHeight = binding.recycler.getHeight();
+                        int itemHeight = itemView.getHeight();
+                        int desiredOffset = rvHeight / 2 - itemHeight / 2;
+                        glm.scrollToPositionWithOffset(targetPos, desiredOffset);
+                    });
                 }
                 return true;
             }
