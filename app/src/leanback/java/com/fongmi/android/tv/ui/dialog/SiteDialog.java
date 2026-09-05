@@ -202,6 +202,19 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 int recyclerHeight = binding.recycler.getHeight();
                 int offset = recyclerHeight / 2;
                 glm.scrollToPositionWithOffset(targetPos, offset);
+                Site oldSelectSite = null;
+                for (Site s : showList) {
+                    if (s.isSelected()) oldSelectSite = s;
+                    s.setSelected(false);
+                }
+                Site targetSite = showList.get(targetPos);
+                targetSite.setSelected(true);
+        
+                if(oldSelectSite != null){
+                    int oldPos = showList.indexOf(oldSelectSite);
+                    if(oldPos >= 0) adapter.notifyItemChanged(oldPos);
+                }
+                adapter.notifyItemChanged(targetPos);
             }
         });
     }
