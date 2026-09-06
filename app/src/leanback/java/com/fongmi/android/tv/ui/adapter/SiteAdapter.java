@@ -181,7 +181,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             this.actionBinding = binding;
             this.switchBinding = null;
             binding.text.setGravity(Gravity.CENTER);
-            //移除 setOnClickListener，全部交给Key事件
             binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> binding.text.setSelected(hasFocus || isSelected()));
         }
 
@@ -190,33 +189,32 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             this.actionBinding = null;
             this.switchBinding = binding;
             binding.text.setGravity(Gravity.CENTER);
-            //移除 setOnClickListener，全部交给Key事件
             binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> binding.text.setSelected(hasFocus || isSelected()));
         }
 
         void bind(Site item) {
             this.item = item;
-
             final Site captureItem = item;
             final OnClickListener captureListener = listener;
             final int captureType = type;
             final long[] pressStart = {0};
-
+            pressStart[0] = 0;
             itemView.setOnKeyListener((v, keyCode, event) -> {
+                if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
+                    pressStart[0] = 0;
+                    return false;
+                }
                 if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER) return false;
-
+        
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
                     pressStart[0] = System.currentTimeMillis();
-                    return true;
+                    return false;
                 }
-
+        
                 if (event.getAction() == KeyEvent.ACTION_UP) {
-                    //防御：view已经脱离RecyclerView直接返回，不再执行业务
-                    if (itemView.getParent() == null) return true;
+                    if (itemView.getParent() == null || pressStart[0] == 0) return true;
+        
                     long duration = System.currentTimeMillis() - pressStart[0];
-                    pressStart[0] = 0;
-
-                    //长按 >=500ms
                     if (duration >= 500) {
                         if (captureType == 0) {
                             if (captureItem.isFile()) {
@@ -233,9 +231,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
                                 setEnable(enable);
                             }
                         }
-                        return true;
                     } else {
-                        //短按
                         int pos = getBindingAdapterPosition();
                         if (pos != RecyclerView.NO_POSITION) {
                             if (captureType == 0) {
@@ -250,8 +246,9 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
                                 notifyItemChanged(pos);
                             }
                         }
-                        return true;
                     }
+                    pressStart[0] = 0;
+                    return true;
                 }
                 return false;
             });
@@ -263,7 +260,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
                 actionBinding.text.setSelected(item.isSelected());
                 actionBinding.getRoot().setSelected(item.isSelected());
                 actionBinding.delete.setVisibility(item.isFile() && type != 0 ? android.view.View.VISIBLE : android.view.View.GONE);
-                //保留删除按钮鼠标点击
                 actionBinding.delete.setOnClickListener(v -> {
                     if (listener instanceof OnDeleteListener) ((OnDeleteListener) listener).onDelete(item);
                 });
