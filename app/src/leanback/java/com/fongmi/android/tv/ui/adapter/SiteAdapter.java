@@ -33,6 +33,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
     private boolean firstBindLogged;
     private int displayLimit = Integer.MAX_VALUE;
     private int type;
+    private boolean isLongTriggered = false;
 
     public SiteAdapter(OnClickListener listener) {
         this.adapterStart = System.currentTimeMillis();
@@ -236,20 +237,26 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         private void click() {
             int position = getBindingAdapterPosition();
             if (position == RecyclerView.NO_POSITION || item == null) return;
+            if (isLongTriggered) {
+                isLongTriggered = false;
+                return;
+            }
             setListener(item, position);
         }
 
         private boolean longClick() {
             if (item == null) return false;
+            if (!itemView.isShown()) return false;
+            isLongTriggered = true;
             if (type == 0) {
                 if (item.isFile()) {
                     if (listener instanceof OnDeleteListener) {
                         ((OnDeleteListener) listener).onDelete(item);
                     }
-                 }
-                 return true;
-             }
-             return setLongListener(item);
+                }
+                return true;
+            }
+            return setLongListener(item);
         }
     }
 }
