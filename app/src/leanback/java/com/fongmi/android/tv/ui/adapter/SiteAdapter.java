@@ -33,7 +33,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
     private boolean firstBindLogged;
     private int displayLimit = Integer.MAX_VALUE;
     private int type;
-    private boolean isLongTriggered = false;
 
     public SiteAdapter(OnClickListener listener) {
         this.adapterStart = System.currentTimeMillis();
@@ -189,6 +188,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         private final AdapterSiteBinding actionBinding;
         private final AdapterSiteSwitchBinding switchBinding;
         private Site item;
+        private boolean isLongTriggered;
 
         ViewHolder(@NonNull AdapterSiteBinding binding) {
             super(binding.getRoot());
@@ -212,6 +212,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
 
         void bind(Site item) {
             this.item = item;
+            this.isLongTriggered = false;
             if (actionBinding != null) {
                 actionBinding.text.setText(item.getName());
                 actionBinding.health.setBackgroundTintList(ColorStateList.valueOf(SiteHealthStore.getColor(item)));
