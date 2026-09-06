@@ -211,19 +211,30 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             this.item = item;
             this.isLongTriggered = false;
             final Site captureItem = item;
+            final OnClickListener captureListener = listener;
+            final int captureType = type;
             itemView.setOnLongClickListener(v -> {
                 isLongTriggered = true;
-                if (type == 0) {
+                if (captureType == 0) {
                     if (captureItem.isFile()) {
-                        if (listener instanceof OnDeleteListener) {
-                            ((OnDeleteListener) listener).onDelete(captureItem);
+                        if (captureListener instanceof OnDeleteListener) {
+                            ((OnDeleteListener) captureListener).onDelete(captureItem);
                         }
                     }
                     return true;
                 }
-                return setLongListener(captureItem);
+                if (captureType == 1) {
+                    boolean enable = !captureItem.isSearchable();
+                    if (captureListener instanceof SiteAdapter.OnClickListener) {
+                        setEnable(enable);
+                    }
+                } else if (captureType == 2) {
+                    boolean enable = !captureItem.isChangeable();
+                    setEnable(enable);
+                }
+                return true;
             });
-
+        
             if (actionBinding != null) {
                 actionBinding.text.setText(item.getName());
                 actionBinding.health.setBackgroundTintList(ColorStateList.valueOf(SiteHealthStore.getColor(item)));
