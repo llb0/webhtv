@@ -314,6 +314,10 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     public void onDelete(Site item) {
         if (!item.isFile()) return;
+        FragmentActivity act = getDialogActivity();
+        if (act == null || act.isFinishing() || act.isDestroyed()) {
+            return;
+        }
         new MaterialAlertDialogBuilder(getDialogActivity())
                 .setTitle(R.string.setting_site_delete_title)
                 .setMessage(getString(R.string.setting_site_delete_message, item.getName()))
