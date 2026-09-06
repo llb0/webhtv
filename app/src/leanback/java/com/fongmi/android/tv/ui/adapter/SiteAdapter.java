@@ -45,7 +45,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
     }
 
     public interface OnClickListener {
-
         void onItemClick(Site item);
     }
 
@@ -196,7 +195,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             this.switchBinding = null;
             binding.text.setGravity(Gravity.CENTER);
             binding.getRoot().setOnClickListener(v -> click());
-            binding.getRoot().setOnLongClickListener(v -> longClick());
             binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> binding.text.setSelected(hasFocus || isSelected()));
         }
 
@@ -206,13 +204,26 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             this.switchBinding = binding;
             binding.text.setGravity(Gravity.CENTER);
             binding.getRoot().setOnClickListener(v -> click());
-            binding.getRoot().setOnLongClickListener(v -> longClick());
             binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> binding.text.setSelected(hasFocus || isSelected()));
         }
 
         void bind(Site item) {
             this.item = item;
             this.isLongTriggered = false;
+            final Site captureItem = item;
+            itemView.setOnLongClickListener(v -> {
+                isLongTriggered = true;
+                if (type == 0) {
+                    if (captureItem.isFile()) {
+                        if (listener instanceof OnDeleteListener) {
+                            ((OnDeleteListener) listener).onDelete(captureItem);
+                        }
+                    }
+                    return true;
+                }
+                return setLongListener(captureItem);
+            });
+
             if (actionBinding != null) {
                 actionBinding.text.setText(item.getName());
                 actionBinding.health.setBackgroundTintList(ColorStateList.valueOf(SiteHealthStore.getColor(item)));
@@ -243,21 +254,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
                 return;
             }
             setListener(item, position);
-        }
-
-        private boolean longClick() {
-            if (item == null) return false;
-            if (!itemView.isShown()) return false;
-            isLongTriggered = true;
-            if (type == 0) {
-                if (item.isFile()) {
-                    if (listener instanceof OnDeleteListener) {
-                        ((OnDeleteListener) listener).onDelete(item);
-                    }
-                }
-                return true;
-            }
-            return setLongListener(item);
         }
     }
 }
