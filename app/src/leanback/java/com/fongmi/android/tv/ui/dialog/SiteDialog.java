@@ -341,7 +341,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         File file = new File(Path.root() + "/tvbox/" + subDir, fileName);
         if (file.exists()) file.delete();
         if (activity != null) Toast.makeText(activity, getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
-        dismiss();
+        if (adapter != null) adapter.filter(null);
     }
 
     private void loadConfig(FragmentActivity activity, Config config) {
