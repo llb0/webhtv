@@ -240,7 +240,16 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         }
 
         private boolean longClick() {
-            return item != null && setLongListener(item);
+            if (item == null) return false;
+            if (type == 0) {
+                if (item.isFile()) {
+                    if (listener instanceof OnDeleteListener) {
+                        ((OnDeleteListener) listener).onDelete(item);
+                    }
+                 }
+                 return true;
+             }
+             return setLongListener(item);
         }
     }
 }
