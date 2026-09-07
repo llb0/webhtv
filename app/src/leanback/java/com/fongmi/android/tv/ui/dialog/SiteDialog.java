@@ -55,22 +55,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     private boolean listLoaded;
     private int type;
 
-    private int mPendingPosition = RecyclerView.NO_POSITION;
-    private boolean mLongFired;
-    private final android.os.Handler mHandler = new android.os.Handler();
-    private final Runnable mLongPressTask = new Runnable() {
-        @Override
-        public void run() {
-            if (!isAdded()) return;
-            mLongFired = true;
-            int pos = mPendingPosition;
-            mPendingPosition = RecyclerView.NO_POSITION;
-            if (pos == RecyclerView.NO_POSITION || adapter == null || pos <0 || pos >= adapter.getItems().size()) return;
-            Site site = adapter.getItems().get(pos);
-            onDelete(site);
-        }
-    };
-
     public static SiteDialog create() {
         return new SiteDialog();
     }
@@ -157,33 +141,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         listLoaded = true;
         long start = System.currentTimeMillis();
         adapter = new SiteAdapter(this);
-        adapter.setKeyEventListener(new SiteAdapter.OnKeyEventListener() {
-            @Override
-            public void onItemKeyDown(int position) {
-                if (!isAdded()) return;
-                if (mPendingPosition == RecyclerView.NO_POSITION) {
-                    mLongFired = false;
-                    mPendingPosition = position;
-                    mHandler.postDelayed(mLongPressTask, 500);
-                }
-            }
-
-            @Override
-            public void onItemKeyUp(int position) {
-                if (!isAdded()) return;
-                mHandler.removeCallbacks(mLongPressTask);
-
-                if (!mLongFired && mPendingPosition != RecyclerView.NO_POSITION && mPendingPosition == position) {
-                    List<Site> items = adapter.getItems();
-                    if(position >=0 && position < items.size()){
-                        Site site = items.get(position);
-                        onItemClick(site);
-                    }
-                }
-                mPendingPosition = RecyclerView.NO_POSITION;
-                mLongFired = false;
-            }
-        });
         adapter.setDisplayLimit(INITIAL_BATCH);
         log("adapter created cost=%sms items=%s action=%s immediate=%s", cost(start), adapter.getTotalCount(), action, immediate);
         if (adapter.getTotalCount() == 0) {
@@ -197,7 +154,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         setRecyclerHeight(adapter.getItemCount());
         setMode();
         setActionEnabled(true);
-        log("view configured cost=%sms total=%s", cost(layoutStart), cost());
+        log("view configured cost=%sms total=%sms", cost(layoutStart), cost());
         runAfterFirstPreDraw("list preDraw", () -> {
             if (adapter != null) adapter.showAll();
             log("list expanded total=%sms items=%s", cost(), adapter == null ? -1 : adapter.getItemCount());
@@ -215,8 +172,8 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             if (targetPos < 0) {
                 binding.recycler.scrollToPosition(0);
             } else if (lm instanceof GridLayoutManager glm) {
-                glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
                 final int finalTargetPos = targetPos;
+                glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
                 binding.recycler.postDelayed(new Runnable() {
                     private int retry = 0;
                     @Override
@@ -225,7 +182,8 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                         RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
                         if (holder != null && holder.itemView != null) {
                             holder.itemView.requestFocus();
-                            log("success request focus item pos=" + finalTargetPos);
+                            holder.itemView.requestFocusFromTouch();
+                            log("success request focus pos=" + finalTargetPos);
                         } else {
                             retry++;
                             binding.recycler.postDelayed(this, 30);
@@ -239,29 +197,9 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     protected void initEvent() {
         binding.config.setOnClickListener(v -> {
+            FragmentActivity activity = requireActivity();
             dismiss();
-            App.post(() -> {
-                FragmentActivity activity = requireActivity();
-                HistoryDialog.create().vod().readOnly().show(activity, item -> {
-                    if (item.getUrl().equals(VodConfig.getUrl())) return;
-                    VodConfig.load(item, new Callback() {
-                        @Override
-                        public void start() {
-                            Notify.progress(activity);
-                        }
-                        @Override
-                        public void success() {
-                            Notify.dismiss();
-                            LiveConfig.get().clear();
-                        }
-                        @Override
-                        public void error(String msg) {
-                            Notify.dismiss();
-                            Notify.show(msg);
-                        }
-                    });
-                });
-            }, 100);
+            App.post(() -> HistoryDialog.create().vod().readOnly().show(activity, item -> loadConfig(activity, item)), 100);
         });
         binding.mode.setOnClickListener(this::onMode);
         binding.select.setOnClickListener(v -> {
@@ -375,50 +313,30 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         if (subDir.isEmpty()) return;
         File file = new File(Path.root() + "/tvbox/" + subDir, fileName);
         if (file.exists()) file.delete();
-        Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
-        if (adapter != null) {
-            adapter.refreshSites();
-            adapter.filter(null);
-            setRecyclerHeight(adapter.getItemCount());
-            if (adapter.getItemCount() == 0) {
-                dismiss();
-                return;
+        if (activity != null) Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
+        if (adapter != null) adapter.filter(null);
+    }
+
+    private void loadConfig(FragmentActivity activity, Config config) {
+        if (config.getUrl().equals(VodConfig.getUrl())) return;
+        VodConfig.load(config, new Callback() {
+            @Override
+            public void start() {
+                Notify.progress(activity);
             }
-            binding.recycler.post(() -> {
-                List<Site> showList = adapter.getItems();
-                Site active = VodConfig.get().getHome();
-                int targetPos = -1;
-                for (int i = 0; i < showList.size(); i++) {
-                    if (showList.get(i).getKey().equals(active.getKey())) {
-                        targetPos = i;
-                        break;
-                    }
-                }
-                RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
-                if (lm instanceof GridLayoutManager glm) {
-                    if (targetPos >= 0) {
-                        glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
-                        final int finalTargetPos = targetPos;
-                        binding.recycler.postDelayed(new Runnable() {
-                            private int retry = 0;
-                            @Override
-                            public void run() {
-                                if (binding == null || adapter == null || retry > 8) return;
-                                RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
-                                if (holder != null && holder.itemView != null) {
-                                    holder.itemView.requestFocus();
-                                } else {
-                                    retry++;
-                                    binding.recycler.postDelayed(this, 30);
-                                }
-                            }
-                        }, 120);
-                    } else {
-                        glm.scrollToPosition(0);
-                    }
-                }
-            });
-        }
+
+            @Override
+            public void success() {
+                Notify.dismiss();
+                LiveConfig.get().clear();
+            }
+
+            @Override
+            public void error(String msg) {
+                Notify.dismiss();
+                Notify.show(msg);
+            }
+        });
     }
 
     private void applyWindow(Window window) {
@@ -472,12 +390,5 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         Window window = getDialog() == null ? null : getDialog().getWindow();
         applyWindow(window);
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
-    }
-
-    @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        mHandler.removeCallbacks(mLongPressTask);
-        mPendingPosition = RecyclerView.NO_POSITION;
     }
 }
