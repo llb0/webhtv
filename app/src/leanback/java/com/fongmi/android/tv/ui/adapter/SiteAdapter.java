@@ -192,72 +192,73 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> binding.text.setSelected(hasFocus || isSelected()));
         }
 
-            void bind(Site item) {
-                this.item = item;
-                final Site captureItem = item;
-                final OnClickListener captureListener = listener;
-                final int captureType = type;
-                final android.os.Handler handler = new android.os.Handler();
-                final Runnable longPressRunnable = new Runnable() {
-                    @Override
-                    public void run() {
-                        if (captureType == 0) {
-                            if (captureItem.isFile()) {
-                                if (captureListener instanceof OnDeleteListener) {
-                                    ((OnDeleteListener) captureListener).onDelete(captureItem);
-                                }
-                            }
-                        } else {
-                            if (captureType == 1) {
-                                boolean enable = !captureItem.isSearchable();
-                                setEnable(enable);
-                            } else if (captureType == 2) {
-                                boolean enable = !captureItem.isChangeable();
-                                setEnable(enable);
+        void bind(Site item) {
+            this.item = item;
+            final Site captureItem = item;
+            final OnClickListener captureListener = listener;
+            final int captureType = type;
+            final android.os.Handler handler = new android.os.Handler();
+            final Runnable longPressRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if(itemView.getParent() == null) return;
+                    if (captureType == 0) {
+                        if (captureItem.isFile()) {
+                            if (captureListener instanceof OnDeleteListener) {
+                                ((OnDeleteListener) captureListener).onDelete(captureItem);
                             }
                         }
-                    }
-                };
-            
-                itemView.setOnKeyListener((v, keyCode, event) -> {
-                    if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
-                        handler.removeCallbacks(longPressRunnable);
-                        return false;
-                    }
-            
-                    if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER) return false;
-            
-                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                        if (!handler.hasCallbacks(longPressRunnable)) {
-                            handler.postDelayed(longPressRunnable, 500);
+                    } else {
+                        if (captureType == 1) {
+                            boolean enable = !captureItem.isSearchable();
+                            setEnable(enable);
+                        } else if (captureType == 2) {
+                            boolean enable = !captureItem.isChangeable();
+                            setEnable(enable);
                         }
-                        return false;
                     }
-            
-                    if (event.getAction() == KeyEvent.ACTION_UP) {
-                        boolean pending = handler.hasCallbacks(longPressRunnable);
-                        handler.removeCallbacks(longPressRunnable);
-                        if (itemView.getParent() == null) return true;
-                        if (pending) {
-                            int pos = getBindingAdapterPosition();
-                            if (pos != RecyclerView.NO_POSITION) {
-                                if (captureType == 0) {
-                                    captureListener.onItemClick(captureItem);
-                                }
-                                if (captureType == 1) {
-                                    captureItem.setSearchable(!captureItem.isSearchable()).save();
-                                    notifyItemChanged(pos);
-                                }
-                                if (captureType == 2) {
-                                    captureItem.setChangeable(!captureItem.isChangeable()).save();
-                                    notifyItemChanged(pos);
-                                }
-                            }
-                        }
-                        return true;
-                    }
+                }
+            };
+        
+            itemView.setOnKeyListener((v, keyCode, event) -> {
+                if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
+                    handler.removeCallbacks(longPressRunnable);
                     return false;
-                });
+                }
+        
+                if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER) return false;
+        
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (!handler.hasCallbacks(longPressRunnable)) {
+                        handler.postDelayed(longPressRunnable, 500);
+                    }
+                    return true;
+                }
+        
+                if (event.getAction() == KeyEvent.ACTION_UP) {
+                    boolean pending = handler.hasCallbacks(longPressRunnable);
+                    handler.removeCallbacks(longPressRunnable);
+                    if (itemView.getParent() == null) return true;
+                    if (pending) {
+                        int pos = getBindingAdapterPosition();
+                        if (pos != RecyclerView.NO_POSITION) {
+                            if (captureType == 0) {
+                                captureListener.onItemClick(captureItem);
+                            }
+                            if (captureType == 1) {
+                                captureItem.setSearchable(!captureItem.isSearchable()).save();
+                                notifyItemChanged(pos);
+                            }
+                            if (captureType == 2) {
+                                captureItem.setChangeable(!captureItem.isChangeable()).save();
+                                notifyItemChanged(pos);
+                            }
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            });
 
             if (actionBinding != null) {
                 actionBinding.text.setText(item.getName());
