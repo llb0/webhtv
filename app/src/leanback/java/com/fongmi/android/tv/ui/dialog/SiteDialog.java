@@ -56,11 +56,13 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     private int type;
 
     private int mPendingPosition = RecyclerView.NO_POSITION;
+    private boolean mLongFired;
     private final android.os.Handler mHandler = new android.os.Handler();
     private final Runnable mLongPressTask = new Runnable() {
         @Override
         public void run() {
             if (!isAdded()) return;
+            mLongFired = true;
             int pos = mPendingPosition;
             mPendingPosition = RecyclerView.NO_POSITION;
             if (pos == RecyclerView.NO_POSITION || adapter == null || pos <0 || pos >= adapter.getItems().size()) return;
@@ -160,6 +162,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             public void onItemKeyDown(int position) {
                 if (!isAdded()) return;
                 if (mPendingPosition == RecyclerView.NO_POSITION) {
+                    mLongFired = false;
                     mPendingPosition = position;
                     mHandler.postDelayed(mLongPressTask, 500);
                 }
@@ -169,7 +172,8 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             public void onItemKeyUp(int position) {
                 if (!isAdded()) return;
                 mHandler.removeCallbacks(mLongPressTask);
-                if (mPendingPosition != RecyclerView.NO_POSITION && mPendingPosition == position) {
+
+                if (!mLongFired && mPendingPosition != RecyclerView.NO_POSITION && mPendingPosition == position) {
                     List<Site> items = adapter.getItems();
                     if(position >=0 && position < items.size()){
                         Site site = items.get(position);
@@ -177,9 +181,9 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                     }
                 }
                 mPendingPosition = RecyclerView.NO_POSITION;
+                mLongFired = false;
             }
         });
-        adapter.setOnClickListener(this);
         adapter.setDisplayLimit(INITIAL_BATCH);
         log("adapter created cost=%sms items=%s action=%s immediate=%s", cost(start), adapter.getTotalCount(), action, immediate);
         if (adapter.getTotalCount() == 0) {
