@@ -161,6 +161,21 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         });
     }
 
+    private void waitForLayoutAndFocus() {
+        if (binding == null || binding.recycler == null) return;
+        binding.recycler.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                if (adapter == null || adapter.getItemCount() < adapter.getTotalCount()) {
+                    return;
+                }
+                ViewTreeObserver obs = binding.recycler.getViewTreeObserver();
+                if (obs.isAlive()) obs.removeOnGlobalLayoutListener(this);
+                scrollAndFocusActiveSite();
+            }
+        });
+    }
+
     private void scrollAndFocusActiveSite() {
         if (adapter == null || binding == null) return;
         List<Site> showList = adapter.getItems();
@@ -180,20 +195,19 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             return;
         }
         final int finalTargetPos = targetPos;
-        glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
-        binding.recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+        int itemHeight = ResUtil.dp2px(ITEM_HEIGHT) + ResUtil.dp2px(ITEM_SPACE);
+        int recyclerHeight = binding.recycler.getHeight();
+        int centerOffset = Math.max(0, (recyclerHeight - itemHeight) / 2);
+        glm.scrollToPositionWithOffset(finalTargetPos, centerOffset);
+        binding.recycler.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
-            public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
-                super.onScrollStateChanged(recyclerView, newState);
-                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    recyclerView.removeOnScrollListener(this);
-                    RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(finalTargetPos);
-                    if (holder != null && holder.itemView != null) {
-                        holder.itemView.requestFocus();
-                        log("success request focus pos=" + finalTargetPos);
-                    } else {
-                        glm.scrollToPosition(finalTargetPos);
-                    }
+            public void onGlobalLayout() {
+                ViewTreeObserver obs = binding.recycler.getViewTreeObserver();
+                if (obs.isAlive()) obs.removeOnGlobalLayoutListener(this);
+                RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
+                if (holder != null && holder.itemView != null) {
+                    holder.itemView.requestFocus();
+                    log("success request focus pos=" + finalTargetPos);
                 }
             }
         });
@@ -411,14 +425,14 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         super.dismiss();
     }
 
-    @Override
+@Override
     public void onStart() {
         super.onStart();
         Window window = getDialog() == null ? null : getDialog().getWindow();
         applyWindow(window);
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
         if (listLoaded) {
-            binding.recycler.post(this::scrollAndFocusActiveSite);
+            waitForLayoutAndFocus();
         }
     }
 }
