@@ -63,6 +63,14 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         this.keyEventListener = listener;
     }
 
+    public void refreshSites() {
+        allItems.clear();
+        addAll();
+        mItems.clear();
+        mItems.addAll(allItems);
+        notifyDataSetChanged();
+    }
+
     public void setType(int type) {
         int oldViewType = getViewType();
         this.type = type;
