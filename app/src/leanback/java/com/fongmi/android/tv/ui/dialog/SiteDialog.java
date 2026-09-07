@@ -63,7 +63,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             if (!isAdded()) return;
             int pos = mPendingPosition;
             mPendingPosition = RecyclerView.NO_POSITION;
-            if (pos == RecyclerView.NO_POSITION || adapter == null) return;
+            if (pos == RecyclerView.NO_POSITION || adapter == null || pos <0 || pos >= adapter.getItems().size()) return;
             Site site = adapter.getItems().get(pos);
             onDelete(site);
         }
@@ -179,6 +179,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 mPendingPosition = RecyclerView.NO_POSITION;
             }
         });
+        adapter.setOnClickListener(this);
         adapter.setDisplayLimit(INITIAL_BATCH);
         log("adapter created cost=%sms items=%s action=%s immediate=%s", cost(start), adapter.getTotalCount(), action, immediate);
         if (adapter.getTotalCount() == 0) {
@@ -211,8 +212,22 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 binding.recycler.scrollToPosition(0);
             } else if (lm instanceof GridLayoutManager glm) {
                 glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
-                binding.recycler.requestFocus();
-                log("set focus to recycler targetPos=" + targetPos);
+                final int finalTargetPos = targetPos;
+                binding.recycler.postDelayed(new Runnable() {
+                    private int retry = 0;
+                    @Override
+                    public void run() {
+                        if (binding == null || adapter == null || retry > 8) return;
+                        RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
+                        if (holder != null && holder.itemView != null) {
+                            holder.itemView.requestFocus();
+                            log("success request focus item pos=" + finalTargetPos);
+                        } else {
+                            retry++;
+                            binding.recycler.postDelayed(this, 30);
+                        }
+                    }
+                }, 120);
             }
         });
     }
@@ -220,7 +235,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     protected void initEvent() {
         binding.config.setOnClickListener(v -> {
-    dismiss();
+            dismiss();
             App.post(() -> {
                 FragmentActivity activity = requireActivity();
                 HistoryDialog.create().vod().readOnly().show(activity, item -> {
@@ -365,24 +380,40 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 dismiss();
                 return;
             }
-            List<Site> showList = adapter.getItems();
-            Site active = VodConfig.get().getHome();
-            int targetPos = -1;
-            for (int i = 0; i < showList.size(); i++) {
-                if (showList.get(i).getKey().equals(active.getKey())) {
-                    targetPos = i;
-                    break;
+            binding.recycler.post(() -> {
+                List<Site> showList = adapter.getItems();
+                Site active = VodConfig.get().getHome();
+                int targetPos = -1;
+                for (int i = 0; i < showList.size(); i++) {
+                    if (showList.get(i).getKey().equals(active.getKey())) {
+                        targetPos = i;
+                        break;
+                    }
                 }
-            }
-            RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
-            if (lm instanceof GridLayoutManager glm) {
-                if (targetPos >= 0) {
-                    glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
-                } else {
-                    glm.scrollToPosition(0);
+                RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
+                if (lm instanceof GridLayoutManager glm) {
+                    if (targetPos >= 0) {
+                        glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
+                        final int finalTargetPos = targetPos;
+                        binding.recycler.postDelayed(new Runnable() {
+                            private int retry = 0;
+                            @Override
+                            public void run() {
+                                if (binding == null || adapter == null || retry > 8) return;
+                                RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
+                                if (holder != null && holder.itemView != null) {
+                                    holder.itemView.requestFocus();
+                                } else {
+                                    retry++;
+                                    binding.recycler.postDelayed(this, 30);
+                                }
+                            }
+                        }, 120);
+                    } else {
+                        glm.scrollToPosition(0);
+                    }
                 }
-                binding.recycler.requestFocus();
-            }
+            });
         }
     }
 
