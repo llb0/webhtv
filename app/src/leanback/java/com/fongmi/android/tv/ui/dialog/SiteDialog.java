@@ -113,7 +113,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     protected void initView() {
         initShellView();
-        loadList(true);
     }
 
     private void initShellView() {
@@ -155,43 +154,49 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         setMode();
         setActionEnabled(true);
         log("view configured cost=%sms total=%sms", cost(layoutStart), cost());
-        runAfterFirstPreDraw("list preDraw", () -> {
+        runAfterRecyclerLayout(() -> {
             if (adapter != null) adapter.showAll();
             log("list expanded total=%sms items=%s", cost(), adapter == null ? -1 : adapter.getItemCount());
-            if (adapter == null || binding == null) return;
-            List<Site> showList = adapter.getItems();
-            Site active = VodConfig.get().getHome();
-            int targetPos = -1;
-            for (int i = 0; i < showList.size(); i++) {
-                if (showList.get(i).getKey().equals(active.getKey())) {
-                    targetPos = i;
-                    break;
-                }
+            scrollAndFocusActiveSite();
+        });
+    }
+
+    private void scrollAndFocusActiveSite() {
+        if (adapter == null || binding == null) return;
+        List<Site> showList = adapter.getItems();
+        Site active = VodConfig.get().getHome();
+        int targetPos = -1;
+        for (int i = 0; i < showList.size(); i++) {
+            if (showList.get(i).getKey().equals(active.getKey())) {
+                targetPos = i;
+                break;
             }
-            RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
-            if (targetPos < 0) {
-                binding.recycler.scrollToPosition(0);
-            } else if (lm instanceof GridLayoutManager glm) {
-                final int finalTargetPos = targetPos;
-                glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
-                binding.recycler.postDelayed(new Runnable() {
-                    private int retry = 0;
-                    @Override
-                    public void run() {
-                        if (binding == null || adapter == null || retry > 8) return;
-                        RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
+        }
+        RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
+        if (targetPos < 0) {
+            binding.recycler.scrollToPosition(0);
+            return;
+        }
+        if (lm instanceof GridLayoutManager glm) {
+            final int finalTargetPos = targetPos;
+            glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
+            binding.recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                @Override
+                public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
+                    super.onScrollStateChanged(recyclerView, newState);
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        recyclerView.removeOnScrollListener(this);
+                        RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(finalTargetPos);
                         if (holder != null && holder.itemView != null) {
                             holder.itemView.requestFocus();
-                            holder.itemView.requestFocusFromTouch();
                             log("success request focus pos=" + finalTargetPos);
                         } else {
-                            retry++;
-                            binding.recycler.postDelayed(this, 30);
+                            glm.scrollToPosition(finalTargetPos);
                         }
                     }
-                }, 120);
-            }
-        });
+                }
+            });
+        }
     }
 
     @Override
@@ -219,6 +224,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 setRecyclerHeight(adapter.getItemCount());
                 setMode();
                 setWidth();
+                scrollAndFocusActiveSite();
             }
         });
     }
@@ -349,19 +355,19 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         window.setAttributes(params);
     }
 
-    private void runAfterFirstPreDraw(String label, Runnable action) {
-        View root = binding == null ? null : binding.getRoot();
-        if (root == null) {
-            if (action != null) action.run();
+    private void runAfterRecyclerLayout(Runnable action) {
+        if(binding == null || binding.recycler == null) {
+            if(action != null) action.run();
             return;
         }
-        root.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+        binding.recycler.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
-            public boolean onPreDraw() {
-                if (root.getViewTreeObserver().isAlive()) root.getViewTreeObserver().removeOnPreDrawListener(this);
-                log("%s total=%sms items=%s", label, cost(), adapter == null ? -1 : adapter.getItemCount());
-                if (action != null) root.post(action);
-                return true;
+            public void onGlobalLayout() {
+                ViewTreeObserver obs = binding.recycler.getViewTreeObserver();
+                if(obs.isAlive()) {
+                    obs.removeOnGlobalLayoutListener(this);
+                }
+                if(action != null) binding.recycler.post(action);
             }
         });
     }
@@ -390,5 +396,10 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         Window window = getDialog() == null ? null : getDialog().getWindow();
         applyWindow(window);
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
+        if(!listLoaded) {
+            loadList(true);
+        } else {
+            scrollAndFocusActiveSite();
+        }
     }
 }
