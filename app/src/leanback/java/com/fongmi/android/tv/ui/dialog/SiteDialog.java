@@ -113,6 +113,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     protected void initView() {
         initShellView();
+        loadList(true);
     }
 
     private void initShellView() {
@@ -157,7 +158,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         runAfterRecyclerLayout(() -> {
             if (adapter != null) adapter.showAll();
             log("list expanded total=%sms items=%s", cost(), adapter == null ? -1 : adapter.getItemCount());
-            scrollAndFocusActiveSite();
         });
     }
 
@@ -165,6 +165,9 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         if (adapter == null || binding == null) return;
         List<Site> showList = adapter.getItems();
         Site active = VodConfig.get().getHome();
+        if (active == null || active.getKey() == null || active.getKey().isEmpty()) {
+            return;
+        }
         int targetPos = -1;
         for (int i = 0; i < showList.size(); i++) {
             if (showList.get(i).getKey().equals(active.getKey())) {
@@ -173,30 +176,27 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             }
         }
         RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
-        if (targetPos < 0) {
-            binding.recycler.scrollToPosition(0);
+        if (targetPos < 0 || !(lm instanceof GridLayoutManager glm)) {
             return;
         }
-        if (lm instanceof GridLayoutManager glm) {
-            final int finalTargetPos = targetPos;
-            glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
-            binding.recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
-                @Override
-                public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
-                    super.onScrollStateChanged(recyclerView, newState);
-                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                        recyclerView.removeOnScrollListener(this);
-                        RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(finalTargetPos);
-                        if (holder != null && holder.itemView != null) {
-                            holder.itemView.requestFocus();
-                            log("success request focus pos=" + finalTargetPos);
-                        } else {
-                            glm.scrollToPosition(finalTargetPos);
-                        }
+        final int finalTargetPos = targetPos;
+        glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
+        binding.recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
+                super.onScrollStateChanged(recyclerView, newState);
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    recyclerView.removeOnScrollListener(this);
+                    RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(finalTargetPos);
+                    if (holder != null && holder.itemView != null) {
+                        holder.itemView.requestFocus();
+                        log("success request focus pos=" + finalTargetPos);
+                    } else {
+                        glm.scrollToPosition(finalTargetPos);
                     }
                 }
-            });
-        }
+            }
+        });
     }
 
     @Override
@@ -305,6 +305,14 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 .show();
     }
 
+private void deleteFileSite(Site item) {
+    //=====原有磁盘删除逻辑=====
+    File file = new File(Path.root() + "/tvbox/" + subDir, fileName);
+    if (file.exists()) file.delete();
+
+    Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
+    dismiss();
+}
     private void deleteFileSite(Site item) {
         String type = item.getFileType();
         String fileName = item.getFileName();
@@ -319,8 +327,29 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         if (subDir.isEmpty()) return;
         File file = new File(Path.root() + "/tvbox/" + subDir, fileName);
         if (file.exists()) file.delete();
+        Site currentHome = VodConfig.get().getHome();
+        List<Site> siteList = VodConfig.get().getSites();
+        if (currentHome != null && currentHome.getKey().equals(item.getKey())) {
+            int delIndex = -1;
+            for (int i = 0; i < siteList.size(); i++) {
+                if (siteList.get(i).getKey().equals(item.getKey())) {
+                    delIndex = i;
+                    break;
+                }
+            }
+            Site fallbackHome = new Site();
+            if (delIndex != -1 && siteList.size() > 1) {
+                if (delIndex + 1 < siteList.size()) {
+                    fallbackHome = siteList.get(delIndex + 1);
+                } else {
+                    fallbackHome = siteList.get(delIndex - 1);
+                }
+            }
+            VodConfig.get().setHome(fallbackHome);
+        }
+
         Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
-        if (adapter != null) adapter.filter(null);
+        if (adapter != null) adapter.refreshSites();
     }
 
     private void loadConfig(FragmentActivity activity, Config config) {
@@ -396,10 +425,8 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         Window window = getDialog() == null ? null : getDialog().getWindow();
         applyWindow(window);
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
-        if(!listLoaded) {
-            loadList(true);
-        } else {
-            scrollAndFocusActiveSite();
+        if (listLoaded) {
+            binding.recycler.post(this::scrollAndFocusActiveSite);
         }
     }
 }
