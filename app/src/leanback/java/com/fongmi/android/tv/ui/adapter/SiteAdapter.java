@@ -49,6 +49,11 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         void onItemClick(Site item);
     }
 
+    public interface OnKeyEventListener {
+        void onItemKeyDown(int position);
+        void onItemKeyUp(int position);
+    }
+    
     public interface OnDeleteListener {
         void onDelete(Site item);
     }
