@@ -224,7 +224,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
                 }
                 if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER) return false;
                 int pos = getBindingAdapterPosition();
-                if (pos == RecyclerView.NO_POSITION) return false;
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
                     if (keyEventListener != null) {
                         keyEventListener.onItemKeyDown(pos);
