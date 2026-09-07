@@ -220,8 +220,29 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     protected void initEvent() {
         binding.config.setOnClickListener(v -> {
-            dismiss();
-            App.post(() -> HistoryDialog.create().vod().readOnly().show(requireActivity(), item -> loadConfig(requireActivity(), item)), 100);
+    dismiss();
+            App.post(() -> {
+                FragmentActivity activity = requireActivity();
+                HistoryDialog.create().vod().readOnly().show(activity, item -> {
+                    if (item.getUrl().equals(VodConfig.getUrl())) return;
+                    VodConfig.load(item, new Callback() {
+                        @Override
+                        public void start() {
+                            Notify.progress(activity);
+                        }
+                        @Override
+                        public void success() {
+                            Notify.dismiss();
+                            LiveConfig.get().clear();
+                        }
+                        @Override
+                        public void error(String msg) {
+                            Notify.dismiss();
+                            Notify.show(msg);
+                        }
+                    });
+                });
+            }, 100);
         });
         binding.mode.setOnClickListener(this::onMode);
         binding.select.setOnClickListener(v -> {
@@ -337,7 +358,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         if (file.exists()) file.delete();
         Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
         if (adapter != null) {
-            adapter.addAll();
+            adapter.refreshSites();
             adapter.filter(null);
             setRecyclerHeight(adapter.getItemCount());
             if (adapter.getItemCount() == 0) {
