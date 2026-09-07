@@ -34,6 +34,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
     private boolean firstBindLogged;
     private int displayLimit = Integer.MAX_VALUE;
     private int type;
+    private OnKeyEventListener keyEventListener;
 
     public SiteAdapter(OnClickListener listener) {
         this.adapterStart = System.currentTimeMillis();
@@ -53,9 +54,13 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         void onItemKeyDown(int position);
         void onItemKeyUp(int position);
     }
-    
+
     public interface OnDeleteListener {
         void onDelete(Site item);
+    }
+
+    public void setKeyEventListener(OnKeyEventListener listener) {
+        this.keyEventListener = listener;
     }
 
     public void setType(int type) {
@@ -199,66 +204,20 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
 
         void bind(Site item) {
             this.item = item;
-            final Site captureItem = item;
-            final OnClickListener captureListener = listener;
-            final int captureType = type;
-            final android.os.Handler handler = new android.os.Handler();
-            final Runnable longPressRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    if(itemView.getParent() == null) return;
-                    if (captureType == 0) {
-                        if (captureItem.isFile()) {
-                            if (captureListener instanceof OnDeleteListener) {
-                                ((OnDeleteListener) captureListener).onDelete(captureItem);
-                            }
-                        }
-                    } else {
-                        if (captureType == 1) {
-                            boolean enable = !captureItem.isSearchable();
-                            setEnable(enable);
-                        } else if (captureType == 2) {
-                            boolean enable = !captureItem.isChangeable();
-                            setEnable(enable);
-                        }
-                    }
-                }
-            };
-        
             itemView.setOnKeyListener((v, keyCode, event) -> {
                 if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
-                    handler.removeCallbacks(longPressRunnable);
                     return false;
                 }
-        
                 if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER) return false;
-        
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                    if (!handler.hasCallbacks(longPressRunnable)) {
-                        handler.postDelayed(longPressRunnable, 500);
+                    if (keyEventListener != null) {
+                        keyEventListener.onItemKeyDown(getBindingAdapterPosition());
                     }
                     return true;
                 }
-        
                 if (event.getAction() == KeyEvent.ACTION_UP) {
-                    boolean pending = handler.hasCallbacks(longPressRunnable);
-                    handler.removeCallbacks(longPressRunnable);
-                    if (itemView.getParent() == null) return true;
-                    if (pending) {
-                        int pos = getBindingAdapterPosition();
-                        if (pos != RecyclerView.NO_POSITION) {
-                            if (captureType == 0) {
-                                captureListener.onItemClick(captureItem);
-                            }
-                            if (captureType == 1) {
-                                captureItem.setSearchable(!captureItem.isSearchable()).save();
-                                notifyItemChanged(pos);
-                            }
-                            if (captureType == 2) {
-                                captureItem.setChangeable(!captureItem.isChangeable()).save();
-                                notifyItemChanged(pos);
-                            }
-                        }
+                    if (keyEventListener != null) {
+                        keyEventListener.onItemKeyUp(getBindingAdapterPosition());
                     }
                     return true;
                 }
