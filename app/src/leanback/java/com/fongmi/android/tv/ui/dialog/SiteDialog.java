@@ -73,6 +73,11 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         return new SiteDialog();
     }
 
+    public SiteDialog setListener(SiteListener listener) {
+        this.listener = listener;
+        return this;
+    }
+
     public SiteDialog search() {
         type = 1;
         return this;
@@ -165,8 +170,11 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 if (!isAdded()) return;
                 mHandler.removeCallbacks(mLongPressTask);
                 if (mPendingPosition != RecyclerView.NO_POSITION && mPendingPosition == position) {
-                    Site site = adapter.getItems().get(position);
-                    onItemClick(site);
+                    List<Site> items = adapter.getItems();
+                    if(position >=0 && position < items.size()){
+                        Site site = items.get(position);
+                        onItemClick(site);
+                    }
                 }
                 mPendingPosition = RecyclerView.NO_POSITION;
             }
@@ -202,24 +210,9 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             if (targetPos < 0) {
                 binding.recycler.scrollToPosition(0);
             } else if (lm instanceof GridLayoutManager glm) {
-                final int finalTargetPos = targetPos;
                 glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
-                binding.recycler.postDelayed(new Runnable() {
-                    private int retry = 0;
-                    @Override
-                    public void run() {
-                        if (binding == null || adapter == null || retry > 8) return;
-                        RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
-                        if (holder != null && holder.itemView != null) {
-                            holder.itemView.requestFocus();
-                            holder.itemView.requestFocusFromTouch();
-                            log("success request focus pos=" + finalTargetPos);
-                        } else {
-                            retry++;
-                            binding.recycler.postDelayed(this, 30);
-                        }
-                    }
-                }, 120);
+                binding.recycler.requestFocus();
+                log("set focus to recycler targetPos=" + targetPos);
             }
         });
     }
@@ -343,29 +336,33 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         File file = new File(Path.root() + "/tvbox/" + subDir, fileName);
         if (file.exists()) file.delete();
         Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
-        if (adapter != null) adapter.filter(null);
-    }
-
-    private void loadConfig(FragmentActivity activity, Config config) {
-        if (config.getUrl().equals(VodConfig.getUrl())) return;
-        VodConfig.load(config, new Callback() {
-            @Override
-            public void start() {
-                Notify.progress(activity);
+        if (adapter != null) {
+            adapter.addAll();
+            adapter.filter(null);
+            setRecyclerHeight(adapter.getItemCount());
+            if (adapter.getItemCount() == 0) {
+                dismiss();
+                return;
             }
-
-            @Override
-            public void success() {
-                Notify.dismiss();
-                LiveConfig.get().clear();
+            List<Site> showList = adapter.getItems();
+            Site active = VodConfig.get().getHome();
+            int targetPos = -1;
+            for (int i = 0; i < showList.size(); i++) {
+                if (showList.get(i).getKey().equals(active.getKey())) {
+                    targetPos = i;
+                    break;
+                }
             }
-
-            @Override
-            public void error(String msg) {
-                Notify.dismiss();
-                Notify.show(msg);
+            RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
+            if (lm instanceof GridLayoutManager glm) {
+                if (targetPos >= 0) {
+                    glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
+                } else {
+                    glm.scrollToPosition(0);
+                }
+                binding.recycler.requestFocus();
             }
-        });
+        }
     }
 
     private void applyWindow(Window window) {
