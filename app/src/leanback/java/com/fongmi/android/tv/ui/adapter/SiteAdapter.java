@@ -212,20 +212,28 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
 
         void bind(Site item) {
             this.item = item;
+            itemView.setOnClickListener(v -> {
+                if (listener != null) {
+                    listener.onItemClick(item);
+                }
+            });
+
             itemView.setOnKeyListener((v, keyCode, event) -> {
                 if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
                     return false;
                 }
                 if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER) return false;
+                int pos = getBindingAdapterPosition();
+                if (pos == RecyclerView.NO_POSITION) return false;
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
                     if (keyEventListener != null) {
-                        keyEventListener.onItemKeyDown(getBindingAdapterPosition());
+                        keyEventListener.onItemKeyDown(pos);
                     }
                     return true;
                 }
                 if (event.getAction() == KeyEvent.ACTION_UP) {
                     if (keyEventListener != null) {
-                        keyEventListener.onItemKeyUp(getBindingAdapterPosition());
+                        keyEventListener.onItemKeyUp(pos);
                     }
                     return true;
                 }
@@ -238,7 +246,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
                 actionBinding.check.setChecked(getChecked(item));
                 actionBinding.text.setSelected(item.isSelected());
                 actionBinding.getRoot().setSelected(item.isSelected());
-                actionBinding.delete.setVisibility(item.isFile() && type != 0 ? android.view.View.VISIBLE : android.view.View.GONE);
+                actionBinding.delete.setVisibility(item.isFile() && type != 0 ? View.VISIBLE : View.GONE);
                 actionBinding.delete.setOnClickListener(v -> {
                     if (listener instanceof OnDeleteListener) ((OnDeleteListener) listener).onDelete(item);
                 });
