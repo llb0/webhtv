@@ -305,14 +305,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 .show();
     }
 
-private void deleteFileSite(Site item) {
-    //=====原有磁盘删除逻辑=====
-    File file = new File(Path.root() + "/tvbox/" + subDir, fileName);
-    if (file.exists()) file.delete();
-
-    Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
-    dismiss();
-}
     private void deleteFileSite(Site item) {
         String type = item.getFileType();
         String fileName = item.getFileName();
