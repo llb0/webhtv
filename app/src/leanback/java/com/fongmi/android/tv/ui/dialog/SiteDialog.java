@@ -64,7 +64,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             int pos = mPendingPosition;
             mPendingPosition = RecyclerView.NO_POSITION;
             if (pos == RecyclerView.NO_POSITION || adapter == null) return;
-            Site site = adapter.getItem(pos);
+            Site site = adapter.getItems().get(pos);
             onDelete(site);
         }
     };
@@ -165,7 +165,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 if (!isAdded()) return;
                 mHandler.removeCallbacks(mLongPressTask);
                 if (mPendingPosition != RecyclerView.NO_POSITION && mPendingPosition == position) {
-                    Site site = adapter.getItem(position);
+                    Site site = adapter.getItems().get(position);
                     onItemClick(site);
                 }
                 mPendingPosition = RecyclerView.NO_POSITION;
