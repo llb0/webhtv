@@ -40,6 +40,7 @@ public class PlayerButtonSetting {
     public static final String EPISODES = "episodes";
     public static final String FULLSCREEN = "fullscreen";
     public static final String CHANGE = "change";
+    public static final String PUSH = "push";
     public static final String TIMER = "timer";
     public static final String PDS = "diagnostic_entry";
 
@@ -67,6 +68,7 @@ public class PlayerButtonSetting {
             new Item(EPISODES, R.string.play_episodes),
             new Item(FULLSCREEN, R.string.play_fullscreen),
             new Item(CHANGE, R.string.play_change),
+            new Item(PUSH, R.string.push),
             new Item(TIMER, R.string.play_timer),
             new Item(PDS, R.string.pan_diagnostic_entry)
     );
