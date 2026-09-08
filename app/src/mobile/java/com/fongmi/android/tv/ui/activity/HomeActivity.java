@@ -198,10 +198,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
                 break;
             case Setting.DEFAULT_LAUNCH_RECENT:
                 List<History> history = History.get();
-                if (!history.isEmpty()) {
-                    History item = history.get(0);
-                    VideoActivity.start(this, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), null, item.getWallPic());
-                }
+                if (!history.isEmpty()) VideoActivity.startFullscreen(this, history.get(0));
                 break;
             default:
                 break;
