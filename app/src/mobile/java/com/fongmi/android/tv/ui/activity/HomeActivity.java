@@ -22,6 +22,7 @@ import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.api.config.WallConfig;
 import com.fongmi.android.tv.bean.Config;
+import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.ActivityHomeBinding;
 import com.fongmi.android.tv.db.AppDatabase;
@@ -58,6 +59,8 @@ import com.google.gson.JsonObject;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
+import java.util.List;
+
 public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host {
 
     public static final String EXTRA_NAV_POSITION = "nav_position";
@@ -71,6 +74,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     private boolean wideWindow;
     private int currentPosition;
     private boolean returnVodFromEnhance;
+    private boolean mStartupActionDone;
 
     @Override
     protected ViewBinding getBinding() {
@@ -171,16 +175,37 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
             @Override
             public void success() {
                 checkAction(getIntent());
+                runStartupAction();
             }
 
             @Override
             public void error(String msg) {
                 resetVodChrome();
                 checkAction(getIntent());
+                runStartupAction();
                 StateEvent.empty();
                 Notify.show(msg);
             }
         };
+    }
+
+    private void runStartupAction() {
+        if (mStartupActionDone) return;
+        mStartupActionDone = true;
+        switch (Setting.getDefaultLaunch()) {
+            case Setting.DEFAULT_LAUNCH_LIVE:
+                openLive();
+                break;
+            case Setting.DEFAULT_LAUNCH_RECENT:
+                List<History> history = History.get();
+                if (!history.isEmpty()) {
+                    History item = history.get(0);
+                    VideoActivity.start(this, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), null, item.getWallPic());
+                }
+                break;
+            default:
+                break;
+        }
     }
 
     private void loadLive(String url) {
