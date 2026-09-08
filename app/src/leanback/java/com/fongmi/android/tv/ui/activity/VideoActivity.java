@@ -6314,6 +6314,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         super.onBackInvoked();
     }
 
+    public void finishVideoForCast() {
+        finishVideoPlaybackNow();
+    }
+
     @Override
     protected void onDestroy() {
         mLyricsSearchSeq++;
