@@ -653,7 +653,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     public void showDialog() {
         long start = System.currentTimeMillis();
         SpiderDebug.log("site-dialog", "open requested cost=%sms", System.currentTimeMillis() - App.time());
-        SiteDialog.create().show(this);
+        SiteDialog.create().setListener(this).show(this);
         SpiderDebug.log("site-dialog", "show returned delay=%sms", System.currentTimeMillis() - start);
     }
 

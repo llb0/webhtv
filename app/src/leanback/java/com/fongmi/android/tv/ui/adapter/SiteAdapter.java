@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.adapter;
 
 import android.content.res.ColorStateList;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -45,12 +46,20 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
     }
 
     public interface OnClickListener {
-
         void onItemClick(Site item);
     }
 
     public interface OnDeleteListener {
         void onDelete(Site item);
+    }
+
+    public void removeSite(Site item) {
+        int position = mItems.indexOf(item);
+        if (position < 0) return;
+        mItems.remove(position);
+        allItems.remove(item);
+        notifyItemRemoved(position);
+        notifyItemRangeChanged(position, Math.max(0, getItemCount() - position));
     }
 
     public void setType(int type) {
@@ -147,19 +156,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         return false;
     }
 
-    private void setListener(Site item, int position) {
-        if (type == 0) listener.onItemClick(item);
-        if (type == 1) item.setSearchable(!item.isSearchable()).save();
-        if (type == 2) item.setChangeable(!item.isChangeable()).save();
-        if (type != 0) notifyItemChanged(position);
-    }
-
-    private boolean setLongListener(Site item) {
-        if (type == 1) setEnable(!item.isSearchable());
-        if (type == 2) setEnable(!item.isChangeable());
-        return true;
-    }
-
     private void setEnable(boolean enable) {
         if (type == 1) for (Site site : mItems) site.setSearchable(enable).save();
         if (type == 2) for (Site site : mItems) site.setChangeable(enable).save();
@@ -194,8 +190,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             this.actionBinding = binding;
             this.switchBinding = null;
             binding.text.setGravity(Gravity.CENTER);
-            binding.getRoot().setOnClickListener(v -> click());
-            binding.getRoot().setOnLongClickListener(v -> longClick());
             binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> binding.text.setSelected(hasFocus || isSelected()));
         }
 
@@ -204,20 +198,83 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             this.actionBinding = null;
             this.switchBinding = binding;
             binding.text.setGravity(Gravity.CENTER);
-            binding.getRoot().setOnClickListener(v -> click());
-            binding.getRoot().setOnLongClickListener(v -> longClick());
             binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> binding.text.setSelected(hasFocus || isSelected()));
         }
 
         void bind(Site item) {
             this.item = item;
+            final Site captureItem = item;
+            final OnClickListener captureListener = listener;
+            final int captureType = type;
+            final android.os.Handler handler = new android.os.Handler();
+            final Runnable longPressRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (captureType == 0) {
+                        if (captureItem.isFile()) {
+                            if (captureListener instanceof OnDeleteListener) {
+                                ((OnDeleteListener) captureListener).onDelete(captureItem);
+                            }
+                        }
+                    } else {
+                        if (captureType == 1) {
+                            boolean enable = !captureItem.isSearchable();
+                            setEnable(enable);
+                        } else if (captureType == 2) {
+                            boolean enable = !captureItem.isChangeable();
+                            setEnable(enable);
+                        }
+                    }
+                }
+            };
+        
+            itemView.setOnKeyListener((v, keyCode, event) -> {
+                if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
+                    handler.removeCallbacks(longPressRunnable);
+                    return false;
+                }
+        
+                if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER) return false;
+        
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (!handler.hasCallbacks(longPressRunnable)) {
+                        handler.postDelayed(longPressRunnable, 500);
+                    }
+                    return false;
+                }
+        
+                if (event.getAction() == KeyEvent.ACTION_UP) {
+                    boolean pending = handler.hasCallbacks(longPressRunnable);
+                    handler.removeCallbacks(longPressRunnable);
+                    if (itemView.getParent() == null) return true;
+                    if (pending) {
+                        int pos = getBindingAdapterPosition();
+                        if (pos != RecyclerView.NO_POSITION) {
+                            if (captureType == 0) {
+                                captureListener.onItemClick(captureItem);
+                            }
+                            if (captureType == 1) {
+                                captureItem.setSearchable(!captureItem.isSearchable()).save();
+                                notifyItemChanged(pos);
+                            }
+                            if (captureType == 2) {
+                                captureItem.setChangeable(!captureItem.isChangeable()).save();
+                                notifyItemChanged(pos);
+                            }
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            });
+
             if (actionBinding != null) {
                 actionBinding.text.setText(item.getName());
                 actionBinding.health.setBackgroundTintList(ColorStateList.valueOf(SiteHealthStore.getColor(item)));
                 actionBinding.check.setChecked(getChecked(item));
                 actionBinding.text.setSelected(item.isSelected());
                 actionBinding.getRoot().setSelected(item.isSelected());
-                actionBinding.delete.setVisibility(item.isFile() && type != 0 ? android.view.View.VISIBLE : android.view.View.GONE);
+                actionBinding.delete.setVisibility(item.isFile() && type != 0 ? View.VISIBLE : View.GONE);
                 actionBinding.delete.setOnClickListener(v -> {
                     if (listener instanceof OnDeleteListener) ((OnDeleteListener) listener).onDelete(item);
                 });
@@ -231,16 +288,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
 
         private boolean isSelected() {
             return item != null && item.isSelected();
-        }
-
-        private void click() {
-            int position = getBindingAdapterPosition();
-            if (position == RecyclerView.NO_POSITION || item == null) return;
-            setListener(item, position);
-        }
-
-        private boolean longClick() {
-            return item != null && setLongListener(item);
         }
     }
 }

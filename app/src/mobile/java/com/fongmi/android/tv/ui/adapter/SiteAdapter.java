@@ -125,6 +125,16 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         notifyDataSetChanged();
     }
 
+    public void removeSite(Site item) {
+        int position = mItems.indexOf(item);
+        if (position < 0) return;
+        mItems.remove(position);
+        mAllItems.remove(item);
+        notifyItemRemoved(position);
+        notifyItemRangeChanged(position, Math.max(0, getItemCount() - position));
+        SiteOrderStore.save(mAllItems);
+    }
+
     public boolean drag(int from, int to) {
         if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false;
         if (from < 0 || to < 0 || from >= mItems.size() || to >= mItems.size() || from == to) return false;

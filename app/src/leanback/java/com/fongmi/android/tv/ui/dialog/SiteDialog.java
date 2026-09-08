@@ -48,8 +48,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     private RecyclerView.ItemDecoration decoration;
     private DialogSiteBinding binding;
-    private FragmentActivity activity;
-    private Dialog directDialog;
     private SiteListener listener;
     private SiteAdapter adapter;
     private long showStart;
@@ -59,6 +57,11 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     public static SiteDialog create() {
         return new SiteDialog();
+    }
+
+    public SiteDialog setListener(SiteListener listener) {
+        this.listener = listener;
+        return this;
     }
 
     public SiteDialog search() {
@@ -73,11 +76,9 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     public void show(FragmentActivity activity) {
         showStart = System.currentTimeMillis();
-        this.activity = activity;
-        if (activity instanceof SiteListener) listener = (SiteListener) activity;
         if (activity.isFinishing() || activity.isDestroyed()) return;
         log("click received action=%s type=%s", action, type);
-        showDirect(activity);
+        show(activity.getSupportFragmentManager(), TAG);
     }
 
     private int getCount() {
@@ -101,40 +102,12 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @NonNull
     @Override
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
-        Dialog dialog = new Dialog(requireActivity());
+        Dialog dialog = super.onCreateDialog(savedInstanceState);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setContentView(getBinding().getRoot());
-        initView();
-        initEvent();
-        return dialog;
-    }
-
-    private void showDirect(FragmentActivity activity) {
-        long start = System.currentTimeMillis();
-        log("inflate start");
-        binding = DialogSiteBinding.inflate(activity.getLayoutInflater());
-        log("inflate end cost=%sms", cost(start));
-        long dialogStart = System.currentTimeMillis();
-        directDialog = new Dialog(activity);
-        directDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        directDialog.setContentView(binding.getRoot());
-        log("dialog content ready cost=%sms total=%sms", cost(dialogStart), cost());
-        long initStart = System.currentTimeMillis();
-        initShellView();
-        initEvent();
-        log("shell init end cost=%sms total=%sms", cost(initStart), cost());
-        directDialog.setOnDismissListener(d -> {
-            directDialog = null;
-            binding = null;
-            this.activity = null;
+        dialog.setOnShowListener(d -> {
+            if (listLoaded) waitForLayoutAndFocus();
         });
-        runAfterFirstPreDraw("shell preDraw", () -> loadList(false));
-        long showDialogStart = System.currentTimeMillis();
-        log("show call start total=%sms", cost());
-        directDialog.show();
-        log("show call end cost=%sms total=%sms", cost(showDialogStart), cost());
-        applyWindow(directDialog.getWindow());
-        log("window applied total=%sms", cost());
+        return dialog;
     }
 
     @Override
@@ -182,49 +155,58 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         setMode();
         setActionEnabled(true);
         log("view configured cost=%sms total=%sms", cost(layoutStart), cost());
-        runAfterFirstPreDraw("list preDraw", () -> {
+        runAfterRecyclerLayout(() -> {
             if (adapter != null) adapter.showAll();
             log("list expanded total=%sms items=%s", cost(), adapter == null ? -1 : adapter.getItemCount());
-            if (adapter == null || binding == null) return;
-            List<Site> showList = adapter.getItems();
-            Site active = VodConfig.get().getHome();
-            int targetPos = -1;
-            for (int i = 0; i < showList.size(); i++) {
-                if (showList.get(i).getKey().equals(active.getKey())) {
-                    targetPos = i;
-                    break;
+        });
+    }
+
+    private void waitForLayoutAndFocus() {
+        if (binding == null || binding.recycler == null) return;
+        binding.recycler.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                if (adapter == null || adapter.getItemCount() < adapter.getTotalCount()) {
+                    return;
                 }
-            }
-            RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
-            if (targetPos < 0) {
-                binding.recycler.scrollToPosition(0);
-            } else if (lm instanceof GridLayoutManager glm) {
-                final int finalTargetPos = targetPos;
-                glm.scrollToPositionWithOffset(targetPos, binding.recycler.getHeight() / 2);
-                binding.recycler.postDelayed(new Runnable() {
-                    private int retry = 0;
-                    @Override
-                    public void run() {
-                        if (binding == null || adapter == null || retry > 8) return;
-                        RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
-                        if (holder != null && holder.itemView != null) {
-                            holder.itemView.requestFocus();
-                            holder.itemView.requestFocusFromTouch();
-                            log("success request focus pos=" + finalTargetPos);
-                        } else {
-                            retry++;
-                            binding.recycler.postDelayed(this, 30);
-                        }
-                    }
-                }, 120);
+                ViewTreeObserver obs = binding.recycler.getViewTreeObserver();
+                if (obs.isAlive()) obs.removeOnGlobalLayoutListener(this);
+                scrollAndFocusActiveSite();
             }
         });
+    }
+
+    private void scrollAndFocusActiveSite() {
+        if (adapter == null || binding == null) return;
+        List<Site> showList = adapter.getItems();
+        Site active = VodConfig.get().getHome();
+        if (active == null || active.getKey() == null || active.getKey().isEmpty()) return;
+        int targetPos = -1;
+        for (int i = 0; i < showList.size(); i++) {
+            if (showList.get(i).getKey().equals(active.getKey())) {
+                targetPos = i;
+                break;
+            }
+        }
+        RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
+        if (targetPos < 0 || !(lm instanceof GridLayoutManager glm)) return;
+        int itemHeight = ResUtil.dp2px(ITEM_HEIGHT) + ResUtil.dp2px(ITEM_SPACE);
+        int centerOffset = Math.max(0, (binding.recycler.getHeight() - itemHeight) / 2);
+        glm.scrollToPositionWithOffset(targetPos, centerOffset);
+        final int finalTargetPos = targetPos;
+        binding.recycler.postDelayed(() -> {
+            RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
+            if (holder != null && holder.itemView != null) {
+                holder.itemView.requestFocus();
+                log("success request focus pos=" + finalTargetPos);
+            }
+        }, 50);
     }
 
     @Override
     protected void initEvent() {
         binding.config.setOnClickListener(v -> {
-            FragmentActivity activity = getDialogActivity();
+            FragmentActivity activity = requireActivity();
             dismiss();
             App.post(() -> HistoryDialog.create().vod().readOnly().show(activity, item -> loadConfig(activity, item)), 100);
         });
@@ -246,6 +228,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 setRecyclerHeight(adapter.getItemCount());
                 setMode();
                 setWidth();
+                scrollAndFocusActiveSite();
             }
         });
     }
@@ -255,7 +238,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         binding.recycler.setHasFixedSize(true);
         binding.recycler.setItemAnimator(null);
         if (decoration == null) binding.recycler.addItemDecoration(decoration = new SpaceItemDecoration(getCount(), 16));
-        if (binding.recycler.getLayoutManager() == null) binding.recycler.setLayoutManager(new GridLayoutManager(getDialogActivity(), getCount()));
+        if (binding.recycler.getLayoutManager() == null) binding.recycler.setLayoutManager(new GridLayoutManager(requireActivity(), getCount()));
         log("recycler ready adapter=%s layout=%s total=%sms", binding.recycler.getAdapter() != null, binding.recycler.getLayoutManager() != null, cost());
     }
 
@@ -314,7 +297,11 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     public void onDelete(Site item) {
         if (!item.isFile()) return;
-        new MaterialAlertDialogBuilder(getDialogActivity())
+        FragmentActivity act = requireActivity();
+        if (act == null || act.isFinishing() || act.isDestroyed()) {
+            return;
+        }
+        new MaterialAlertDialogBuilder(act)
                 .setTitle(R.string.setting_site_delete_title)
                 .setMessage(getString(R.string.setting_site_delete_message, item.getName()))
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> deleteFileSite(item))
@@ -335,9 +322,38 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         };
         if (subDir.isEmpty()) return;
         File file = new File(Path.root() + "/tvbox/" + subDir, fileName);
-        if (file.exists()) file.delete();
-        if (activity != null) Toast.makeText(activity, getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
-        dismiss();
+        boolean deleted = file.exists() && file.delete();
+        if (!deleted && file.exists()) {
+            Toast.makeText(requireActivity(), R.string.setting_site_delete_failed, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Site currentHome = VodConfig.get().getHome();
+        List<Site> siteList = VodConfig.get().getSites();
+        if (currentHome != null && currentHome.getKey().equals(item.getKey())) {
+            int delIndex = -1;
+            for (int i = 0; i < siteList.size(); i++) {
+                if (siteList.get(i).getKey().equals(item.getKey())) {
+                    delIndex = i;
+                    break;
+                }
+            }
+            Site fallbackHome = new Site();
+            if (delIndex != -1 && siteList.size() > 1) {
+                if (delIndex + 1 < siteList.size()) {
+                    fallbackHome = siteList.get(delIndex + 1);
+                } else {
+                    fallbackHome = siteList.get(delIndex - 1);
+                }
+            }
+            VodConfig.get().setHome(fallbackHome);
+        }
+        if (!siteList.isEmpty()) siteList.remove(item);
+        Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
+        if (adapter != null) {
+            adapter.removeSite(item);
+            setRecyclerHeight(adapter.getItemCount());
+            binding.recycler.post(this::scrollAndFocusActiveSite);
+        }
     }
 
     private void loadConfig(FragmentActivity activity, Config config) {
@@ -362,10 +378,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         });
     }
 
-    private FragmentActivity getDialogActivity() {
-        return activity != null ? activity : requireActivity();
-    }
-
     private void applyWindow(Window window) {
         if (window == null) return;
         window.setWindowAnimations(0);
@@ -376,19 +388,19 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         window.setAttributes(params);
     }
 
-    private void runAfterFirstPreDraw(String label, Runnable action) {
-        View root = binding == null ? null : binding.getRoot();
-        if (root == null) {
-            if (action != null) action.run();
+    private void runAfterRecyclerLayout(Runnable action) {
+        if(binding == null || binding.recycler == null) {
+            if(action != null) action.run();
             return;
         }
-        root.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+        binding.recycler.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
-            public boolean onPreDraw() {
-                if (root.getViewTreeObserver().isAlive()) root.getViewTreeObserver().removeOnPreDrawListener(this);
-                log("%s total=%sms items=%s", label, cost(), adapter == null ? -1 : adapter.getItemCount());
-                if (action != null) root.post(action);
-                return true;
+            public void onGlobalLayout() {
+                ViewTreeObserver obs = binding.recycler.getViewTreeObserver();
+                if(obs.isAlive()) {
+                    obs.removeOnGlobalLayoutListener(this);
+                }
+                if(action != null) binding.recycler.post(action);
             }
         });
     }
@@ -408,11 +420,10 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     @Override
     public void dismiss() {
-        if (directDialog != null) directDialog.dismiss();
-        else super.dismiss();
+        super.dismiss();
     }
 
-    @Override
+@Override
     public void onStart() {
         super.onStart();
         Window window = getDialog() == null ? null : getDialog().getWindow();

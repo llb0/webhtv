@@ -353,13 +353,32 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         File file = new File(Path.root() + "/tvbox/" + subDir, fileName);
         boolean deleted = file.exists() && file.delete();
         if (!deleted && file.exists()) {
-            Toast.makeText(requireActivity(), R.string.remote_trust_delete_device_done, Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireActivity(), R.string.setting_site_delete_failed, Toast.LENGTH_SHORT).show();
             return;
         }
-        adapter.getItems().remove(position);
-        adapter.notifyItemRemoved(position);
-        adapter.notifyItemRangeChanged(position, adapter.getItemCount());
+        Site currentHome = VodConfig.get().getHome();
+        List<Site> siteList = VodConfig.get().getSites();
+        if (currentHome != null && currentHome.getKey().equals(item.getKey())) {
+            int delIndex = -1;
+            for (int i = 0; i < siteList.size(); i++) {
+                if (siteList.get(i).getKey().equals(item.getKey())) {
+                    delIndex = i;
+                    break;
+                }
+            }
+            Site fallbackHome = new Site();
+            if (delIndex != -1 && siteList.size() > 1) {
+                if (delIndex + 1 < siteList.size()) {
+                    fallbackHome = siteList.get(delIndex + 1);
+                } else {
+                    fallbackHome = siteList.get(delIndex - 1);
+                }
+            }
+            VodConfig.get().setHome(fallbackHome);
+        }
+        if (!siteList.isEmpty()) siteList.remove(item);
         Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
+        if (adapter != null) adapter.removeSite(item);
     }
 
     @Override

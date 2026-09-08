@@ -85,7 +85,7 @@ public final class UpdateSettingsDialog {
         }
         ChoiceDialog.showSingle(activity, R.string.update_github_proxy, labels, selected, which -> {
             state.githubProxy = presets[which].id;
-            renderGithub(activity, binding, state);
+            binding.githubProxy.post(() -> renderGithub(activity, binding, state));
         });
     }
 
@@ -99,7 +99,7 @@ public final class UpdateSettingsDialog {
         }
         ChoiceDialog.showSingle(activity, R.string.update_oci_mirror, labels, selected, which -> {
             state.ociMirror = presets[which].id;
-            renderOci(activity, binding, state);
+            binding.ociMirror.post(() -> renderOci(activity, binding, state));
         });
     }
 
