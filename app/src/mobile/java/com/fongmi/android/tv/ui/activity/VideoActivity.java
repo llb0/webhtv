@@ -6520,6 +6520,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         super.onBackInvoked();
     }
 
+    public void finishVideoForCast() {
+        finishVideoPlaybackFromSystemBack();
+    }
+
     @Override
     protected void onDestroy() {
         dismissKaraokeResultDialogForRecreation();
