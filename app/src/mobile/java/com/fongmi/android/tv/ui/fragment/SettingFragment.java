@@ -40,6 +40,7 @@ import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
+import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.bean.Doh;
 import com.github.catvod.net.OkHttp;
 
@@ -53,6 +54,7 @@ import java.util.List;
 public class SettingFragment extends BaseFragment implements ConfigListener, SiteListener, LiveListener {
 
     private FragmentSettingBinding mBinding;
+    private String[] defaultLaunch;
 
     public static SettingFragment newInstance() {
         return new SettingFragment();
@@ -96,6 +98,7 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         mBinding.dohText.setText(getDohList()[getDohIndex()]);
         mBinding.incognitoText.setText(getSwitch(Setting.isIncognito()));
         mBinding.autoClearCacheText.setText(getSwitch(Setting.isAutoClearCache()));
+        mBinding.defaultLaunchText.setText((defaultLaunch = ResUtil.getStringArray(R.array.select_default_launch))[Setting.getDefaultLaunch()]);
     }
 
     private void setCacheText() {
@@ -113,6 +116,7 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         mBinding.doh.setOnClickListener(this::setDoh);
         mBinding.live.setOnClickListener(this::onLive);
         mBinding.wall.setOnClickListener(this::onWall);
+        mBinding.defaultLaunch.setOnClickListener(this::setDefaultLaunch);
         mBinding.appearance.setOnClickListener(this::onAppearance);
         mBinding.autoClearCache.setOnClickListener(this::setAutoClearCache);
         mBinding.cache.setOnClickListener(this::onCache);
@@ -293,6 +297,13 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         OkHttp.dns().setDoh(doh);
         Setting.putDoh(doh.toString());
         mBinding.dohText.setText(doh.getName());
+    }
+
+    private void setDefaultLaunch(View view) {
+        ChoiceDialog.showSingle(this, R.string.setting_default_launch, defaultLaunch, Setting.getDefaultLaunch(), which -> {
+            Setting.putDefaultLaunch(which);
+            mBinding.defaultLaunchText.setText(defaultLaunch[which]);
+        });
     }
 
     private void onCache(View view) {

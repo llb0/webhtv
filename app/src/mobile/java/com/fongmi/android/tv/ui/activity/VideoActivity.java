@@ -287,6 +287,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private List<String> mBroken;
     private History mHistory;
     private boolean fullscreen;
+    private boolean startFullscreen;
     private boolean initAuto;
     private boolean autoMode;
     private boolean revealManualSearch;
@@ -388,6 +389,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, history.getWallPic());
     }
 
+    public static void startFullscreen(Activity activity, History history) {
+        start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, false, history.getWallPic(), null, true);
+    }
+
     public static void collect(Activity activity, String key, String id, String name, String pic) {
         start(activity, key, id, name, pic, null, true);
     }
@@ -429,6 +434,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, String wallPic, String content) {
+        start(activity, key, id, name, pic, mark, collect, wallPic, content, false);
+    }
+
+    public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, String wallPic, String content, boolean fullscreen) {
         ImgUtil.preload(activity, pic);
         if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(wallPic) && !TextUtils.equals(wallPic, pic)) ImgUtil.preload(activity, wallPic);
         Intent intent = new Intent(activity, VideoActivity.class);
@@ -440,6 +449,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         intent.putExtra("content", content);
         intent.putExtra("key", key);
         intent.putExtra("id", id);
+        intent.putExtra("startFullscreen", fullscreen);
         activity.startActivity(intent);
     }
 
@@ -608,6 +618,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     protected void initView(Bundle savedInstanceState) {
         super.initView(savedInstanceState);
         mRestoringConfigurationPlayback = savedInstanceState != null;
+        startFullscreen = getIntent().getBooleanExtra("startFullscreen", false);
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (v, insets) -> setStatusBar(insets));
         mKeyDown = CustomKeyDown.create(this, mBinding.exo);
         mFrameParams = mBinding.video.getLayoutParams();
@@ -1205,7 +1216,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void checkLand() {
-        if (isPort() && ResUtil.isLand(this)) enterFullscreen();
+        if (startFullscreen || (isPort() && ResUtil.isLand(this))) enterFullscreen();
     }
 
     private void getDetail() {

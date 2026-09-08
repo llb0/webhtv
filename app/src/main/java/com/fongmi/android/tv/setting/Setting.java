@@ -63,6 +63,10 @@ public class Setting {
     public static final int TITLE_LINES_UNLIMITED = 3;
     private static final int[] TITLE_LINES_OPTIONS = {TITLE_LINES_OFF, TITLE_LINES_2, TITLE_LINES_3, TITLE_LINES_UNLIMITED};
 
+    public static final int DEFAULT_LAUNCH_HOME = 0;
+    public static final int DEFAULT_LAUNCH_LIVE = 1;
+    public static final int DEFAULT_LAUNCH_RECENT = 2;
+
         public static final int SOURCE_VOD_URL = 1 << 0;
     public static final int SOURCE_LIVE_URL = 1 << 1;
     public static final int SOURCE_SITES_JSON = 1 << 2;
@@ -506,6 +510,14 @@ public class Setting {
     private static boolean isTitleLines(int lines) {
         for (int option : TITLE_LINES_OPTIONS) if (option == lines) return true;
         return false;
+    }
+
+    public static int getDefaultLaunch() {
+        return Prefers.getInt("default_launch", DEFAULT_LAUNCH_HOME);
+    }
+
+    public static void putDefaultLaunch(int launch) {
+        Prefers.put("default_launch", launch);
     }
 
     public static int resolveTitleMaxLines() {

@@ -55,6 +55,7 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
     private String[] size;
     private String[] language;
     private String[] titleLines;
+    private String[] defaultLaunch;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, SettingActivity.class));
@@ -97,6 +98,7 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         mBinding.languageText.setText((language = ResUtil.getStringArray(R.array.select_language))[Setting.getLanguageIndex()]);
         mBinding.sizeText.setText((size = ResUtil.getStringArray(R.array.select_size))[PlayerSetting.getSize()]);
         mBinding.titleLinesText.setText((titleLines = ResUtil.getStringArray(R.array.select_title_lines))[Setting.getTitleLinesIndex()]);
+        mBinding.defaultLaunchText.setText((defaultLaunch = ResUtil.getStringArray(R.array.select_default_launch))[Setting.getDefaultLaunch()]);
     }
 
     private void setCacheText() {
@@ -116,6 +118,7 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         mBinding.wall.setOnClickListener(this::onWall);
         mBinding.size.setOnClickListener(this::setSize);
         mBinding.language.setOnClickListener(this::setLanguage);
+        mBinding.defaultLaunch.setOnClickListener(this::setDefaultLaunch);
         mBinding.titleLines.setOnClickListener(this::setTitleLines);
         mBinding.autoClearCache.setOnClickListener(this::setAutoClearCache);
         mBinding.cache.setOnClickListener(this::onCache);
@@ -294,6 +297,12 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         mBinding.titleLinesText.setText(titleLines[index]);
         Setting.putTitleLinesIndex(index);
         RefreshEvent.size();
+    }
+
+    private void setDefaultLaunch(View view) {
+        int index = (Setting.getDefaultLaunch() + 1) % defaultLaunch.length;
+        Setting.putDefaultLaunch(index);
+        mBinding.defaultLaunchText.setText(defaultLaunch[index]);
     }
 
     private void setDoh(View view) {

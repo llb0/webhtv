@@ -114,6 +114,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private String webDefaultChromeMode = TV_FULL;
     private boolean webToolbarVisible = true;
     private boolean loadingHomeCategory;
+    private boolean mStartupActionDone;
 
     private Site getHome() {
         return VodConfig.get().getHome();
@@ -360,6 +361,23 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         setFocus();
         App.post(this::prewarmWebView, 1500);
         SpiderDebug.log("startup", "home showContent end cost=%sms", System.currentTimeMillis() - App.time());
+        runStartupAction();
+    }
+
+    private void runStartupAction() {
+        if (mStartupActionDone) return;
+        mStartupActionDone = true;
+        switch (Setting.getDefaultLaunch()) {
+            case Setting.DEFAULT_LAUNCH_LIVE:
+                LiveActivity.start(this);
+                break;
+            case Setting.DEFAULT_LAUNCH_RECENT:
+                List<History> history = History.get();
+                if (!history.isEmpty()) VideoActivity.startFullscreen(this, history.get(0));
+                break;
+            default:
+                break;
+        }
     }
 
     private void prewarmWebView() {

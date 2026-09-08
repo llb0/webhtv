@@ -676,10 +676,11 @@
     <string name="setting_drive_check">网盘检测</string>
     <string name="setting_theme_color">主题色彩</string>
     <string name="setting_appearance">外观与语言</string>
-    <string name="setting_appearance_summary">4 项</string>
+    <string name="setting_appearance_summary">5 项</string>
     <string name="setting_auto">自动</string>
     <string name="setting_custom">自定义</string>
     <string name="setting_language">语言</string>
+    <string name="setting_default_launch">默认启动</string>
     <string name="setting_size">图片尺寸</string>
     <string name="setting_ui_scale">界面大小</string>
     <string name="setting_title_lines">标题换行</string>
@@ -1318,6 +1319,12 @@
         <item>跟随系统</item>
         <item>简体中文</item>
         <item>繁体中文</item>
+    </string-array>
+
+    <string-array name="select_default_launch">
+        <item>首页</item>
+        <item>直播</item>
+        <item>最近</item>
     </string-array>
 
     <string-array name="select_scale">

@@ -660,10 +660,11 @@
     <string name="setting_drive_check">網盤檢測</string>
     <string name="setting_theme_color">主題色彩</string>
     <string name="setting_appearance">外觀與語言</string>
-    <string name="setting_appearance_summary">4 項</string>
+    <string name="setting_appearance_summary">5 項</string>
     <string name="setting_auto">自動</string>
     <string name="setting_custom">自訂</string>
     <string name="setting_language">語言</string>
+    <string name="setting_default_launch">默認啟動</string>
     <string name="setting_size">圖片尺寸</string>
     <string name="setting_ui_scale">介面大小</string>
     <string name="setting_title_lines">標題換行</string>
@@ -1302,6 +1303,12 @@
         <item>跟隨系統</item>
         <item>簡體中文</item>
         <item>繁體中文</item>
+    </string-array>
+
+    <string-array name="select_default_launch">
+        <item>首頁</item>
+        <item>直播</item>
+        <item>最近</item>
     </string-array>
 
     <string-array name="select_scale">
