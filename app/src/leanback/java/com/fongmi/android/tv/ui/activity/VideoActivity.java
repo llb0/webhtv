@@ -360,7 +360,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     public static void cast(Activity activity, History history) {
-        start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, false, true, history.getWallPic());
+        start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, false, true, history.getWallPic(), null, false, history);
     }
 
     public static void startFullscreen(Activity activity, History history) {
@@ -412,6 +412,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, String wallPic, String content, boolean fullscreen) {
+        start(activity, key, id, name, pic, mark, collect, cast, wallPic, content, fullscreen, null);
+    }
+
+    public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, String wallPic, String content, boolean fullscreen, History history) {
         long launch = System.currentTimeMillis();
         SpiderDebug.log("video-flow", "launch request key=%s id=%s name=%s collect=%s cast=%s", key, id, name, collect, cast);
         ImgUtil.preload(activity, pic);
@@ -419,6 +423,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("launchTime", launch);
         intent.putExtra("collect", collect);
+        if (history != null) intent.putExtra("castHistory", history.toString());
         intent.putExtra("cast", cast);
         intent.putExtra("mark", mark);
         intent.putExtra("name", name);
@@ -3617,6 +3622,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private void checkHistory(Vod item) {
         mHistory = History.find(getHistoryKey());
         mHistory = mHistory == null ? createHistory(item) : mHistory;
+        applyCastHistory();
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
         if (Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
@@ -3633,6 +3639,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private boolean shouldKeepPushArtwork() {
         return SiteApi.PUSH.equals(getKey()) && !TextUtils.isEmpty(getPic());
+    }
+
+    private void applyCastHistory() {
+        String json = Objects.toString(getIntent().getStringExtra("castHistory"), "");
+        if (TextUtils.isEmpty(json)) return;
+        History pushed = History.objectFrom(json);
+        if (pushed == null || TextUtils.isEmpty(pushed.getVodId())) return;
+        if (pushed.getPosition() > 0) mHistory.setPosition(pushed.getPosition());
+        if (pushed.getDuration() > 0) mHistory.setDuration(pushed.getDuration());
+        if (!TextUtils.isEmpty(pushed.getVodFlag())) mHistory.setVodFlag(pushed.getVodFlag());
+        if (!TextUtils.isEmpty(pushed.getVodRemarks())) mHistory.setVodRemarks(pushed.getVodRemarks());
+        if (!TextUtils.isEmpty(pushed.getEpisodeUrl())) mHistory.setEpisodeUrl(pushed.getEpisodeUrl());
+        SpiderDebug.log("video-flow", "cast history applied position=%d duration=%d flag=%s episode=%s", mHistory.getPosition(), mHistory.getDuration(), mHistory.getVodFlag(), mHistory.getVodRemarks());
     }
 
     private String getInitialArtwork(Vod item) {
@@ -5562,6 +5581,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private long resolveInitialPlaybackPosition() {
         if (mHistory == null) return C.TIME_UNSET;
+        applyCastHistory();
         if (mHistory.isNearEnding()) {
             SpiderDebug.log("video-flow", "reset near-end history position=%d duration=%d key=%s", mHistory.getPosition(), mHistory.getDuration(), getHistoryKey());
             mHistory.resetPlaybackPosition();
