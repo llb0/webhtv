@@ -259,6 +259,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private List<String> mBroken;
     private History mHistory;
     private boolean fullscreen;
+    private boolean startFullscreen;
     private boolean initAuto;
     private boolean autoMode;
     private boolean revealManualSearch;
@@ -362,6 +363,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, false, true, history.getWallPic());
     }
 
+    public static void startFullscreen(Activity activity, History history) {
+        start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, false, false, history.getWallPic(), null, true);
+    }
+
     public static void collect(Activity activity, String key, String id, String name, String pic) {
         start(activity, key, id, name, pic, null, true, false);
     }
@@ -403,6 +408,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, String wallPic, String content) {
+        start(activity, key, id, name, pic, mark, collect, cast, wallPic, content, false);
+    }
+
+    public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, String wallPic, String content, boolean fullscreen) {
         long launch = System.currentTimeMillis();
         SpiderDebug.log("video-flow", "launch request key=%s id=%s name=%s collect=%s cast=%s", key, id, name, collect, cast);
         ImgUtil.preload(activity, pic);
@@ -418,6 +427,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         intent.putExtra("content", content);
         intent.putExtra("key", key);
         intent.putExtra("id", id);
+        intent.putExtra("startFullscreen", fullscreen);
         activity.startActivity(intent);
         SpiderDebug.log("video-flow", "launch dispatched cost=%dms key=%s id=%s", System.currentTimeMillis() - launch, key, id);
     }
@@ -543,6 +553,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         setPlayerKernel();
         setDecode();
         setLut();
+        if (startFullscreen && !isFullscreen()) enterFullscreen();
         if (!detailRequested) checkId();
         if (mPendingDetail != null) {
             Result result = mPendingDetail;
@@ -576,6 +587,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     protected void initView(Bundle savedInstanceState) {
         long start = System.currentTimeMillis();
         SpiderDebug.log("video-flow", "initView start sinceLaunch=%dms key=%s id=%s", getLaunchCost(start), getKey(), getId());
+        startFullscreen = getIntent().getBooleanExtra("startFullscreen", false);
         if (!isCast() && hasInitialPreview()) showInitialPreview();
         super.initView(savedInstanceState);
         SpiderDebug.log("video-flow", "initView after playback cost=%dms", System.currentTimeMillis() - start);
