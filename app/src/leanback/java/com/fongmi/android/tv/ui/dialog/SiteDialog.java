@@ -343,9 +343,13 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             }
             VodConfig.get().setHome(fallbackHome);
         }
-
+        if (!siteList.isEmpty()) siteList.remove(item);
         Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
-        if (adapter != null) adapter.refreshSites();
+        if (adapter != null) {
+            adapter.removeSite(item);
+            setRecyclerHeight(adapter.getItemCount());
+            binding.recycler.post(this::scrollAndFocusActiveSite);
+        }
     }
 
     private void loadConfig(FragmentActivity activity, Config config) {
