@@ -104,7 +104,9 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         Dialog dialog = super.onCreateDialog(savedInstanceState);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setContentView(getBinding().getRoot());
+        dialog.setOnShowListener(d -> {
+            if (listLoaded) waitForLayoutAndFocus();
+        });
         return dialog;
     }
 
@@ -419,8 +421,5 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         Window window = getDialog() == null ? null : getDialog().getWindow();
         applyWindow(window);
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
-        if (listLoaded) {
-            waitForLayoutAndFocus();
-        }
     }
 }
