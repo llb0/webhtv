@@ -105,8 +105,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         Dialog dialog = super.onCreateDialog(savedInstanceState);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(getBinding().getRoot());
-        initView();
-        initEvent();
         return dialog;
     }
 
@@ -180,9 +178,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         if (adapter == null || binding == null) return;
         List<Site> showList = adapter.getItems();
         Site active = VodConfig.get().getHome();
-        if (active == null || active.getKey() == null || active.getKey().isEmpty()) {
-            return;
-        }
+        if (active == null || active.getKey() == null || active.getKey().isEmpty()) return;
         int targetPos = -1;
         for (int i = 0; i < showList.size(); i++) {
             if (showList.get(i).getKey().equals(active.getKey())) {
@@ -191,26 +187,18 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             }
         }
         RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
-        if (targetPos < 0 || !(lm instanceof GridLayoutManager glm)) {
-            return;
-        }
-        final int finalTargetPos = targetPos;
+        if (targetPos < 0 || !(lm instanceof GridLayoutManager glm)) return;
         int itemHeight = ResUtil.dp2px(ITEM_HEIGHT) + ResUtil.dp2px(ITEM_SPACE);
-        int recyclerHeight = binding.recycler.getHeight();
-        int centerOffset = Math.max(0, (recyclerHeight - itemHeight) / 2);
-        glm.scrollToPositionWithOffset(finalTargetPos, centerOffset);
-        binding.recycler.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                ViewTreeObserver obs = binding.recycler.getViewTreeObserver();
-                if (obs.isAlive()) obs.removeOnGlobalLayoutListener(this);
-                RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
-                if (holder != null && holder.itemView != null) {
-                    holder.itemView.requestFocus();
-                    log("success request focus pos=" + finalTargetPos);
-                }
+        int centerOffset = Math.max(0, (binding.recycler.getHeight() - itemHeight) / 2);
+        glm.scrollToPositionWithOffset(targetPos, centerOffset);
+        final int finalTargetPos = targetPos;
+        binding.recycler.postDelayed(() -> {
+            RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
+            if (holder != null && holder.itemView != null) {
+                holder.itemView.requestFocus();
+                log("success request focus pos=" + finalTargetPos);
             }
-        });
+        }, 50);
     }
 
     @Override
