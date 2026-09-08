@@ -53,12 +53,13 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         void onDelete(Site item);
     }
 
-    public void refreshSites() {
-        allItems.clear();
-        addAll();
-        mItems.clear();
-        mItems.addAll(allItems);
-        notifyDataSetChanged();
+    public void removeSite(Site item) {
+        int position = mItems.indexOf(item);
+        if (position < 0) return;
+        mItems.remove(position);
+        allItems.remove(item);
+        notifyItemRemoved(position);
+        notifyItemRangeChanged(position, Math.max(0, getItemCount() - position));
     }
 
     public void setType(int type) {
