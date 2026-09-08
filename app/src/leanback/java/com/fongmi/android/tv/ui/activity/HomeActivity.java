@@ -585,6 +585,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onCastEvent(CastEvent event) {
+        if (App.activity() instanceof VideoActivity video) {
+            video.finishVideoForCast();
+            App.post(() -> dispatchCast(event), 300);
+        } else {
+            dispatchCast(event);
+        }
+    }
+
+    private void dispatchCast(CastEvent event) {
         if (VodConfig.get().getConfig().equals(event.config())) {
             VideoActivity.cast(this, event.history().save(VodConfig.getCid()));
         } else {
