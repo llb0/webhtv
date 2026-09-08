@@ -676,7 +676,7 @@
     <string name="setting_drive_check">网盘检测</string>
     <string name="setting_theme_color">主题色彩</string>
     <string name="setting_appearance">外观与语言</string>
-    <string name="setting_appearance_summary">4 项</string>
+    <string name="setting_appearance_summary">5 项</string>
     <string name="setting_auto">自动</string>
     <string name="setting_custom">自定义</string>
     <string name="setting_language">语言</string>
