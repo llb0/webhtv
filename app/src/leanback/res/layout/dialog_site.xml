@@ -61,6 +61,8 @@
             android:paddingTop="0dp"
             android:paddingEnd="8dp"
             android:paddingBottom="4dp"            app:maxHeight="344dp"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
             tools:itemCount="5"
             tools:listitem="@layout/adapter_site" />
 
