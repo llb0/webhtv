@@ -183,6 +183,9 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
 
         private final AdapterSiteBinding actionBinding;
         private final AdapterSiteSwitchBinding switchBinding;
+        private final android.os.Handler handler = new android.os.Handler();
+        private Runnable longPressRunnable;
+        private boolean longPressFired;
         private Site item;
 
         ViewHolder(@NonNull AdapterSiteBinding binding) {
@@ -203,13 +206,16 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
 
         void bind(Site item) {
             this.item = item;
+            handler.removeCallbacksAndMessages(null);
+            longPressFired = false;
             final Site captureItem = item;
             final OnClickListener captureListener = listener;
             final int captureType = type;
-            final android.os.Handler handler = new android.os.Handler();
-            final Runnable longPressRunnable = new Runnable() {
+            longPressRunnable = new Runnable() {
                 @Override
                 public void run() {
+                    if (longPressFired) return;
+                    longPressFired = true;
                     if (captureType == 0) {
                         if (captureItem.isFile()) {
                             if (captureListener instanceof OnDeleteListener) {
@@ -231,23 +237,27 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             itemView.setOnKeyListener((v, keyCode, event) -> {
                 if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
                     handler.removeCallbacks(longPressRunnable);
+                    longPressFired = false;
                     return false;
                 }
         
                 if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER) return false;
         
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                    if (!handler.hasCallbacks(longPressRunnable)) {
+                    if (event.getRepeatCount() == 0) {
+                        longPressFired = false;
+                        handler.removeCallbacks(longPressRunnable);
                         handler.postDelayed(longPressRunnable, 500);
                     }
                     return false;
                 }
         
                 if (event.getAction() == KeyEvent.ACTION_UP) {
-                    boolean pending = handler.hasCallbacks(longPressRunnable);
                     handler.removeCallbacks(longPressRunnable);
+                    boolean fired = longPressFired;
+                    longPressFired = false;
                     if (itemView.getParent() == null) return true;
-                    if (pending) {
+                    if (!fired) {
                         int pos = getBindingAdapterPosition();
                         if (pos != RecyclerView.NO_POSITION) {
                             if (captureType == 0) {
@@ -284,6 +294,13 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
                 switchBinding.text.setSelected(item.isSelected());
                 switchBinding.getRoot().setSelected(item.isSelected());
             }
+        }
+
+        @Override
+        public void onViewRecycled() {
+            super.onViewRecycled();
+            handler.removeCallbacksAndMessages(null);
+            longPressFired = false;
         }
 
         private boolean isSelected() {
