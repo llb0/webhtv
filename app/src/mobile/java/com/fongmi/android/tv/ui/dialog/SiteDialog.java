@@ -356,9 +356,13 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
             Toast.makeText(requireActivity(), R.string.remote_trust_delete_device_done, Toast.LENGTH_SHORT).show();
             return;
         }
-        adapter.getItems().remove(position);
-        adapter.notifyItemRemoved(position);
-        adapter.notifyItemRangeChanged(position, adapter.getItemCount());
+        Site currentHome = VodConfig.get().getHome();
+        List<Site> siteList = VodConfig.get().getSites();
+        if (currentHome != null && currentHome.getKey().equals(item.getKey())) {
+            VodConfig.get().setHome(fallbackHome);
+        }
+        if (!siteList.isEmpty()) siteList.remove(item);
+        adapter.removeSite(item);
         Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
     }
 
