@@ -353,7 +353,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         File file = new File(Path.root() + "/tvbox/" + subDir, fileName);
         boolean deleted = file.exists() && file.delete();
         if (!deleted && file.exists()) {
-            Toast.makeText(requireActivity(), R.string.remote_trust_delete_device_done, Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireActivity(), R.string.setting_site_delete_failed, Toast.LENGTH_SHORT).show();
             return;
         }
         Site currentHome = VodConfig.get().getHome();
