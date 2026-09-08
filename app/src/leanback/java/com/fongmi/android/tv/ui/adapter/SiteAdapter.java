@@ -296,13 +296,6 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             }
         }
 
-        @Override
-        public void onViewRecycled() {
-            super.onViewRecycled();
-            handler.removeCallbacksAndMessages(null);
-            longPressFired = false;
-        }
-
         private boolean isSelected() {
             return item != null && item.isSelected();
         }
