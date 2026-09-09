@@ -257,8 +257,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         FuncPresenter funcPresenter = new FuncPresenter(this);
         funcPresenter.setOnBoundaryListener(this);
         mBinding.funcRecycler.setAdapter(new ItemBridgeAdapter(mFuncAdapter = new ArrayObjectAdapter(funcPresenter)));
-        mBinding.funcRecycler.setHorizontalSpacing(ResUtil.dp2px(8));
-        mBinding.funcRecycler.setRowHeight(ResUtil.dp2px(48));
+        mBinding.funcRecycler.setHorizontalSpacing(ResUtil.dp2px(6));
+        mBinding.funcRecycler.setRowHeight(ResUtil.dp2px(40));
     }
 
     private void setWebView() {
@@ -599,7 +599,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             return;
         }
         Result result = mHomeResult == null || mHomeResult.getTypes().isEmpty() ? mResult : mHomeResult;
-        VodActivity.start(this, getHome().getKey(), result, mTypeAdapter.indexOf(item));
+        boolean hasRecommend = mHomeResult != null && !mHomeResult.getList().isEmpty();
+        int typeIndex = mTypeAdapter.indexOf(item);
+        int realIndex = hasRecommend ? typeIndex - 1 : typeIndex;
+        VodActivity.start(this, getHome().getKey(), result, realIndex);
     }
 
     @Override
@@ -669,7 +672,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         int realIndex = hasRecommend ? categoryIndex - 1 : categoryIndex;
         if (realIndex < 0 || realIndex >= types.size()) return;
         Result result = mHomeResult == null || mHomeResult.getTypes().isEmpty() ? mResult : mHomeResult;
-        VodActivity.start(this, getHome().getKey(), result, categoryIndex);
+        VodActivity.start(this, getHome().getKey(), result, realIndex);
     }
 
     @Override
