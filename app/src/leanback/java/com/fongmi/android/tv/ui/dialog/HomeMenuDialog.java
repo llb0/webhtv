@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.dialog;
 
 import android.app.Dialog;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -15,6 +16,7 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.databinding.DialogHomeMenuBinding;
 import com.fongmi.android.tv.setting.Setting;
@@ -54,6 +56,14 @@ public class HomeMenuDialog extends DialogFragment implements HomeMenuAdapter.On
         Dialog dialog = new Dialog(requireActivity());
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setCanceledOnTouchOutside(true);
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (KeyUtil.isMenuKey(event) && event.getAction() == KeyEvent.ACTION_DOWN) {
+                SettingActivity.start(requireActivity());
+                dismiss();
+                return true;
+            }
+            return false;
+        });
         return dialog;
     }
 
@@ -71,16 +81,8 @@ public class HomeMenuDialog extends DialogFragment implements HomeMenuAdapter.On
         binding.handle.setBackground(handleBackground());
         binding.recycler.setHasFixedSize(true);
         binding.recycler.setLayoutManager(new GridLayoutManager(getActivity(), spanCount));
+        binding.recycler.addItemDecoration(new GridSpacingItemDecoration(8, spanCount));
         binding.recycler.setAdapter(new HomeMenuAdapter(this, items, spanCount));
-        view.setFocusableInTouchMode(true);
-        view.setOnKeyListener((v, keyCode, event) -> {
-            if (KeyUtil.isMenuKey(event) && event.getAction() == KeyEvent.ACTION_DOWN) {
-                SettingActivity.start(requireActivity());
-                dismiss();
-                return true;
-            }
-            return false;
-        });
     }
 
     @Override
@@ -92,6 +94,14 @@ public class HomeMenuDialog extends DialogFragment implements HomeMenuAdapter.On
         float width = 0.32f + spanCount * 0.1f;
         window.setLayout((int) (ResUtil.getScreenWidth() * Math.min(width, 0.7f)), ViewGroup.LayoutParams.WRAP_CONTENT);
         window.setGravity(Gravity.CENTER);
+        binding.recycler.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                binding.recycler.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                RecyclerView.ViewHolder vh = binding.recycler.findViewHolderForAdapterPosition(0);
+                if (vh != null) vh.itemView.requestFocus();
+            }
+        });
     }
 
     @Override
@@ -107,7 +117,7 @@ public class HomeMenuDialog extends DialogFragment implements HomeMenuAdapter.On
         int g = (int) (((wallColor >> 8) & 0xFF) * 0.42);
         int b = (int) ((wallColor & 0xFF) * 0.42);
         int rgb = (r << 16) | (g << 8) | b;
-        int[] colors = new int[]{0xA0000000 | rgb, 0x8C000000 | rgb, 0x78000000 | rgb};
+        int[] colors = new int[]{0xEE000000 | rgb, 0xE6000000 | rgb, 0xDE000000 | rgb};
         GradientDrawable drawable = new GradientDrawable(GradientDrawable.Orientation.TL_BR, colors);
         drawable.setCornerRadius(ResUtil.dp2px(22));
         drawable.setStroke(ResUtil.dp2px(1), 0x66FFFFFF);
@@ -119,6 +129,26 @@ public class HomeMenuDialog extends DialogFragment implements HomeMenuAdapter.On
         drawable.setColor(0x55FFFFFF);
         drawable.setCornerRadius(ResUtil.dp2px(2));
         return drawable;
+    }
+
+    private static class GridSpacingItemDecoration extends RecyclerView.ItemDecoration {
+        private final int spacing;
+        private final int spanCount;
+
+        GridSpacingItemDecoration(int spacingDp, int spanCount) {
+            this.spacing = ResUtil.dp2px(spacingDp);
+            this.spanCount = spanCount;
+        }
+
+        @Override
+        public void getItemOffsets(@NonNull Rect outRect, @NonNull View view, @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+            int position = parent.getChildAdapterPosition(view);
+            if (position == RecyclerView.NO_POSITION) return;
+            int column = position % spanCount;
+            outRect.left = column * spacing / spanCount;
+            outRect.right = spacing - (column + 1) * spacing / spanCount;
+            if (position >= spanCount) outRect.top = spacing;
+        }
     }
 
     public interface Listener {
