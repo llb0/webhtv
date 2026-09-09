@@ -255,6 +255,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private QuickSearchDialog mQuickSearchDialog;
     private PlayerOsdController mOsd;
     private CustomKeyDownVod mKeyDown;
+    private float mSpeedBeforeLongPress = 1.0f;
     private SiteViewModel mViewModel;
     private List<String> mBroken;
     private History mHistory;
@@ -6216,18 +6217,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     @Override
     public void onSpeedUp() {
         if (!player().isPlaying()) return;
+        mSpeedBeforeLongPress = player().getSpeed();
         mBinding.widget.speed.setVisibility(View.VISIBLE);
         mBinding.widget.speed.startAnimation(ResUtil.getAnim(R.anim.forward));
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getSpeed()));
-        saveDefaultSpeed();
+        player().setSpeed(PlayerSetting.getSpeed());
     }
 
     @Override
     public void onSpeedEnd() {
         mBinding.widget.speed.clearAnimation();
         mBinding.widget.speed.setVisibility(View.GONE);
-        mBinding.control.action.speed.setText(player().getSpeedText());
-        mHistory.setSpeed(player().getSpeed());
+        player().setSpeed(mSpeedBeforeLongPress);
     }
 
     @Override
