@@ -284,6 +284,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private FlagAdapter mFlagAdapter;
     private PlayerOsdController mOsd;
     private CustomKeyDown mKeyDown;
+    private float mSpeedBeforeLongPress = 1.0f;
     private List<String> mBroken;
     private History mHistory;
     private boolean fullscreen;
@@ -386,7 +387,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     public static void cast(Activity activity, History history) {
-        start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, false, history.getWallPic(), null, false, history);
+        start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, history.getWallPic());
     }
 
     public static void startFullscreen(Activity activity, History history) {
@@ -438,10 +439,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, String wallPic, String content, boolean fullscreen) {
-        start(activity, key, id, name, pic, mark, collect, wallPic, content, fullscreen, null);
-    }
-
-    public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, String wallPic, String content, boolean fullscreen, History history) {
         ImgUtil.preload(activity, pic);
         if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(wallPic) && !TextUtils.equals(wallPic, pic)) ImgUtil.preload(activity, wallPic);
         Intent intent = new Intent(activity, VideoActivity.class);
@@ -454,7 +451,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         intent.putExtra("key", key);
         intent.putExtra("id", id);
         intent.putExtra("startFullscreen", fullscreen);
-        if (history != null) intent.putExtra("castHistory", history.toString());
         activity.startActivity(intent);
     }
 
@@ -4382,7 +4378,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void checkHistory(Vod item) {
         mHistory = History.find(getHistoryKey());
         mHistory = mHistory == null ? createHistory(item) : mHistory;
-        applyCastHistory();
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
         if (Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
@@ -4398,19 +4393,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private boolean shouldKeepPushArtwork() {
         return SiteApi.PUSH.equals(getKey()) && !TextUtils.isEmpty(getPic());
-    }
-
-    private void applyCastHistory() {
-        String json = Objects.toString(getIntent().getStringExtra("castHistory"), "");
-        if (TextUtils.isEmpty(json)) return;
-        History pushed = History.objectFrom(json);
-        if (pushed == null || TextUtils.isEmpty(pushed.getVodId())) return;
-        if (pushed.getPosition() > 0) mHistory.setPosition(pushed.getPosition());
-        if (pushed.getDuration() > 0) mHistory.setDuration(pushed.getDuration());
-        if (!TextUtils.isEmpty(pushed.getVodFlag())) mHistory.setVodFlag(pushed.getVodFlag());
-        if (!TextUtils.isEmpty(pushed.getVodRemarks())) mHistory.setVodRemarks(pushed.getVodRemarks());
-        if (!TextUtils.isEmpty(pushed.getEpisodeUrl())) mHistory.setEpisodeUrl(pushed.getEpisodeUrl());
-        SpiderDebug.log("video-flow", "cast history applied position=%d duration=%d flag=%s episode=%s", mHistory.getPosition(), mHistory.getDuration(), mHistory.getVodFlag(), mHistory.getVodRemarks());
     }
 
     private String getInitialArtwork(Vod item) {
@@ -5944,7 +5926,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setPosition() {
         if (mHistory == null) return;
-        applyCastHistory();
         if (mHistory.isNearEnding()) {
             SpiderDebug.log("video-flow", "reset near-end history position=%d duration=%d key=%s", mHistory.getPosition(), mHistory.getDuration(), getHistoryKey());
             mHistory.resetPlaybackPosition();
@@ -6283,16 +6264,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     public void onSpeedUp() {
         if (!player().isPlaying()) return;
+        mSpeedBeforeLongPress = player().getSpeed();
         mBinding.widget.speed.setVisibility(View.VISIBLE);
         mBinding.widget.speed.startAnimation(ResUtil.getAnim(R.anim.forward));
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getSpeed()));
+        player().setSpeed(PlayerSetting.getSpeed());
     }
 
     @Override
     public void onSpeedEnd() {
         mBinding.widget.speed.clearAnimation();
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
-        mHistory.setSpeed(player().getSpeed());
+        mBinding.widget.speed.setVisibility(View.GONE);
+        player().setSpeed(mSpeedBeforeLongPress);
     }
 
     @Override
