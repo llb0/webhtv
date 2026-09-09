@@ -286,6 +286,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private CustomKeyDown mKeyDown;
     private float mSpeedBeforeLongPress = 1.0f;
     private String mCastEpisodeHint = "";
+    private boolean mCastSearch;
     private List<String> mBroken;
     private History mHistory;
     private boolean fullscreen;
@@ -1219,6 +1220,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void checkId() {
         if (getId().startsWith("push://")) getIntent().putExtra("key", SiteApi.PUSH).putExtra("id", getId().substring(7));
         if (getId().isEmpty() || getId().startsWith("msearch:")) setEmpty(false);
+        else if (!TextUtils.isEmpty(getKey()) && VodConfig.get().getSite(getKey()).isEmpty()) startCastSearch(getName());
         else getDetail();
     }
 
@@ -6111,6 +6113,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         startSearch(keyword);
     }
 
+    private void startCastSearch(String keyword) {
+        if (TextUtils.isEmpty(keyword)) { setEmpty(false); return; }
+        Notify.show(getString(R.string.play_switch_site, keyword));
+        mCastSearch = true;
+        initSearch(keyword, true);
+    }
+
     private boolean isPass(Site item) {
         if (isAutoMode() && !item.isChangeable()) return false;
         return item.isSearchable();
@@ -6134,7 +6143,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mQuickAdapter.addAll(items);
         if (isQuickSearchVisible()) mQuickSearchDialog.addAll(items);
         if (revealManualSearch && !items.isEmpty()) revealManualSearch = false;
-        if (isInitAuto() && PlayerSetting.isAutoChange()) nextSite();
+        if (isInitAuto() && (PlayerSetting.isAutoChange() || mCastSearch)) nextSite();
         if (items.isEmpty()) return;
         App.removeCallbacks(mR4);
     }
