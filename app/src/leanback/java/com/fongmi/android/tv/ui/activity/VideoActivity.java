@@ -258,6 +258,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private float mSpeedBeforeLongPress = 1.0f;
     private String mCastEpisodeHint = "";
     private boolean mCastSearch;
+    private int mCastDetailRetry;
     private SiteViewModel mViewModel;
     private List<String> mBroken;
     private History mHistory;
@@ -561,7 +562,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         setPlayerKernel();
         setDecode();
         setLut();
-        if (startFullscreen && !isFullscreen()) enterFullscreen();
+        if ((startFullscreen || isCast()) && !isFullscreen()) enterFullscreen();
         if (!detailRequested) checkId();
         if (mPendingDetail != null) {
             Result result = mPendingDetail;
@@ -1034,8 +1035,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void checkCast() {
-        if (isCast() && !isFullscreen()) enterFullscreen();
-        else if (mAudioStageVisible) mBinding.progressLayout.showContent();
+        if (mAudioStageVisible) mBinding.progressLayout.showContent();
         else if (hasInitialPreview()) showInitialPreview();
         else mBinding.progressLayout.showProgress();
     }
@@ -1083,8 +1083,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             SpiderDebug.log("video-flow", "detail pending service key=%s id=%s", getKey(), getId());
             return;
         }
-        if (result.getList().isEmpty()) setEmpty(result.hasMsg());
-        else setDetail(result.getVod());
+        if (result.getList().isEmpty()) {
+            if (isCast() && mCastDetailRetry < 1 && TextUtils.isEmpty(result.getMsg())) {
+                mCastDetailRetry++;
+                SpiderDebug.log("video-flow", "cast detail empty, retry after 800ms attempt=%d", mCastDetailRetry);
+                App.post(() -> getDetail(), 800);
+                return;
+            }
+            setEmpty(result.hasMsg());
+        } else {
+            mCastDetailRetry = 0;
+            setDetail(result.getVod());
+        }
         Notify.show(result.getMsg());
     }
 
