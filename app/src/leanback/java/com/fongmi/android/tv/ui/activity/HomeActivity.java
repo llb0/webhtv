@@ -595,9 +595,17 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void dispatchCast(CastEvent event) {
         if (VodConfig.get().getConfig().equals(event.config())) {
+            switchHomeForCast(event.history());
             VideoActivity.cast(this, event.history());
         } else {
             VodConfig.load(event.config(), getCallback(event));
+        }
+    }
+
+    private void switchHomeForCast(History history) {
+        Site site = VodConfig.get().getSite(history.getSiteKey());
+        if (site != null && !site.isEmpty() && !site.getKey().equals(VodConfig.get().getHome().getKey())) {
+            VodConfig.get().setHome(site);
         }
     }
 
