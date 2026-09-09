@@ -747,12 +747,22 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             return super.dispatchKeyEvent(event);
         }
         if (KeyUtil.isActionDown(event) & KeyUtil.isUpKey(event) && mBinding.typeRecycler.hasFocus()) return requestTitleFocus();
-        if (KeyUtil.isActionDown(event) & KeyUtil.isDownKey(event) && mBinding.typeRecycler.hasFocus()) return requestContentFocus();
+        if (KeyUtil.isActionDown(event) & KeyUtil.isDownKey(event) && mBinding.typeRecycler.hasFocus()) {
+            if (mBinding.recycler.getVisibility() == View.VISIBLE && mBinding.recycler.getChildCount() > 0) return requestContentFocus();
+            return true;
+        }
         if (KeyUtil.isActionDown(event) & KeyUtil.isDownKey(event) && (getCurrentFocus() == mBinding.title || mBinding.funcRecycler.hasFocus())) {
-            updateToolbarVisibility(false);
-            return requestHomeFocus();
+            if (hasHomeContent()) {
+                updateToolbarVisibility(false);
+                return requestHomeFocus();
+            }
+            return true;
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private boolean hasHomeContent() {
+        return mBinding.typeRecycler.getVisibility() == View.VISIBLE || mBinding.recycler.getChildCount() > 0;
     }
 
     private boolean requestTitleFocus() {
