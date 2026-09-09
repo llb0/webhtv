@@ -77,10 +77,10 @@ public class HomeMenuAdapter extends RecyclerView.Adapter<HomeMenuAdapter.ViewHo
 
     private StateListDrawable itemBackground() {
         StateListDrawable drawable = new StateListDrawable();
-        drawable.addState(new int[]{android.R.attr.state_pressed}, roundRect(0x3DFFFFFF, 6, 1, 0x4DFFFFFF));
-        drawable.addState(new int[]{android.R.attr.state_focused}, roundRect(0x3DFFFFFF, 6, 1, 0x4DFFFFFF));
-        drawable.addState(new int[]{android.R.attr.state_selected}, roundRect(0x3DFFFFFF, 6, 1, 0x4DFFFFFF));
-        drawable.addState(new int[]{}, roundRect(0x1FFFFFFF, 6, 1, 0x24FFFFFF));
+        drawable.addState(new int[]{android.R.attr.state_pressed}, roundRect(0x66FFFFFF, 6, 2, 0xFFFFFFFF));
+        drawable.addState(new int[]{android.R.attr.state_focused}, roundRect(0x66FFFFFF, 6, 2, 0xFFFFFFFF));
+        drawable.addState(new int[]{android.R.attr.state_selected}, roundRect(0x66FFFFFF, 6, 2, 0xFFFFFFFF));
+        drawable.addState(new int[]{}, roundRect(0x33FFFFFF, 6, 1, 0x40FFFFFF));
         return drawable;
     }
 
