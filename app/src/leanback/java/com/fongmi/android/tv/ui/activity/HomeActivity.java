@@ -635,10 +635,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         List<Class> types = mHomeResult == null ? new ArrayList<>() : mHomeResult.getTypes();
         mMenuButtonCount = 1 + funcs.size();
         int categoryCount = (hasRecommend ? 1 : 0) + types.size();
-        String[] items = new String[mMenuButtonCount + categoryCount];
+        String[] items = new String[mMenuButtonCount + 1 + categoryCount];
         items[0] = ResUtil.getString(R.string.home_switch);
         for (int i = 0; i < funcs.size(); i++) items[1 + i] = funcs.get(i).getText();
-        int offset = mMenuButtonCount;
+        items[mMenuButtonCount] = ResUtil.getString(R.string.home_refresh);
+        int offset = mMenuButtonCount + 1;
         if (hasRecommend) items[offset++] = ResUtil.getString(R.string.home_recommend);
         for (int i = 0; i < types.size(); i++) items[offset + i] = types.get(i).getTypeName();
         HomeMenuDialog.create().items(items).show(this);
@@ -654,7 +655,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             onItemClick(getFuncItems().get(which - 1));
             return;
         }
-        int categoryIndex = which - mMenuButtonCount;
+        if (which == mMenuButtonCount) {
+            initConfig();
+            return;
+        }
+        int categoryIndex = which - mMenuButtonCount - 1;
         boolean hasRecommend = mHomeResult != null && !mHomeResult.getList().isEmpty();
         if (hasRecommend && categoryIndex == 0) {
             getVideo();
