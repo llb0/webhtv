@@ -257,7 +257,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         FuncPresenter funcPresenter = new FuncPresenter(this);
         funcPresenter.setOnBoundaryListener(this);
         mBinding.funcRecycler.setAdapter(new ItemBridgeAdapter(mFuncAdapter = new ArrayObjectAdapter(funcPresenter)));
-        mBinding.funcRecycler.setHorizontalSpacing(ResUtil.dp2px(6));
+        mBinding.funcRecycler.setHorizontalSpacing(ResUtil.dp2px(4));
         mBinding.funcRecycler.setRowHeight(ResUtil.dp2px(40));
     }
 
