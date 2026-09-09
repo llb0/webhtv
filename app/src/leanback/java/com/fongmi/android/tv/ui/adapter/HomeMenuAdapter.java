@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
@@ -7,7 +9,8 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.fongmi.android.tv.databinding.AdapterDohBinding;
+import com.fongmi.android.tv.databinding.AdapterHomeMenuBinding;
+import com.fongmi.android.tv.utils.ResUtil;
 
 public class HomeMenuAdapter extends RecyclerView.Adapter<HomeMenuAdapter.ViewHolder> {
 
@@ -33,14 +36,15 @@ public class HomeMenuAdapter extends RecyclerView.Adapter<HomeMenuAdapter.ViewHo
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        return new ViewHolder(AdapterDohBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+        return new ViewHolder(AdapterHomeMenuBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
     }
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         holder.binding.text.setText(items[position]);
+        holder.binding.text.setBackground(itemBackground());
         holder.binding.text.setOnClickListener(v -> listener.onItemClick(position));
-        holder.itemView.setOnKeyListener((v, keyCode, event) -> {
+        holder.binding.text.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
             int row = position / spanCount;
             int col = position % spanCount;
@@ -71,11 +75,28 @@ public class HomeMenuAdapter extends RecyclerView.Adapter<HomeMenuAdapter.ViewHo
         });
     }
 
+    private StateListDrawable itemBackground() {
+        StateListDrawable drawable = new StateListDrawable();
+        drawable.addState(new int[]{android.R.attr.state_pressed}, roundRect(0x3DFFFFFF, 6, 1, 0x4DFFFFFF));
+        drawable.addState(new int[]{android.R.attr.state_focused}, roundRect(0x3DFFFFFF, 6, 1, 0x4DFFFFFF));
+        drawable.addState(new int[]{android.R.attr.state_selected}, roundRect(0x3DFFFFFF, 6, 1, 0x4DFFFFFF));
+        drawable.addState(new int[]{}, roundRect(0x1FFFFFFF, 6, 1, 0x24FFFFFF));
+        return drawable;
+    }
+
+    private GradientDrawable roundRect(int color, int radiusDp, int strokeDp, int strokeColor) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(ResUtil.dp2px(radiusDp));
+        if (strokeDp > 0) drawable.setStroke(ResUtil.dp2px(strokeDp), strokeColor);
+        return drawable;
+    }
+
     public static class ViewHolder extends RecyclerView.ViewHolder {
 
-        private final AdapterDohBinding binding;
+        private final AdapterHomeMenuBinding binding;
 
-        public ViewHolder(@NonNull AdapterDohBinding binding) {
+        public ViewHolder(@NonNull AdapterHomeMenuBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
         }
