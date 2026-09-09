@@ -258,6 +258,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         funcPresenter.setOnBoundaryListener(this);
         mBinding.funcRecycler.setAdapter(new ItemBridgeAdapter(mFuncAdapter = new ArrayObjectAdapter(funcPresenter)));
         mBinding.funcRecycler.setHorizontalSpacing(ResUtil.dp2px(8));
+        mBinding.funcRecycler.setRowHeight(ResUtil.dp2px(48));
     }
 
     private void setWebView() {
@@ -630,28 +631,40 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void showHomeMenu() {
         List<Func> funcs = getFuncItems();
+        boolean hasRecommend = mHomeResult != null && !mHomeResult.getList().isEmpty();
         List<Class> types = mHomeResult == null ? new ArrayList<>() : mHomeResult.getTypes();
-        mMenuButtonCount = funcs.size();
-        String[] items = new String[funcs.size() + types.size()];
-        for (int i = 0; i < funcs.size(); i++) items[i] = funcs.get(i).getText();
-        for (int i = 0; i < types.size(); i++) items[funcs.size() + i] = types.get(i).getTypeName();
+        mMenuButtonCount = 1 + funcs.size();
+        int categoryCount = (hasRecommend ? 1 : 0) + types.size();
+        String[] items = new String[mMenuButtonCount + categoryCount];
+        items[0] = ResUtil.getString(R.string.home_switch);
+        for (int i = 0; i < funcs.size(); i++) items[1 + i] = funcs.get(i).getText();
+        int offset = mMenuButtonCount;
+        if (hasRecommend) items[offset++] = ResUtil.getString(R.string.home_recommend);
+        for (int i = 0; i < types.size(); i++) items[offset + i] = types.get(i).getTypeName();
         HomeMenuDialog.create().items(items).show(this);
     }
 
     @Override
     public void onHomeMenu(int which) {
+        if (which == 0) {
+            showDialog();
+            return;
+        }
         if (which < mMenuButtonCount) {
-            onItemClick(getFuncItems().get(which));
+            onItemClick(getFuncItems().get(which - 1));
             return;
         }
         int categoryIndex = which - mMenuButtonCount;
-        List<Class> types = mHomeResult == null ? new ArrayList<>() : mHomeResult.getTypes();
-        if (categoryIndex < 0 || categoryIndex >= types.size()) return;
-        Class item = types.get(categoryIndex);
         boolean hasRecommend = mHomeResult != null && !mHomeResult.getList().isEmpty();
-        int typeIndex = hasRecommend ? categoryIndex + 1 : categoryIndex;
+        if (hasRecommend && categoryIndex == 0) {
+            getVideo();
+            return;
+        }
+        List<Class> types = mHomeResult == null ? new ArrayList<>() : mHomeResult.getTypes();
+        int realIndex = hasRecommend ? categoryIndex - 1 : categoryIndex;
+        if (realIndex < 0 || realIndex >= types.size()) return;
         Result result = mHomeResult == null || mHomeResult.getTypes().isEmpty() ? mResult : mHomeResult;
-        VodActivity.start(this, getHome().getKey(), result, typeIndex);
+        VodActivity.start(this, getHome().getKey(), result, categoryIndex);
     }
 
     @Override
