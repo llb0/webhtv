@@ -1,11 +1,15 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.view.KeyEvent;
+
 import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.databinding.DialogHomeMenuBinding;
+import com.fongmi.android.tv.ui.activity.SettingActivity;
 import com.fongmi.android.tv.ui.adapter.HomeMenuAdapter;
+import com.fongmi.android.tv.utils.KeyUtil;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public class HomeMenuDialog extends BaseAlertDialog implements HomeMenuAdapter.OnClickListener {
@@ -40,7 +44,14 @@ public class HomeMenuDialog extends BaseAlertDialog implements HomeMenuAdapter.O
 
     @Override
     protected MaterialAlertDialogBuilder getBuilder() {
-        return builder().setView(getBinding().getRoot());
+        return builder().setView(getBinding().getRoot()).setOnKeyListener((dialog, keyCode, event) -> {
+            if (KeyUtil.isMenuKey(event) && event.getAction() == KeyEvent.ACTION_DOWN) {
+                SettingActivity.start(requireActivity());
+                dismiss();
+                return true;
+            }
+            return false;
+        });
     }
 
     @Override
