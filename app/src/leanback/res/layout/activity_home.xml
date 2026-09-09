@@ -75,9 +75,9 @@
 
         <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/logo"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginEnd="12dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="10dp"
             android:src="@drawable/ic_logo" />
 
         <com.fongmi.android.tv.ui.custom.CustomTitleView
@@ -93,24 +93,30 @@
             android:textColor="@color/white"
             android:textSize="24sp" />
 
-        <androidx.leanback.widget.HorizontalGridView
-            android:id="@+id/funcRecycler"
+        <FrameLayout
             android:layout_width="0dp"
             android:layout_height="40dp"
             android:layout_weight="1"
-            android:layout_marginEnd="16dp"
-            android:clipChildren="false"
-            android:clipToPadding="false"
-            android:nextFocusDown="@id/typeRecycler"
-            app:focusOutEnd="false"
-            app:focusOutFront="false" />
+            android:layout_marginEnd="16dp">
+
+            <androidx.leanback.widget.HorizontalGridView
+                android:id="@+id/funcRecycler"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_gravity="end"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:nextFocusDown="@id/typeRecycler"
+                app:focusOutEnd="false"
+                app:focusOutFront="false" />
+        </FrameLayout>
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/clock"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/white"
-            android:textSize="24sp"
+            android:textSize="28sp"
             tools:text="09:20:00" />
 
     </androidx.appcompat.widget.LinearLayoutCompat>
