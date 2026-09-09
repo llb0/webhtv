@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
 
@@ -12,10 +13,12 @@ public class HomeMenuAdapter extends RecyclerView.Adapter<HomeMenuAdapter.ViewHo
 
     private final OnClickListener listener;
     private final String[] items;
+    private final int spanCount;
 
-    public HomeMenuAdapter(OnClickListener listener, String[] items) {
+    public HomeMenuAdapter(OnClickListener listener, String[] items, int spanCount) {
         this.listener = listener;
         this.items = items;
+        this.spanCount = spanCount;
     }
 
     public interface OnClickListener {
@@ -37,6 +40,35 @@ public class HomeMenuAdapter extends RecyclerView.Adapter<HomeMenuAdapter.ViewHo
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         holder.binding.text.setText(items[position]);
         holder.binding.text.setOnClickListener(v -> listener.onItemClick(position));
+        holder.itemView.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            int row = position / spanCount;
+            int col = position % spanCount;
+            int totalRows = (int) Math.ceil((double) items.length / spanCount);
+            int rowStart = row * spanCount;
+            int rowEnd = Math.min(rowStart + spanCount - 1, items.length - 1);
+            int target = -1;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP && row == 0) {
+                target = (totalRows - 1) * spanCount + col;
+                if (target >= items.length) target = items.length - 1;
+            } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && row == totalRows - 1) {
+                target = col;
+                if (target >= items.length) target = 0;
+            } else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && position == rowStart) {
+                target = rowEnd;
+            } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && position == rowEnd) {
+                target = rowStart;
+            }
+            if (target >= 0 && target != position && target < items.length) {
+                RecyclerView rv = (RecyclerView) holder.itemView.getParent();
+                RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(target);
+                if (vh != null) {
+                    vh.itemView.requestFocus();
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 
     public static class ViewHolder extends RecyclerView.ViewHolder {
