@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.server.process;
 
 import android.text.TextUtils;
+import android.util.Base64;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
@@ -36,6 +37,7 @@ import com.github.catvod.utils.Path;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.security.MessageDigest;
 import java.util.List;
 import java.util.Locale;
@@ -179,6 +181,30 @@ public class Action implements Process {
         Config config = Config.objectFrom(params.get("config"));
         Device device = Device.objectFrom(params.get("device"));
         History history = History.objectFrom(params.get("history"));
+        String sourceContent = params.get("sourceContent");
+        String sourceName = params.get("sourceName");
+        if (!TextUtils.isEmpty(sourceContent) && !TextUtils.isEmpty(sourceName)) {
+            try {
+                File dest = new File(Path.root() + "/tvbox/", sourceName);
+                if (!dest.getParentFile().exists()) dest.getParentFile().mkdirs();
+                try (FileOutputStream fos = new FileOutputStream(dest)) {
+                    fos.write(Base64.decode(sourceContent, Base64.NO_WRAP));
+                }
+                config.setUrl(dest.getAbsolutePath());
+                Config found = Config.find(config);
+                VodConfig.load(found, new Callback() {
+                    @Override
+                    public void success() {
+                        CastEvent.post(found, device, history);
+                    }
+                    @Override
+                    public void error(String msg) {
+                        CastEvent.post(Config.find(config), device, history);
+                    }
+                });
+                return;
+            } catch (Exception ignored) {}
+        }
         CastEvent.post(Config.find(config), device, history);
     }
 
