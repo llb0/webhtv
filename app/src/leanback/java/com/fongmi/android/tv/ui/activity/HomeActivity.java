@@ -474,6 +474,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void setFunc() {
         mFuncAdapter.setItems(getFuncItems(), new BaseDiffCallback<Func>());
+        int count = mFuncAdapter.size();
+        if (count > 0) {
+            android.view.ViewGroup.LayoutParams params = mBinding.funcRecycler.getLayoutParams();
+            params.width = ResUtil.dp2px(60 * count + 4 * (count - 1));
+            mBinding.funcRecycler.setLayoutParams(params);
+        }
     }
 
     private List<Func> getFuncItems() {
