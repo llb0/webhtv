@@ -96,7 +96,7 @@
         <androidx.leanback.widget.HorizontalGridView
             android:id="@+id/funcRecycler"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:layout_marginEnd="16dp"
             android:clipChildren="false"
             android:clipToPadding="false"
