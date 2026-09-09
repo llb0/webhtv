@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.dialog;
 import android.app.Activity;
 import android.content.Intent;
 import android.text.TextUtils;
+import android.util.Base64;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -35,6 +36,8 @@ import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 
 import okhttp3.Call;
@@ -60,7 +63,21 @@ public class CastDialog extends BaseBottomSheetDialog implements DeviceAdapter.O
         body = new FormBody.Builder();
         body.add("device", Device.get().toString());
         body.add("config", Config.vod().toString());
+        addLocalConfigSource();
         client = OkHttp.client(Constant.TIMEOUT_SYNC);
+    }
+
+    private void addLocalConfigSource() {
+        String url = Config.vod().getUrl();
+        if (TextUtils.isEmpty(url)) return;
+        File file = Path.local(url);
+        if (file == null || !file.exists()) return;
+        try (FileInputStream fis = new FileInputStream(file)) {
+            byte[] data = new byte[(int) file.length()];
+            fis.read(data);
+            body.add("sourceContent", Base64.encodeToString(data, Base64.NO_WRAP));
+            body.add("sourceName", file.getName());
+        } catch (Exception ignored) {}
     }
 
     public static CastDialog create() {
