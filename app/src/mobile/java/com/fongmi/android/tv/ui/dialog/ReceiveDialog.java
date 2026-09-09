@@ -80,9 +80,9 @@ public class ReceiveDialog extends BaseBottomSheetDialog {
             Activity activity = requireActivity();
             if (activity instanceof VideoActivity video) {
                 video.finishVideoForCast();
-                App.post(() -> VideoActivity.cast(activity, event.history().save(VodConfig.getCid())), 300);
+                App.post(() -> VideoActivity.cast(activity, event.history()), 300);
             } else {
-                VideoActivity.cast(activity, event.history().save(VodConfig.getCid()));
+                VideoActivity.cast(activity, event.history());
             }
             dismiss();
         } else {
