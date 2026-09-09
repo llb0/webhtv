@@ -14,6 +14,7 @@ import androidx.viewbinding.ViewBinding;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.History;
+import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.DialogReceiveBinding;
 import com.fongmi.android.tv.event.CastEvent;
 import com.fongmi.android.tv.impl.Callback;
@@ -78,6 +79,7 @@ public class ReceiveDialog extends BaseBottomSheetDialog {
     private void onReceiveCast() {
         if (VodConfig.get().getConfig().equals(event.config())) {
             Activity activity = requireActivity();
+            switchHomeForCast(event.history());
             if (activity instanceof VideoActivity video) {
                 video.finishVideoForCast();
                 App.post(() -> VideoActivity.cast(activity, event.history()), 300);
@@ -88,6 +90,13 @@ public class ReceiveDialog extends BaseBottomSheetDialog {
         } else {
             showProgress();
             VodConfig.load(event.config(), getCallback());
+        }
+    }
+
+    private void switchHomeForCast(History history) {
+        Site site = VodConfig.get().getSite(history.getSiteKey());
+        if (site != null && !site.isEmpty() && !site.getKey().equals(VodConfig.get().getHome().getKey())) {
+            VodConfig.get().setHome(site);
         }
     }
 
