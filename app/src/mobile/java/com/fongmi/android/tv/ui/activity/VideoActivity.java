@@ -287,6 +287,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private float mSpeedBeforeLongPress = 1.0f;
     private String mCastEpisodeHint = "";
     private boolean mCastSearch;
+    private int mCastDetailRetry;
     private List<String> mBroken;
     private History mHistory;
     private boolean fullscreen;
@@ -459,6 +460,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         intent.putExtra("startFullscreen", fullscreen);
         if (history != null) intent.putExtra("castHistory", history.toString());
         activity.startActivity(intent);
+    }
+
+    private boolean isCast() {
+        return getIntent().hasExtra("castHistory");
     }
 
     private String getName() {
@@ -1260,8 +1265,18 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         SpiderDebug.log("video-flow", "detail finish cost=%dms empty=%s msg=%s", cost, result.getList().isEmpty(), result.getMsg());
         recordDetailHealth(result, cost);
         mBinding.swipeLayout.setRefreshing(false);
-        if (result.getList().isEmpty()) setEmpty(result.hasMsg());
-        else setDetail(result.getVod());
+        if (result.getList().isEmpty()) {
+            if (isCast() && mCastDetailRetry < 1 && TextUtils.isEmpty(result.getMsg())) {
+                mCastDetailRetry++;
+                SpiderDebug.log("video-flow", "cast detail empty, retry after 800ms attempt=%d", mCastDetailRetry);
+                App.post(() -> getDetail(), 800);
+                return;
+            }
+            setEmpty(result.hasMsg());
+        } else {
+            mCastDetailRetry = 0;
+            setDetail(result.getVod());
+        }
         Notify.show(result.getMsg());
     }
 
