@@ -58,7 +58,7 @@ public class HomeMenuDialog extends BaseAlertDialog implements HomeMenuAdapter.O
     protected void initView() {
         binding.recycler.setHasFixedSize(true);
         binding.recycler.setLayoutManager(new GridLayoutManager(getActivity(), spanCount));
-        binding.recycler.setAdapter(new HomeMenuAdapter(this, items));
+        binding.recycler.setAdapter(new HomeMenuAdapter(this, items, spanCount));
     }
 
     @Override
