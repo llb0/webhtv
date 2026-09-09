@@ -256,6 +256,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private PlayerOsdController mOsd;
     private CustomKeyDownVod mKeyDown;
     private float mSpeedBeforeLongPress = 1.0f;
+    private String mCastEpisodeHint = "";
     private SiteViewModel mViewModel;
     private List<String> mBroken;
     private History mHistory;
@@ -1275,7 +1276,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void seamless(Flag flag) {
-        Episode episode = getMark().isEmpty() ? flag.find(mHistory.getEpisode(), true) : flag.find(mHistory.getVodRemarks(), false);
+        String hint = !TextUtils.isEmpty(mCastEpisodeHint) ? mCastEpisodeHint : mHistory.getVodRemarks();
+        Episode episode = getMark().isEmpty() ? flag.find(hint, true) : flag.find(mHistory.getVodRemarks(), false);
         setQualityVisible(episode != null && episode.isSelected() && mQualityAdapter.getItemCount() > 1);
         if (episode == null || episode.isSelected()) return;
         selectEpisode(episode, false);
@@ -3648,11 +3650,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         History pushed = History.objectFrom(json);
         if (pushed == null || TextUtils.isEmpty(pushed.getVodId())) return;
         if (pushed.getPosition() > 0) mHistory.setPosition(pushed.getPosition());
-        if (pushed.getDuration() > 0) mHistory.setDuration(pushed.getDuration());
-        if (!TextUtils.isEmpty(pushed.getVodFlag())) mHistory.setVodFlag(pushed.getVodFlag());
-        if (!TextUtils.isEmpty(pushed.getVodRemarks())) mHistory.setVodRemarks(pushed.getVodRemarks());
-        if (!TextUtils.isEmpty(pushed.getEpisodeUrl())) mHistory.setEpisodeUrl(pushed.getEpisodeUrl());
-        SpiderDebug.log("video-flow", "cast history applied position=%d duration=%d flag=%s episode=%s", mHistory.getPosition(), mHistory.getDuration(), mHistory.getVodFlag(), mHistory.getVodRemarks());
+        if (!TextUtils.isEmpty(pushed.getVodRemarks())) mCastEpisodeHint = pushed.getVodRemarks();
+        SpiderDebug.log("video-flow", "cast history pointer applied position=%d episodeHint=%s", mHistory.getPosition(), mCastEpisodeHint);
     }
 
     private String getInitialArtwork(Vod item) {
