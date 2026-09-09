@@ -93,23 +93,21 @@
             android:textColor="@color/white"
             android:textSize="24sp" />
 
-        <FrameLayout
+        <View
             android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="16dp">
+            android:layout_height="match_parent"
+            android:layout_weight="1" />
 
-            <androidx.leanback.widget.HorizontalGridView
-                android:id="@+id/funcRecycler"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_gravity="end"
-                android:clipChildren="false"
-                android:clipToPadding="false"
-                android:nextFocusDown="@id/typeRecycler"
-                app:focusOutEnd="false"
-                app:focusOutFront="false" />
-        </FrameLayout>
+        <androidx.leanback.widget.HorizontalGridView
+            android:id="@+id/funcRecycler"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginEnd="16dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:nextFocusDown="@id/typeRecycler"
+            app:focusOutEnd="false"
+            app:focusOutFront="false" />
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/clock"
