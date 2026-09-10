@@ -122,7 +122,7 @@ public class VodConfig extends BaseConfig {
 
     @Override
     protected void load(Config config) throws Throwable {
-        if (config.isEmpty()) {
+        if (config.isEmpty() || Config.isDefaultUrl(config.getUrl())) {
             try {
                 initSites(config, "", new JsonObject());
             } catch (Throwable ignored) {}
