@@ -6,7 +6,9 @@
     android:focusable="true"
     android:focusableInTouchMode="true"
     android:gravity="center_vertical"
-    android:orientation="horizontal">
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp">
 
     <com.google.android.material.checkbox.MaterialCheckBox
         android:id="@+id/check"
