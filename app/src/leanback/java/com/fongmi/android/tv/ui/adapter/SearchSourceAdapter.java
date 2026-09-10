@@ -64,7 +64,7 @@ public class SearchSourceAdapter extends RecyclerView.Adapter<SearchSourceAdapte
         SearchSourceItem item = items.get(position);
         holder.binding.title.setText(item.titleRes);
         holder.binding.subtitle.setText(item.subtitle == null ? "" : item.subtitle);
-        holder.binding.subtitle.setVisibility(item.subtitle == null || item.subtitle.isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE);
+        holder.binding.subtitle.setVisibility(item.subtitle == null || item.subtitle.isEmpty() ? android.view.View.INVISIBLE : android.view.View.VISIBLE);
         holder.binding.getRoot().setSelected(checked == item.mode);
         holder.binding.config.setVisibility(item.configurable ? android.view.View.VISIBLE : android.view.View.GONE);
         holder.binding.getRoot().setOnClickListener(v -> {
