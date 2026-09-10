@@ -17,7 +17,7 @@
     <string name="control_track">轨道</string>
     <string name="home_history">历史</string>
     <string name="home_recommend">推荐</string>
-    <string name="home_switch">换源</string>
+    <string name="home_switch">选站</string>
 
     <!-- Collect -->
     <string name="collect_result">"<xliff:g name="name">%s</xliff:g>"的搜索结果</string>
