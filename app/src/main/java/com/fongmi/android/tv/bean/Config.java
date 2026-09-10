@@ -26,6 +26,9 @@ public class Config {
     public static final String DEFAULT_URL_ZH = "文件源放 /tvbox/ 的 sites、sites-json、sites-js、sites-py 中";
     public static final String DEFAULT_URL_ZH_TW = "檔案源放 /tvbox/ 的 sites、sites-json、sites-js、sites-py 中";
     public static final String DEFAULT_URL_EN = "File sources in /tvbox/ sites, sites-json, sites-js, sites-py";
+    public static final String DEFAULT_LIVE_URL_ZH = "文件源放 /tvbox/lives/";
+    public static final String DEFAULT_LIVE_URL_ZH_TW = "檔案源放 /tvbox/lives/";
+    public static final String DEFAULT_LIVE_URL_EN = "File sources in /tvbox/lives/";
 
     @PrimaryKey(autoGenerate = true)
     @SerializedName("id")
@@ -93,29 +96,32 @@ public class Config {
     }
 
     public static String defaultUrl() {
+        return defaultUrl(false);
+    }
+
+    public static String defaultUrl(boolean live) {
         String lang = Locale.getDefault().getLanguage();
         if ("zh".equals(lang)) {
             String country = Locale.getDefault().getCountry();
-            if ("TW".equals(country) || "HK".equals(country) || "MO".equals(country)) {
-                return DEFAULT_URL_ZH_TW;
-            }
-            return DEFAULT_URL_ZH;
+            boolean tw = "TW".equals(country) || "HK".equals(country) || "MO".equals(country);
+            return live ? (tw ? DEFAULT_LIVE_URL_ZH_TW : DEFAULT_LIVE_URL_ZH) : (tw ? DEFAULT_URL_ZH_TW : DEFAULT_URL_ZH);
         }
-        return DEFAULT_URL_EN;
+        return live ? DEFAULT_LIVE_URL_EN : DEFAULT_URL_EN;
     }
 
     public static boolean isDefaultUrl(String url) {
-        return DEFAULT_URL_ZH.equals(url) || DEFAULT_URL_ZH_TW.equals(url) || DEFAULT_URL_EN.equals(url);
+        return DEFAULT_URL_ZH.equals(url) || DEFAULT_URL_ZH_TW.equals(url) || DEFAULT_URL_EN.equals(url)
+                || DEFAULT_LIVE_URL_ZH.equals(url) || DEFAULT_LIVE_URL_ZH_TW.equals(url) || DEFAULT_LIVE_URL_EN.equals(url);
     }
 
     public static Config vod() {
         Config item = AppDatabase.get().getConfigDao().findOne(0);
-        return item == null ? create(0, defaultUrl()) : item;
+        return item == null ? create(0, defaultUrl(false)) : item;
     }
 
     public static Config live() {
         Config item = AppDatabase.get().getConfigDao().findOne(1);
-        return item == null ? create(1, defaultUrl()) : item;
+        return item == null ? create(1, defaultUrl(true)) : item;
     }
 
     public static Config wall() {
