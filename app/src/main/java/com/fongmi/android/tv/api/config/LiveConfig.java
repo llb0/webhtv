@@ -133,7 +133,7 @@ public class LiveConfig extends BaseConfig {
             return;
         }
         try {
-            String json = Decoder.getJson(UrlUtil.convert(config.getUrl()), TAG);
+            String json = Decoder.getJson(config.getUrl(), TAG);
             if (Json.isObj(json)) {
                 checkJson(config, Json.parse(json).getAsJsonObject());
             } else {
