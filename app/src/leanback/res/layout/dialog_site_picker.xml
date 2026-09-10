@@ -1,17 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/shape_site_dialog"
     android:orientation="vertical"
     android:padding="12dp">
+
+    <View
+        android:id="@+id/handle"
+        android:layout_width="38dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="10dp" />
 
     <androidx.appcompat.widget.AppCompatEditText
         android:id="@+id/search"
         android:layout_width="match_parent"
         android:layout_height="40dp"
-        android:background="@drawable/selector_site_item"
         android:drawablePadding="8dp"
         android:ellipsize="end"
         android:hint="@string/search_sites"
@@ -44,7 +50,6 @@
             android:layout_width="wrap_content"
             android:layout_height="40dp"
             android:layout_marginStart="6dp"
-            android:background="@drawable/selector_site_item"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
@@ -58,7 +63,6 @@
             android:layout_width="wrap_content"
             android:layout_height="40dp"
             android:layout_marginStart="6dp"
-            android:background="@drawable/selector_site_item"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
@@ -72,7 +76,6 @@
             android:layout_width="wrap_content"
             android:layout_height="40dp"
             android:layout_marginStart="6dp"
-            android:background="@drawable/selector_site_item"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
@@ -86,7 +89,6 @@
             android:layout_width="wrap_content"
             android:layout_height="40dp"
             android:layout_marginStart="16dp"
-            android:background="@drawable/selector_site_item"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"

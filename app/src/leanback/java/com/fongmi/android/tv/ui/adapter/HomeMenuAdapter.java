@@ -1,7 +1,5 @@
 package com.fongmi.android.tv.ui.adapter;
 
-import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.StateListDrawable;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
@@ -10,7 +8,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.databinding.AdapterHomeMenuBinding;
-import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.ui.dialog.BaseGlassDialog;
 
 public class HomeMenuAdapter extends RecyclerView.Adapter<HomeMenuAdapter.ViewHolder> {
 
@@ -42,7 +40,7 @@ public class HomeMenuAdapter extends RecyclerView.Adapter<HomeMenuAdapter.ViewHo
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         holder.binding.text.setText(items[position]);
-        holder.binding.text.setBackground(itemBackground());
+        holder.binding.text.setBackground(BaseGlassDialog.glassItemBackground());
         holder.binding.text.setOnClickListener(v -> listener.onItemClick(position));
         holder.binding.text.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
@@ -73,23 +71,6 @@ public class HomeMenuAdapter extends RecyclerView.Adapter<HomeMenuAdapter.ViewHo
             }
             return false;
         });
-    }
-
-    private StateListDrawable itemBackground() {
-        StateListDrawable drawable = new StateListDrawable();
-        drawable.addState(new int[]{android.R.attr.state_pressed}, roundRect(0x66FFFFFF, 6, 2, 0xFFFFFFFF));
-        drawable.addState(new int[]{android.R.attr.state_focused}, roundRect(0x66FFFFFF, 6, 2, 0xFFFFFFFF));
-        drawable.addState(new int[]{android.R.attr.state_selected}, roundRect(0x66FFFFFF, 6, 2, 0xFFFFFFFF));
-        drawable.addState(new int[]{}, roundRect(0x33FFFFFF, 6, 1, 0x40FFFFFF));
-        return drawable;
-    }
-
-    private GradientDrawable roundRect(int color, int radiusDp, int strokeDp, int strokeColor) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(color);
-        drawable.setCornerRadius(ResUtil.dp2px(radiusDp));
-        if (strokeDp > 0) drawable.setStroke(ResUtil.dp2px(strokeDp), strokeColor);
-        return drawable;
     }
 
     public static class ViewHolder extends RecyclerView.ViewHolder {

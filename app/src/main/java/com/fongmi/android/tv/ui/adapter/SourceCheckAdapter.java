@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.databinding.ItemSiteCheckBinding;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SourceBlockItem;
+import com.fongmi.android.tv.ui.dialog.BaseGlassDialog;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -95,6 +96,7 @@ public class SourceCheckAdapter extends RecyclerView.Adapter<SourceCheckAdapter.
         ViewHolder(ItemSiteCheckBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
+            binding.getRoot().setBackground(BaseGlassDialog.glassItemBackground());
         }
     }
 }

@@ -1,14 +1,11 @@
 package com.fongmi.android.tv.ui.dialog;
 
 import android.app.Dialog;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.Window;
-import android.view.WindowManager;
 import android.widget.Toast;
 import java.io.File;
 import java.util.List;
@@ -37,7 +34,7 @@ import com.github.catvod.utils.Path;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickListener, SiteAdapter.OnDeleteListener {
+public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickListener, SiteAdapter.OnDeleteListener {
 
     private static final int GRID_COUNT = 3;
     private static final String TAG = "site_dialog";
@@ -85,7 +82,8 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         return GRID_COUNT;
     }
 
-    private float getWidth() {
+    @Override
+    protected float getWidthRatio() {
         return action ? 0.92f : 0.9f;
     }
 
@@ -94,16 +92,10 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         return binding = DialogSiteBinding.inflate(getLayoutInflater());
     }
 
-    @Override
-    protected MaterialAlertDialogBuilder getBuilder() {
-        return builder().setView(getBinding().getRoot());
-    }
-
     @NonNull
     @Override
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         Dialog dialog = super.onCreateDialog(savedInstanceState);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setOnShowListener(d -> {
             if (listLoaded) waitForLayoutAndFocus();
         });
@@ -118,7 +110,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     private void initShellView() {
         long start = System.currentTimeMillis();
-        setRootWidth();
+        updateWindowWidth();
         setRecyclerHeight(INITIAL_BATCH);
         binding.searchBar.setVisibility(View.GONE);
         binding.keyword.setVisibility(View.GONE);
@@ -227,7 +219,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
                 setRecyclerView();
                 setRecyclerHeight(adapter.getItemCount());
                 setMode();
-                setWidth();
+                updateWindowWidth();
                 scrollAndFocusActiveSite();
             }
         });
@@ -250,13 +242,6 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         binding.recycler.setLayoutParams(params);
     }
 
-    private void setRootWidth() {
-        ViewGroup.LayoutParams params = binding.getRoot().getLayoutParams();
-        if (params == null) params = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.width = (int) (ResUtil.getScreenWidth() * getWidth());
-        binding.getRoot().setLayoutParams(params);
-    }
-
     private void setType(int type) {
         binding.search.setSelected(type == 1);
         binding.change.setSelected(type == 2);
@@ -271,14 +256,10 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         binding.mode.setEnabled(false);
     }
 
-    private void setWidth() {
-        setWidth(getWidth());
-    }
-
     private void onMode(View view) {
         setRecyclerView();
         setMode();
-        setWidth();
+        updateWindowWidth();
     }
 
     private void setActionEnabled(boolean enabled) {
@@ -301,12 +282,18 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         if (act == null || act.isFinishing() || act.isDestroyed()) {
             return;
         }
-        new MaterialAlertDialogBuilder(act)
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(act)
                 .setTitle(R.string.setting_site_delete_title)
                 .setMessage(getString(R.string.setting_site_delete_message, item.getName()))
-                .setPositiveButton(android.R.string.ok, (dialog, which) -> deleteFileSite(item))
+                .setPositiveButton(android.R.string.ok, (d, which) -> deleteFileSite(item))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+        Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(glassBackground());
+            View content = w.getDecorView().findViewById(android.R.id.content);
+            if (content != null) content.setBackground(null);
+        }
     }
 
     private void deleteFileSite(Site item) {
@@ -349,7 +336,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         }
         if (!siteList.isEmpty()) siteList.remove(item);
         Toast.makeText(requireActivity(), getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
-        if (adapter != null) {
+        if (adapter != null && binding != null) {
             adapter.removeSite(item);
             setRecyclerHeight(adapter.getItemCount());
             binding.recycler.post(this::scrollAndFocusActiveSite);
@@ -378,31 +365,12 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         });
     }
 
-    private void applyWindow(Window window) {
-        if (window == null) return;
-        window.setWindowAnimations(0);
-        window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        WindowManager.LayoutParams params = window.getAttributes();
-        params.width = (int) (ResUtil.getScreenWidth() * getWidth());
-        params.height = WindowManager.LayoutParams.WRAP_CONTENT;
-        window.setAttributes(params);
-    }
-
     private void runAfterRecyclerLayout(Runnable action) {
-        if(binding == null || binding.recycler == null) {
-            if(action != null) action.run();
+        if (binding == null || binding.recycler == null) {
+            if (action != null) action.run();
             return;
         }
-        binding.recycler.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                ViewTreeObserver obs = binding.recycler.getViewTreeObserver();
-                if(obs.isAlive()) {
-                    obs.removeOnGlobalLayoutListener(this);
-                }
-                if(action != null) binding.recycler.post(action);
-            }
-        });
+        binding.recycler.post(action);
     }
 
     private long cost() {
@@ -423,11 +391,9 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         super.dismiss();
     }
 
-@Override
+    @Override
     public void onStart() {
         super.onStart();
-        Window window = getDialog() == null ? null : getDialog().getWindow();
-        applyWindow(window);
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
     }
 }

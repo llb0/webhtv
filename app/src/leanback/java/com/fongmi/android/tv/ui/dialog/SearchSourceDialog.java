@@ -1,27 +1,18 @@
 package com.fongmi.android.tv.ui.dialog;
 
-import android.app.Dialog;
-import android.os.Bundle;
-import android.view.Window;
-import android.view.WindowManager;
-
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.databinding.DialogSearchSourceBinding;
 import com.fongmi.android.tv.ui.adapter.SearchSourceAdapter;
-import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.SearchModeStore;
 import com.fongmi.android.tv.utils.SearchSourceHelper;
 import com.fongmi.android.tv.utils.SearchSourceItem;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class SearchSourceDialog extends BaseAlertDialog {
+public class SearchSourceDialog extends BaseGlassDialog {
 
     private DialogSearchSourceBinding binding;
     private SearchSourceAdapter adapter;
@@ -41,17 +32,8 @@ public class SearchSourceDialog extends BaseAlertDialog {
     }
 
     @Override
-    protected MaterialAlertDialogBuilder getBuilder() {
-        return builder().setView(getBinding().getRoot());
-    }
-
-    @NonNull
-    @Override
-    public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
-        Dialog dialog = super.onCreateDialog(savedInstanceState);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setCanceledOnTouchOutside(true);
-        return dialog;
+    protected float getWidthRatio() {
+        return 0.55f;
     }
 
     @Override
@@ -64,16 +46,6 @@ public class SearchSourceDialog extends BaseAlertDialog {
             SearchModeStore.putMode(mode);
             dismiss();
         });
-    }
-
-    @Override
-    protected void initEvent() {
-        Window w = getDialog() != null ? getDialog().getWindow() : null;
-        if (w != null) {
-            WindowManager.LayoutParams p = w.getAttributes();
-            p.width = (int) (ResUtil.getScreenWidth() * 0.55f);
-            w.setAttributes(p);
-        }
     }
 
     private void openConfig(SearchSourceItem item) {

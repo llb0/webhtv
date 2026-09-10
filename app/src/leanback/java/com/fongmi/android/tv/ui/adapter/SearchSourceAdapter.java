@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.databinding.ItemSearchSourceBinding;
+import com.fongmi.android.tv.ui.dialog.BaseGlassDialog;
 import com.fongmi.android.tv.utils.SearchSourceItem;
 
 import java.util.ArrayList;
@@ -63,7 +64,7 @@ public class SearchSourceAdapter extends RecyclerView.Adapter<SearchSourceAdapte
         SearchSourceItem item = items.get(position);
         holder.binding.title.setText(item.titleRes);
         holder.binding.subtitle.setText(item.subtitle == null ? "" : item.subtitle);
-        holder.binding.subtitle.setVisibility(item.subtitle == null || item.subtitle.isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE);
+        holder.binding.subtitle.setVisibility(item.subtitle == null || item.subtitle.isEmpty() ? android.view.View.INVISIBLE : android.view.View.VISIBLE);
         holder.binding.getRoot().setSelected(checked == item.mode);
         holder.binding.config.setVisibility(item.configurable ? android.view.View.VISIBLE : android.view.View.GONE);
         holder.binding.getRoot().setOnClickListener(v -> {
@@ -91,6 +92,7 @@ public class SearchSourceAdapter extends RecyclerView.Adapter<SearchSourceAdapte
         ViewHolder(ItemSearchSourceBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
+            binding.getRoot().setBackground(BaseGlassDialog.glassItemBackground());
         }
     }
 }

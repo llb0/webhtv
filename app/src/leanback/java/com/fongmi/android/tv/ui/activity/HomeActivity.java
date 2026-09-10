@@ -833,11 +833,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void exitHome() {
+        AppDatabase.autoBackupOnExit();
         ExitConfirmDialog.create(this::confirmExitHome).show(this);
     }
 
     private void confirmExitHome() {
-        AppDatabase.autoBackupOnExit();
         if (PlaybackService.isRunning()) Util.moveToBackground(this);
         else super.onBackInvoked();
     }
