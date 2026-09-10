@@ -86,8 +86,8 @@
                 android:gravity="center_vertical|start"
                 android:maxLines="1"
                 android:textSize="14sp"
-                android:textColor="@color/dialog_primary_button_text"
-                app:backgroundTint="@color/dialog_primary_button_bg"
+                android:textColor="#202124"
+                android:background="@drawable/selector_update_version_item"
                 app:cornerRadius="8dp"
                 tools:text="GitHub proxy · GitHub" />
 
@@ -155,8 +155,8 @@
                 android:gravity="center_vertical|start"
                 android:maxLines="1"
                 android:textSize="14sp"
-                android:textColor="@color/dialog_primary_button_text"
-                app:backgroundTint="@color/dialog_primary_button_bg"
+                android:textColor="#202124"
+                android:background="@drawable/selector_update_version_item"
                 app:cornerRadius="8dp"
                 tools:text="OCI mirror · dockerproxy.net" />
 
