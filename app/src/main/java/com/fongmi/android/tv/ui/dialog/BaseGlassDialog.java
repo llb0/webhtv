@@ -126,7 +126,7 @@ public abstract class BaseGlassDialog extends DialogFragment {
         StateListDrawable drawable = new StateListDrawable();
         drawable.addState(new int[]{android.R.attr.state_pressed}, roundRect(0x66FFFFFF, 6, 2, 0xFFFFFFFF));
         drawable.addState(new int[]{android.R.attr.state_focused}, roundRect(0x66FFFFFF, 6, 2, 0xFFFFFFFF));
-        drawable.addState(new int[]{android.R.attr.state_selected}, roundRect(0x66FFFFFF, 6, 2, 0xFFFFFFFF));
+        drawable.addState(new int[]{android.R.attr.state_selected}, roundRect(0x44FFFFFF, 6, 1, 0x66FFFFFF));
         drawable.addState(new int[]{}, roundRect(0x33FFFFFF, 6, 1, 0x40FFFFFF));
         return drawable;
     }
