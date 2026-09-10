@@ -255,6 +255,10 @@ public class Config {
 
     public Config save() {
         setTime(System.currentTimeMillis());
+        if (TextUtils.isEmpty(getUrl())) {
+            Prefers.put("config_" + getType(), getUrl());
+            return this;
+        }
         if (id == 0) {
             setId(Math.toIntExact(AppDatabase.get().getConfigDao().insert(this)));
         } else {
@@ -262,6 +266,10 @@ public class Config {
         }
         Prefers.put("config_" + getType(), getUrl());
         return this;
+    }
+
+    public static void deleteEmpty() {
+        AppDatabase.get().getConfigDao().delete("");
     }
 
     public Config update() {
