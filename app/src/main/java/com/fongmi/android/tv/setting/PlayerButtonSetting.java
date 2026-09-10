@@ -6,8 +6,8 @@ import android.view.ViewGroup;
 import androidx.annotation.StringRes;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.utils.Prefers;
-import com.github.catvod.utils.Util;
 
 import java.util.ArrayList;
 import java.util.Arrays;
