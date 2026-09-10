@@ -264,6 +264,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private History mHistory;
     private boolean fullscreen;
     private boolean startFullscreen;
+    private boolean mWasPlaying;
     private boolean initAuto;
     private boolean autoMode;
     private boolean revealManualSearch;
@@ -6318,11 +6319,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             mOsd.start();
         }
         if (service() != null) refreshLyrics();
+        if (mWasPlaying && service() != null && !player().isPlaying() && !player().isEmpty()) onPlay();
+        if (isVisible(mBinding.control.getRoot())) hideControl();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
+        mWasPlaying = service() != null && player().isPlaying();
         if (mOsd != null) mOsd.stop();
         if (mKaraoke != null) mKaraoke.clear();
         stopAudioCoverRotation();
