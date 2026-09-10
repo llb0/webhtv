@@ -18,9 +18,14 @@ import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 @Entity(indices = @Index(value = {"url", "type"}, unique = true))
 public class Config {
+
+    public static final String DEFAULT_URL_ZH = "文件源放 /tvbox/ 的 sites、sites-json、sites-js、sites-py 中";
+    public static final String DEFAULT_URL_ZH_TW = "檔案源放 /tvbox/ 的 sites、sites-json、sites-js、sites-py 中";
+    public static final String DEFAULT_URL_EN = "File sources in /tvbox/ sites, sites-json, sites-js, sites-py";
 
     @PrimaryKey(autoGenerate = true)
     @SerializedName("id")
@@ -87,14 +92,30 @@ public class Config {
         AppDatabase.get().getConfigDao().delete(url, type);
     }
 
+    public static String defaultUrl() {
+        String lang = Locale.getDefault().getLanguage();
+        if ("zh".equals(lang)) {
+            String country = Locale.getDefault().getCountry();
+            if ("TW".equals(country) || "HK".equals(country) || "MO".equals(country)) {
+                return DEFAULT_URL_ZH_TW;
+            }
+            return DEFAULT_URL_ZH;
+        }
+        return DEFAULT_URL_EN;
+    }
+
+    public static boolean isDefaultUrl(String url) {
+        return DEFAULT_URL_ZH.equals(url) || DEFAULT_URL_ZH_TW.equals(url) || DEFAULT_URL_EN.equals(url);
+    }
+
     public static Config vod() {
         Config item = AppDatabase.get().getConfigDao().findOne(0);
-        return item == null ? create(0) : item;
+        return item == null ? create(0, defaultUrl()) : item;
     }
 
     public static Config live() {
         Config item = AppDatabase.get().getConfigDao().findOne(1);
-        return item == null ? create(1) : item;
+        return item == null ? create(1, defaultUrl()) : item;
     }
 
     public static Config wall() {
