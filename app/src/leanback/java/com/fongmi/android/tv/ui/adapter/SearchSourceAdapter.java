@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.databinding.ItemSearchSourceBinding;
+import com.fongmi.android.tv.ui.dialog.BaseGlassDialog;
 import com.fongmi.android.tv.utils.SearchSourceItem;
 
 import java.util.ArrayList;
@@ -91,6 +92,7 @@ public class SearchSourceAdapter extends RecyclerView.Adapter<SearchSourceAdapte
         ViewHolder(ItemSearchSourceBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
+            binding.getRoot().setBackground(BaseGlassDialog.glassItemBackground());
         }
     }
 }
