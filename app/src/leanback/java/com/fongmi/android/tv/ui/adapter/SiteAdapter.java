@@ -16,6 +16,7 @@ import com.fongmi.android.tv.databinding.AdapterSiteBinding;
 import com.fongmi.android.tv.databinding.AdapterSiteSwitchBinding;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
+import com.fongmi.android.tv.ui.dialog.BaseGlassDialog;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.ArrayList;
@@ -201,6 +202,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
             this.actionBinding = null;
             this.switchBinding = binding;
             binding.text.setGravity(Gravity.CENTER);
+            binding.getRoot().setBackground(BaseGlassDialog.glassItemBackground());
             binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> binding.text.setSelected(hasFocus || isSelected()));
         }
 
