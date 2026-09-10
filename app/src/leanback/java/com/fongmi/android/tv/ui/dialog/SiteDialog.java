@@ -282,7 +282,7 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
         if (act == null || act.isFinishing() || act.isDestroyed()) {
             return;
         }
-        android.app.AlertDialog dialog = new MaterialAlertDialogBuilder(act)
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(act)
                 .setTitle(R.string.setting_site_delete_title)
                 .setMessage(getString(R.string.setting_site_delete_message, item.getName()))
                 .setPositiveButton(android.R.string.ok, (d, which) -> deleteFileSite(item))
