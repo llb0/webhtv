@@ -509,6 +509,7 @@
                 android:id="@+id/restore"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginEnd="16dp"
                 android:layout_weight="1"
                 android:background="@drawable/selector_item"
                 android:focusable="true"
@@ -521,6 +522,38 @@
                     android:text="@string/setting_restore"
                     android:textColor="@color/white"
                     android:textSize="18sp" />
+
+            </androidx.appcompat.widget.LinearLayoutCompat>
+
+            <androidx.appcompat.widget.LinearLayoutCompat
+                android:id="@+id/uiScale"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/selector_item"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:orientation="horizontal">
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="16dp"
+                    android:text="@string/setting_ui_scale"
+                    android:textColor="@color/white"
+                    android:textSize="18sp" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/uiScaleText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="end"
+                    android:singleLine="true"
+                    android:textColor="@color/white"
+                    android:textSize="18sp"
+                    tools:text="宽松" />
 
             </androidx.appcompat.widget.LinearLayoutCompat>
         </androidx.appcompat.widget.LinearLayoutCompat>
