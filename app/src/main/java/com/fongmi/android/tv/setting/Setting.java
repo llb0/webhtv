@@ -433,7 +433,7 @@ public class Setting {
     }
 
     public static int getUiScale() {
-        int scale = Prefers.getInt("ui_scale", UI_SCALE_MILD_RELAXED);
+        int scale = Prefers.getInt("ui_scale", UI_SCALE_FOLLOW_SYSTEM);
         return isUiScale(scale) ? scale : UI_SCALE_FOLLOW_SYSTEM;
     }
 
