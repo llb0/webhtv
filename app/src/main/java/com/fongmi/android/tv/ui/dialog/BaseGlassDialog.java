@@ -89,7 +89,7 @@ public abstract class BaseGlassDialog extends DialogFragment {
         return R.id.handle;
     }
 
-    protected GradientDrawable glassBackground() {
+    public static GradientDrawable glassBackground() {
         int wallColor = Setting.getWallColor();
         if (wallColor == 0) wallColor = Setting.getBuiltInWallColor(Setting.getWall());
         int r = (int) (((wallColor >> 16) & 0xFF) * 0.42);
