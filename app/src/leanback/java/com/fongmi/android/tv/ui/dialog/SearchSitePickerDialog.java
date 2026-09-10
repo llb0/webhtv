@@ -1,29 +1,22 @@
 package com.fongmi.android.tv.ui.dialog;
 
-import android.app.Dialog;
-import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.view.Window;
-import android.view.WindowManager;
+import android.view.View;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.DialogSitePickerBinding;
 import com.fongmi.android.tv.ui.adapter.SiteCheckAdapter;
-import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.SearchSourceHelper;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 
-public class SearchSitePickerDialog extends BaseAlertDialog {
+public class SearchSitePickerDialog extends BaseGlassDialog {
 
     private DialogSitePickerBinding binding;
     private SiteCheckAdapter adapter;
@@ -63,22 +56,17 @@ public class SearchSitePickerDialog extends BaseAlertDialog {
     }
 
     @Override
-    protected MaterialAlertDialogBuilder getBuilder() {
-        return builder().setView(getBinding().getRoot());
-    }
-
-    @NonNull
-    @Override
-    public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
-        Dialog dialog = super.onCreateDialog(savedInstanceState);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setCanceledOnTouchOutside(true);
-        return dialog;
+    protected float getWidthRatio() {
+        return 0.7f;
     }
 
     @Override
     protected void initView() {
         setupVisibility();
+        binding.selectAll.setBackground(BaseGlassDialog.glassItemBackground());
+        binding.selectNone.setBackground(BaseGlassDialog.glassItemBackground());
+        binding.selectInvert.setBackground(BaseGlassDialog.glassItemBackground());
+        binding.confirm.setBackground(BaseGlassDialog.glassItemBackground());
         adapter = new SiteCheckAdapter();
         binding.recycler.setAdapter(adapter);
         adapter.setItems(SearchSourceHelper.buildPickerSites(tagMode), new HashSet<>(initial));
@@ -99,12 +87,6 @@ public class SearchSitePickerDialog extends BaseAlertDialog {
 
     @Override
     protected void initEvent() {
-        Window w = getDialog() != null ? getDialog().getWindow() : null;
-        if (w != null) {
-            WindowManager.LayoutParams p = w.getAttributes();
-            p.width = (int) (ResUtil.getScreenWidth() * 0.7f);
-            w.setAttributes(p);
-        }
         binding.search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
