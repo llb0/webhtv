@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.ItemSiteCheckBinding;
+import com.fongmi.android.tv.ui.dialog.BaseGlassDialog;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -106,6 +107,7 @@ public class SiteCheckAdapter extends RecyclerView.Adapter<SiteCheckAdapter.View
         ViewHolder(ItemSiteCheckBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
+            binding.getRoot().setBackground(BaseGlassDialog.glassItemBackground());
         }
     }
 }
