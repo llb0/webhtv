@@ -269,7 +269,7 @@ public class Config {
     }
 
     public static void deleteEmpty() {
-        AppDatabase.get().getConfigDao().delete("");
+        AppDatabase.get().getConfigDao().deleteEmpty();
     }
 
     public Config update() {
