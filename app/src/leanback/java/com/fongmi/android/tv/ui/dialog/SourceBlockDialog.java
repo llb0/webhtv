@@ -1,10 +1,7 @@
 package com.fongmi.android.tv.ui.dialog;
 
-import android.app.Dialog;
 import android.os.Bundle;
 import android.view.View;
-import android.view.Window;
-import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -16,13 +13,11 @@ import com.fongmi.android.tv.databinding.DialogSitePickerBinding;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SourceBlockItem;
 import com.fongmi.android.tv.ui.adapter.SourceCheckAdapter;
-import com.fongmi.android.tv.utils.ResUtil;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class SourceBlockDialog extends BaseAlertDialog {
+public class SourceBlockDialog extends BaseGlassDialog {
 
     private DialogSitePickerBinding binding;
     private SourceCheckAdapter adapter;
@@ -49,23 +44,18 @@ public class SourceBlockDialog extends BaseAlertDialog {
     }
 
     @Override
-    protected MaterialAlertDialogBuilder getBuilder() {
-        return builder().setTitle(R.string.setting_source_block_dialog_title).setView(getBinding().getRoot());
-    }
-
-    @NonNull
-    @Override
-    public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
-        Dialog dialog = super.onCreateDialog(savedInstanceState);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setCanceledOnTouchOutside(true);
-        return dialog;
+    protected float getWidthRatio() {
+        return 0.7f;
     }
 
     @Override
     protected void initView() {
         binding.search.setVisibility(View.GONE);
         binding.count.setVisibility(View.GONE);
+        binding.selectAll.setBackground(BaseGlassDialog.glassItemBackground());
+        binding.selectNone.setBackground(BaseGlassDialog.glassItemBackground());
+        binding.selectInvert.setBackground(BaseGlassDialog.glassItemBackground());
+        binding.confirm.setBackground(BaseGlassDialog.glassItemBackground());
         adapter = new SourceCheckAdapter();
         binding.recycler.setAdapter(adapter);
         adapter.setItems(buildSourceItems());
@@ -91,12 +81,6 @@ public class SourceBlockDialog extends BaseAlertDialog {
 
     @Override
     protected void initEvent() {
-        Window w = getDialog() != null ? getDialog().getWindow() : null;
-        if (w != null) {
-            WindowManager.LayoutParams p = w.getAttributes();
-            p.width = (int) (ResUtil.getScreenWidth() * 0.7f);
-            w.setAttributes(p);
-        }
         binding.selectAll.setOnClickListener(v -> adapter.selectAll());
         binding.selectNone.setOnClickListener(v -> adapter.selectNone());
         binding.selectInvert.setOnClickListener(v -> adapter.selectInvert());
