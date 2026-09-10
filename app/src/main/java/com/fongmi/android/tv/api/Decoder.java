@@ -25,11 +25,14 @@ public class Decoder {
     private static final Pattern JS_URI = Pattern.compile("\"(\\.|\\.\\.)/(.?|.+?)\\.js\\?(.?|.+?)\"");
 
     public static String getJson(String url, String tag) throws Exception {
+        if (url == null) throw new Exception("url is null");
+        url = url.replace("../", "file://").replace("./", "file://tvbox/").replace("clan://", "file://tvbox/");
         File local = UrlUtil.toLocalFile(url);
         if (local != null) {
             if (!local.exists()) throw new Exception("Config file not found: " + url);
             return verify(url, Path.read(local));
         }
+        url = UrlUtil.convert(url);
         try (Response res = OkHttp.newCall(url, tag).execute()) {
             HttpUrl httpUrl = res.request().url();
             int size = HttpUrl.parse(url).querySize();
