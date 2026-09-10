@@ -96,7 +96,7 @@ public class LiveConfig extends BaseConfig {
 
     public LiveConfig config(Config config) {
         this.config = config;
-        if (config.isEmpty()) return this;
+        if (config.isEmpty() || Config.isDefaultUrl(config.getUrl())) return this;
         this.sync = config.getUrl().equals(VodConfig.getUrl());
         return this;
     }
@@ -128,7 +128,7 @@ public class LiveConfig extends BaseConfig {
 
     @Override
     protected void load(Config config) throws Throwable {
-        if (config.isEmpty()) {
+        if (config.isEmpty() || Config.isDefaultUrl(config.getUrl())) {
             parseConfig(config, new JsonObject());
             return;
         }
