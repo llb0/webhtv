@@ -6,7 +6,9 @@
     android:focusableInTouchMode="true"
     android:longClickable="true"
     android:gravity="center_vertical"
-    android:orientation="horizontal">
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp">
 
     <View
         android:id="@+id/health"
