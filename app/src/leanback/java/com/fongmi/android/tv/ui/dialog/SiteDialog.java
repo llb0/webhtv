@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.view.Window;
 import android.widget.Toast;
 import java.io.File;
 import java.util.List;
@@ -281,12 +282,18 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
         if (act == null || act.isFinishing() || act.isDestroyed()) {
             return;
         }
-        new MaterialAlertDialogBuilder(act)
+        android.app.AlertDialog dialog = new MaterialAlertDialogBuilder(act)
                 .setTitle(R.string.setting_site_delete_title)
                 .setMessage(getString(R.string.setting_site_delete_message, item.getName()))
-                .setPositiveButton(android.R.string.ok, (dialog, which) -> deleteFileSite(item))
+                .setPositiveButton(android.R.string.ok, (d, which) -> deleteFileSite(item))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+        Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(glassBackground());
+            View content = w.getDecorView().findViewById(android.R.id.content);
+            if (content != null) content.setBackground(null);
+        }
     }
 
     private void deleteFileSite(Site item) {
@@ -359,20 +366,11 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     }
 
     private void runAfterRecyclerLayout(Runnable action) {
-        if(binding == null || binding.recycler == null) {
-            if(action != null) action.run();
+        if (binding == null || binding.recycler == null) {
+            if (action != null) action.run();
             return;
         }
-        binding.recycler.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                ViewTreeObserver obs = binding.recycler.getViewTreeObserver();
-                if(obs.isAlive()) {
-                    obs.removeOnGlobalLayoutListener(this);
-                }
-                if(action != null) binding.recycler.post(action);
-            }
-        });
+        binding.recycler.post(action);
     }
 
     private long cost() {
