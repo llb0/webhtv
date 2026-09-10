@@ -79,17 +79,18 @@
 
                 <com.google.android.material.button.MaterialButton
                 android:id="@+id/githubProxy"
-                style="@style/Widget.Material3.Button"
+                style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:layout_marginTop="10dp"
                 android:gravity="center_vertical|start"
                 android:maxLines="1"
                 android:textSize="14sp"
-                android:textColor="@color/dialog_primary_button_text"
-                app:backgroundTint="@color/dialog_primary_button_bg"
+                android:textColor="@color/dialog_outlined_button_text"
+                app:backgroundTint="@color/dialog_outlined_button_bg"
+                app:strokeColor="@color/dialog_outlined_button_stroke"
                 app:cornerRadius="8dp"
-                tools:text="GitHub proxy · GitHub" />
+                tools:text="GitHub 代理 · github.chenc.dev" />
 
                 <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/githubCustomLayout"
@@ -148,17 +149,18 @@
 
                 <com.google.android.material.button.MaterialButton
                 android:id="@+id/ociMirror"
-                style="@style/Widget.Material3.Button"
+                style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:layout_marginTop="10dp"
                 android:gravity="center_vertical|start"
                 android:maxLines="1"
                 android:textSize="14sp"
-                android:textColor="@color/dialog_primary_button_text"
-                app:backgroundTint="@color/dialog_primary_button_bg"
+                android:textColor="@color/dialog_outlined_button_text"
+                app:backgroundTint="@color/dialog_outlined_button_bg"
+                app:strokeColor="@color/dialog_outlined_button_stroke"
                 app:cornerRadius="8dp"
-                tools:text="OCI mirror · dockerproxy.net" />
+                tools:text="OCI 镜像 · dockerproxy.net" />
 
                 <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/ociCustomLayout"
