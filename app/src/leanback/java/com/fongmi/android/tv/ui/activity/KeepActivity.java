@@ -3,6 +3,9 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.Window;
 
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.viewbinding.ViewBinding;
@@ -17,7 +20,10 @@ import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.ui.adapter.KeepAdapter;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
+import com.fongmi.android.tv.ui.dialog.BaseGlassDialog;
+import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -92,6 +98,32 @@ public class KeepActivity extends BaseActivity implements KeepAdapter.OnClickLis
     public boolean onLongClick() {
         mAdapter.setDelete(true);
         return true;
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (KeyUtil.isMenuKey(event) && mAdapter.getItemCount() > 0) showClearDialog();
+        return super.dispatchKeyEvent(event);
+    }
+
+    private void showClearDialog() {
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("清空收藏视频")
+                .setMessage("是否清空收藏视频，删除后无法恢复！")
+                .setPositiveButton(android.R.string.ok, (d, which) -> clearKeep())
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+        Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(BaseGlassDialog.glassBackground());
+            View content = w.getDecorView().findViewById(android.R.id.content);
+            if (content != null) content.setBackground(null);
+        }
+    }
+
+    private void clearKeep() {
+        Keep.deleteAll();
+        RefreshEvent.keep();
     }
 
     @Override
