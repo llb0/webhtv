@@ -58,6 +58,8 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
     private String[] language;
     private String[] titleLines;
     private String[] defaultLaunch;
+    private String[] uiScale;
+    private static final int[] UI_SCALE_VALUES = {Setting.UI_SCALE_FOLLOW_SYSTEM, Setting.UI_SCALE_MILD_RELAXED, Setting.UI_SCALE_STANDARD};
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, SettingActivity.class));
@@ -99,6 +101,7 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         mBinding.autoClearCacheText.setText(getSwitch(Setting.isAutoClearCache()));
         mBinding.languageText.setText((language = ResUtil.getStringArray(R.array.select_language))[Setting.getLanguageIndex()]);
         mBinding.sizeText.setText((size = ResUtil.getStringArray(R.array.select_size))[PlayerSetting.getSize()]);
+        mBinding.uiScaleText.setText((uiScale = new String[]{"宽松", "标准", "紧凑"})[getUiScaleIndex()]);
         mBinding.titleLinesText.setText((titleLines = ResUtil.getStringArray(R.array.select_title_lines))[Setting.getTitleLinesIndex()]);
         mBinding.defaultLaunchText.setText((defaultLaunch = ResUtil.getStringArray(R.array.select_default_launch))[Setting.getDefaultLaunch()]);
     }
@@ -119,6 +122,7 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         mBinding.live.setOnClickListener(this::onLive);
         mBinding.wall.setOnClickListener(this::onWall);
         mBinding.size.setOnClickListener(this::setSize);
+        mBinding.uiScale.setOnClickListener(this::setUiScale);
         mBinding.language.setOnClickListener(this::setLanguage);
         mBinding.defaultLaunch.setOnClickListener(this::setDefaultLaunch);
         mBinding.titleLines.setOnClickListener(this::setTitleLines);
@@ -286,6 +290,19 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         mBinding.sizeText.setText(size[index]);
         PlayerSetting.putSize(index);
         RefreshEvent.size();
+    }
+
+    private int getUiScaleIndex() {
+        int scale = Setting.getUiScale();
+        for (int i = 0; i < UI_SCALE_VALUES.length; i++) if (UI_SCALE_VALUES[i] == scale) return i;
+        return 0;
+    }
+
+    private void setUiScale(View view) {
+        int index = (getUiScaleIndex() + 1) % uiScale.length;
+        mBinding.uiScaleText.setText(uiScale[index]);
+        Setting.putUiScale(UI_SCALE_VALUES[index]);
+        recreate();
     }
 
     private void setLanguage(View view) {
