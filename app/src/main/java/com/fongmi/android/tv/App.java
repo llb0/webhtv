@@ -12,6 +12,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.os.HandlerCompat;
 
+import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.playback.PlaybackRemoteSyncer;
 import com.fongmi.android.tv.player.PlaybackMemoryMonitor;
@@ -96,6 +97,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
         PlaybackMemoryMonitor.process().initialize(this);
         PlaybackSystemConditionMonitor.process().initialize(this);
         Setting.applyLanguage();
+        Config.deleteEmpty();
         DebugLogStore.restoreEnabled();
         if (DebugLogStore.isEnabled()) {
             Setting.logDebugEnvironment("restore");
