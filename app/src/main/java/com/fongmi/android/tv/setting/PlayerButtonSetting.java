@@ -7,6 +7,7 @@ import androidx.annotation.StringRes;
 
 import com.fongmi.android.tv.R;
 import com.github.catvod.utils.Prefers;
+import com.github.catvod.utils.Util;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -47,29 +48,28 @@ public class PlayerButtonSetting {
     private static final String ORDER = "player_button_order";
     private static final String HIDDEN = "player_button_hidden";
     private static final List<Item> DEFAULT = List.of(
+            new Item(PREV, R.string.play_prev),
+            new Item(EPISODES, R.string.play_episodes),
+            new Item(NEXT, R.string.play_next),
             new Item(PLAYER, R.string.play_exo),
             new Item(DECODE, R.string.play_decode),
-            new Item(PLAY_PARAMS, R.string.play_params),
-            new Item(CODEC_CAPABILITY, R.string.codec_capability_short),
             new Item(SPEED, R.string.play_speed),
             new Item(SCALE, R.string.play_scale),
-            new Item(LUT, R.string.play_lut),
-            new Item(RESET, R.string.play_reset),
-            new Item(REPEAT, R.string.play_repeat),
-            new Item(TEXT, R.string.play_track_text),
-            new Item(AUDIO, R.string.play_track_audio),
-            new Item(VIDEO, R.string.play_track_video),
             new Item(OPENING, R.string.play_op),
             new Item(ENDING, R.string.play_ed),
+            new Item(VIDEO, R.string.play_track_video),
+            new Item(AUDIO, R.string.play_track_audio),
+            new Item(RESET, R.string.play_reset),
+            new Item(REPEAT, R.string.play_repeat),
+            new Item(TIMER, R.string.play_timer),
+            new Item(PUSH, R.string.push),
+            new Item(PLAY_PARAMS, R.string.play_params),
+            new Item(CODEC_CAPABILITY, R.string.codec_capability_short),
+            new Item(LUT, R.string.play_lut),
+            new Item(TEXT, R.string.play_track_text),
             new Item(DANMAKU, R.string.danmaku),
             new Item(TITLE, R.string.play_title),
-            new Item(PREV, R.string.play_prev),
-            new Item(NEXT, R.string.play_next),
-            new Item(EPISODES, R.string.play_episodes),
             new Item(FULLSCREEN, R.string.play_fullscreen),
-            new Item(CHANGE, R.string.play_change),
-            new Item(PUSH, R.string.push),
-            new Item(TIMER, R.string.play_timer),
             new Item(PDS, R.string.pan_diagnostic_entry)
     );
 
@@ -159,7 +159,20 @@ public class PlayerButtonSetting {
 
     private static Set<String> getHidden() {
         Set<String> hidden = new HashSet<>();
-        for (String id : split(Prefers.getString(HIDDEN))) if (contains(id)) hidden.add(id);
+        String custom = Prefers.getString(HIDDEN);
+        if (custom.isEmpty()) {
+            hidden.addAll(getDefaultHiddenIds());
+        } else {
+            for (String id : split(custom)) if (contains(id)) hidden.add(id);
+        }
+        return hidden;
+    }
+
+    private static List<String> getDefaultHiddenIds() {
+        List<String> hidden = new ArrayList<>(List.of(
+                PLAY_PARAMS, CODEC_CAPABILITY, LUT, TEXT, DANMAKU, TITLE, FULLSCREEN, PDS
+        ));
+        if (!Util.isLeanback()) hidden.add(PUSH);
         return hidden;
     }
 
