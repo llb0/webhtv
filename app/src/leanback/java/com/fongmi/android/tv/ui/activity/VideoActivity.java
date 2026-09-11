@@ -6315,6 +6315,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     protected void onStart() {
         super.onStart();
         mClock.stop().start();
+        if (isVisible(mBinding.control.getRoot())) hideControl();
         if (mOsd != null) {
             mOsd.setDiagnosticsVisible(PlayerSetting.isOsdDiagnostics());
             setPlayParamsState();
@@ -6323,7 +6324,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (service() != null) refreshLyrics();
         if (mActionButtons != null) PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
         if (mWasPlaying && service() != null && !player().isPlaying() && !player().isEmpty()) onPlay();
-        if (isVisible(mBinding.control.getRoot())) hideControl();
     }
 
     @Override
