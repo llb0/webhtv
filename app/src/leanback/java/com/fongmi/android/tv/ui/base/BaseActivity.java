@@ -31,6 +31,8 @@ import me.jessyan.autosize.AutoSizeCompat;
 
 public abstract class BaseActivity extends AppCompatActivity {
 
+    private int mLastUiScale;
+
     protected abstract ViewBinding getBinding();
 
     @Override
@@ -41,6 +43,7 @@ public abstract class BaseActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mLastUiScale = Setting.getUiScale();
         setContentView(getBinding().getRoot());
         EventBus.getDefault().register(this);
         initView(savedInstanceState);
@@ -165,6 +168,11 @@ public abstract class BaseActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (Setting.getUiScale() != mLastUiScale) {
+            mLastUiScale = Setting.getUiScale();
+            recreate();
+            return;
+        }
         Updater.create().resume(this);
         ApkUrlPush.get().resume(this);
     }
