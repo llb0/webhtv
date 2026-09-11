@@ -200,7 +200,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         if (mBinding.nativeContent.getPaddingTop() != top) {
             mBinding.nativeContent.setPadding(mBinding.nativeContent.getPaddingLeft(), top, mBinding.nativeContent.getPaddingRight(), mBinding.nativeContent.getPaddingBottom());
         }
-        mBinding.progressLayout.setProgressTopOffset(top / 2);
+        mBinding.progressLayout.setProgressTopOffset(top * 2);
     }
 
     private void syncWebOverlayLayout() {
