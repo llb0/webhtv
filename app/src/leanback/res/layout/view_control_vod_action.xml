@@ -168,7 +168,7 @@
             android:id="@+id/setting"
             style="@style/Control"
             android:layout_marginEnd="8dp"
-            android:text="@string/setting" />
+            android:text="@string/play_setting" />
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/cast"
