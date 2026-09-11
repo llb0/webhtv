@@ -3,7 +3,6 @@ package com.fongmi.android.tv.ui.base;
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 
 import android.content.Context;
-import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Bundle;
@@ -23,6 +22,7 @@ import com.fongmi.android.tv.server.process.ApkUrlPush;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.custom.CustomWallView;
 import com.fongmi.android.tv.utils.Util;
+import com.github.catvod.utils.Prefers;
 
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
@@ -32,7 +32,6 @@ import me.jessyan.autosize.AutoSizeCompat;
 
 public abstract class BaseActivity extends AppCompatActivity {
 
-    public static final String EXTRA_SKIP_STARTUP = "skip_startup";
     private int mLastUiScale;
 
     protected abstract ViewBinding getBinding();
@@ -172,11 +171,8 @@ public abstract class BaseActivity extends AppCompatActivity {
         super.onResume();
         if (Setting.getUiScale() != mLastUiScale) {
             mLastUiScale = Setting.getUiScale();
-            Intent intent = getIntent();
-            intent.putExtra(EXTRA_SKIP_STARTUP, true);
-            finish();
-            startActivity(intent);
-            overridePendingTransition(0, 0);
+            Prefers.put("skip_startup", true);
+            recreate();
             return;
         }
         Updater.create().resume(this);
@@ -184,8 +180,8 @@ public abstract class BaseActivity extends AppCompatActivity {
     }
 
     protected boolean shouldSkipStartup() {
-        boolean skip = getIntent().getBooleanExtra(EXTRA_SKIP_STARTUP, false);
-        if (skip) getIntent().removeExtra(EXTRA_SKIP_STARTUP);
+        boolean skip = Prefers.getBoolean("skip_startup", false);
+        if (skip) Prefers.remove("skip_startup");
         return skip;
     }
 
