@@ -715,7 +715,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.change2.setOnClickListener(view -> onChange());
         mBinding.control.action.fullscreen.setOnClickListener(view -> onFullscreen());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
-        mBinding.control.action.setting.setOnClickListener(view -> onSetting());
+        mBinding.control.action.setting.setOnClickListener(view -> SettingPlayerActivity.start(this));
         mBinding.control.action.cast.setOnClickListener(view -> onCast());
         mBinding.control.action.timer.setOnClickListener(view -> onTimer());
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
