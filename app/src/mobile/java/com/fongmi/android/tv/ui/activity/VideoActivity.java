@@ -826,11 +826,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
-        mBinding.control.action.setting.setOnClickListener(view -> {
-            Intent intent = new Intent(this, com.fongmi.android.tv.ui.activity.HomeActivity.class);
-            intent.putExtra(com.fongmi.android.tv.ui.activity.HomeActivity.EXTRA_NAV_POSITION, 2);
-            startActivity(intent);
-        });
+        mBinding.control.action.setting.setOnClickListener(view -> SettingPlayerActivity.start(this));
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
         mBinding.audioPrev.setOnClickListener(view -> checkPrev());
