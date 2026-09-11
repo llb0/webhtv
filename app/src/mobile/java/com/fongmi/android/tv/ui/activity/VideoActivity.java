@@ -240,6 +240,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean mRestoringConfigurationPlayback;
     private boolean mSkipKaraokeTrackAutoLoad;
     private boolean mWasPlaying;
+    private boolean mWasPlayingBeforeSetting;
     private BottomSheetDialog mLyricsResultDialog;
     private BottomSheetDialog mAudioQueueDialog;
     private BottomSheetDialog mKaraokePitchDialog;
@@ -827,7 +828,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
         mBinding.control.action.setting.setOnClickListener(view -> {
-            if (service() != null && player().isPlaying()) onPaused();
+            mWasPlayingBeforeSetting = service() != null && player().isPlaying();
+            if (mWasPlayingBeforeSetting) onPaused();
             Intent intent = new Intent(this, HomeActivity.class);
             intent.putExtra(HomeActivity.EXTRA_NAV_POSITION, 2);
             intent.putExtra(HomeActivity.EXTRA_FROM_PLAYER, true);
@@ -6540,7 +6542,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setStop(false);
         if (service() != null) refreshLyrics();
         if (mActionButtons != null) PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
-        if (mWasPlaying && service() != null && !player().isPlaying() && !player().isEmpty()) onPlay();
+        if ((mWasPlaying || mWasPlayingBeforeSetting) && service() != null && !player().isPlaying() && !player().isEmpty()) onPlay();
+        mWasPlayingBeforeSetting = false;
         syncLyricsPlaybackState();
         syncKaraokePosition();
     }
