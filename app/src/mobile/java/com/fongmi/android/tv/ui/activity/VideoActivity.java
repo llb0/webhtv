@@ -831,8 +831,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             mWasPlayingBeforeSetting = service() != null && player().isPlaying();
             if (mWasPlayingBeforeSetting) onPaused();
             Intent intent = new Intent(this, HomeActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             intent.putExtra(HomeActivity.EXTRA_NAV_POSITION, 2);
-            intent.putExtra(HomeActivity.EXTRA_FROM_PLAYER, true);
             startActivity(intent);
         });
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
