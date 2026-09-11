@@ -148,6 +148,7 @@ import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.dialog.VideoContentDialog;
+import com.fongmi.android.tv.ui.fragment.SettingPlayerFragment;
 import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
@@ -830,10 +831,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.setting.setOnClickListener(view -> {
             mWasPlayingBeforeSetting = service() != null && player().isPlaying();
             if (mWasPlayingBeforeSetting) onPaused();
-            Intent intent = new Intent(this, HomeActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            intent.putExtra(HomeActivity.EXTRA_NAV_POSITION, 2);
-            startActivity(intent);
+            showSettingPlayer();
         });
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
@@ -6560,6 +6558,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onBackInvoked() {
+        if (isVisible(mBinding.settingContainer)) {
+            hideSettingPlayer();
+            return;
+        }
         if (hasLutQuick() && mBinding.lutQuick.hideIfVisible()) {
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
@@ -6579,6 +6581,21 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         stopPlayback();
         if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
         super.onBackInvoked();
+    }
+
+    private void showSettingPlayer() {
+        mBinding.settingContainer.setVisibility(View.VISIBLE);
+        getSupportFragmentManager().beginTransaction()
+                .replace(R.id.settingContainer, SettingPlayerFragment.newInstance())
+                .commit();
+    }
+
+    private void hideSettingPlayer() {
+        androidx.fragment.app.Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.settingContainer);
+        if (fragment != null) {
+            getSupportFragmentManager().beginTransaction().remove(fragment).commit();
+        }
+        mBinding.settingContainer.setVisibility(View.GONE);
     }
 
     public void finishVideoForCast() {
