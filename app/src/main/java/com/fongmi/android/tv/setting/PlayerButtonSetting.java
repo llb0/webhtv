@@ -171,8 +171,6 @@ public class PlayerButtonSetting {
         List<String> hidden = new ArrayList<>(List.of(
                 PLAY_PARAMS, CODEC_CAPABILITY, LUT, TEXT, DANMAKU, TITLE, FULLSCREEN, PDS, CHANGE
         ));
-        if (Util.isLeanback()) hidden.add(SETTING);
-        else hidden.add(CAST);
         return hidden;
     }
 
