@@ -43,6 +43,7 @@
     <string name="play_backward">←</string>
     <string name="play_speed">1.00</string>
     <string name="play_reset">Reset</string>
+    <string name="play_setting">Setting</string>
     <string name="play_decode">Hard</string>
     <string name="play_params">Playback params</string>
     <string name="codec_capability_short">Codec caps</string>
