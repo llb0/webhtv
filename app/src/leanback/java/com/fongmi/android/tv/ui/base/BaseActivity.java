@@ -123,6 +123,13 @@ public abstract class BaseActivity extends AppCompatActivity {
     private Resources hackResources(Resources resources) {
         try {
             AutoSizeCompat.autoConvertDensityOfGlobal(resources);
+            float factor = Setting.getUiScaleFactor();
+            if (factor != 1.0f) {
+                android.util.DisplayMetrics metrics = resources.getDisplayMetrics();
+                metrics.density *= factor;
+                metrics.scaledDensity *= factor;
+                metrics.densityDpi = (int) (metrics.densityDpi * factor);
+            }
             return resources;
         } catch (Exception ignored) {
             return resources;
