@@ -28,6 +28,8 @@ import com.fongmi.android.tv.impl.SiteListener;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ui.adapter.SiteAdapter;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
+import com.fongmi.android.tv.utils.FocusLoop;
+import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.utils.Path;
@@ -96,6 +98,15 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     @Override
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         Dialog dialog = super.onCreateDialog(savedInstanceState);
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (adapter != null && FocusLoop.handleRecyclerGrid(binding.recycler, adapter.getItemCount(), GRID_COUNT, FocusLoop.Mode.BOTH, event))
+                return true;
+            if (KeyUtil.isMenuKey(event) && onMenuKey()) {
+                dismiss();
+                return true;
+            }
+            return false;
+        });
         dialog.setOnShowListener(d -> {
             if (listLoaded) waitForLayoutAndFocus();
         });
