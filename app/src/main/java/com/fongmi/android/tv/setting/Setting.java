@@ -463,13 +463,17 @@ public class Setting {
         Configuration config = new Configuration(context.getResources().getConfiguration());
         DisplayMetrics metrics = context.getResources().getDisplayMetrics();
         int stableDensity = DisplayMetrics.DENSITY_DEVICE_STABLE > 0 ? DisplayMetrics.DENSITY_DEVICE_STABLE : metrics.densityDpi;
-        int densityDpi = Math.max(DisplayMetrics.DENSITY_LOW, Math.round(stableDensity * factor));
+        int densityDpi = Math.max(1, Math.round(stableDensity * factor));
         config.densityDpi = densityDpi;
         config.fontScale = 1.0f;
         config.screenWidthDp = pxToDp(metrics.widthPixels, densityDpi);
         config.screenHeightDp = pxToDp(metrics.heightPixels, densityDpi);
         config.smallestScreenWidthDp = Math.min(config.screenWidthDp, config.screenHeightDp);
         return context.createConfigurationContext(config);
+    }
+
+    public static float getUiScaleFactor() {
+        return getUiScaleFactor(getUiScale());
     }
 
     private static float getUiScaleFactor(int scale) {
