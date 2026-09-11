@@ -22,6 +22,7 @@ import com.fongmi.android.tv.databinding.DialogHomeMenuBinding;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.activity.SettingActivity;
 import com.fongmi.android.tv.ui.adapter.HomeMenuAdapter;
+import com.fongmi.android.tv.utils.FocusLoop;
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 
@@ -83,6 +84,17 @@ public class HomeMenuDialog extends DialogFragment implements HomeMenuAdapter.On
         binding.recycler.setLayoutManager(new GridLayoutManager(getActivity(), spanCount));
         binding.recycler.addItemDecoration(new GridSpacingItemDecoration(8, spanCount));
         binding.recycler.setAdapter(new HomeMenuAdapter(this, items, spanCount));
+        Dialog dialog = getDialog();
+        if (dialog != null) {
+            dialog.setOnKeyListener((d, keyCode, event) -> {
+                if (KeyUtil.isMenuKey(event)) {
+                    SettingActivity.start(requireActivity());
+                    dismiss();
+                    return true;
+                }
+                return FocusLoop.handleRecyclerGrid(binding.recycler, items.length, spanCount, FocusLoop.Mode.BOTH, event);
+            });
+        }
     }
 
     @Override
