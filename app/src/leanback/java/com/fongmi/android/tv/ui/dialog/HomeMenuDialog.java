@@ -57,14 +57,6 @@ public class HomeMenuDialog extends DialogFragment implements HomeMenuAdapter.On
         Dialog dialog = new Dialog(requireActivity());
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setCanceledOnTouchOutside(true);
-        dialog.setOnKeyListener((d, keyCode, event) -> {
-            if (KeyUtil.isMenuKey(event)) {
-                SettingActivity.start(requireActivity());
-                dismiss();
-                return true;
-            }
-            return false;
-        });
         return dialog;
     }
 
