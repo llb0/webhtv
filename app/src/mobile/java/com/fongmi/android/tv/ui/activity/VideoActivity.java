@@ -826,7 +826,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
-        mBinding.control.action.setting.setOnClickListener(view -> SettingPlayerActivity.start(this));
+        mBinding.control.action.setting.setOnClickListener(view -> {
+            if (service() != null && player().isPlaying()) onPaused();
+            Intent intent = new Intent(this, HomeActivity.class);
+            intent.putExtra(HomeActivity.EXTRA_NAV_POSITION, 2);
+            intent.putExtra(HomeActivity.EXTRA_FROM_PLAYER, true);
+            startActivity(intent);
+        });
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
         mBinding.audioPrev.setOnClickListener(view -> checkPrev());
