@@ -64,6 +64,7 @@ import java.util.List;
 public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host {
 
     public static final String EXTRA_NAV_POSITION = "nav_position";
+    public static final String EXTRA_FROM_PLAYER = "from_player";
     private static final String STATE_RETURN_VOD_FROM_ENHANCE = "returnVodFromEnhance";
     private static final String STATE_CURRENT_POSITION = "currentPosition";
 
@@ -438,6 +439,10 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
 
     @Override
     protected void onBackInvoked() {
+        if (getIntent().getBooleanExtra(EXTRA_FROM_PLAYER, false)) {
+            finish();
+            return;
+        }
         if (mChrome != null && mChrome.consumeBack()) {
             return;
         } else if (!mBinding.navigation.getMenu().findItem(R.id.vod).isVisible()) {
