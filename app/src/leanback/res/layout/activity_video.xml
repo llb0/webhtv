@@ -836,11 +836,4 @@
             android:visibility="gone" />
 
     </androidx.appcompat.widget.LinearLayoutCompat>
-
-    <FrameLayout
-        android:id="@+id/settingContainer"
-        android:layout_width="420dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="right"
-        android:visibility="gone" />
 </com.fongmi.android.tv.ui.custom.ProgressLayout>
