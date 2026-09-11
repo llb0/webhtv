@@ -31,6 +31,7 @@ import me.jessyan.autosize.AutoSizeCompat;
 
 public abstract class BaseActivity extends AppCompatActivity {
 
+    public static final String EXTRA_SKIP_STARTUP = "skip_startup";
     private int mLastUiScale;
 
     protected abstract ViewBinding getBinding();
@@ -170,11 +171,18 @@ public abstract class BaseActivity extends AppCompatActivity {
         super.onResume();
         if (Setting.getUiScale() != mLastUiScale) {
             mLastUiScale = Setting.getUiScale();
+            getIntent().putExtra(EXTRA_SKIP_STARTUP, true);
             recreate();
             return;
         }
         Updater.create().resume(this);
         ApkUrlPush.get().resume(this);
+    }
+
+    protected boolean shouldSkipStartup() {
+        boolean skip = getIntent().getBooleanExtra(EXTRA_SKIP_STARTUP, false);
+        if (skip) getIntent().removeExtra(EXTRA_SKIP_STARTUP);
+        return skip;
     }
 
     @Override
