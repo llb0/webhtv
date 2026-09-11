@@ -122,7 +122,7 @@ public class VodConfig extends BaseConfig {
 
     @Override
     protected void load(Config config) throws Throwable {
-        if (config.isEmpty()) {
+        if (config.isEmpty() || Config.isDefaultUrl(config.getUrl())) {
             try {
                 initSites(config, "", new JsonObject());
             } catch (Throwable ignored) {}
@@ -130,7 +130,7 @@ public class VodConfig extends BaseConfig {
         }
         String globalSpider = "";
         try {
-            String json = Decoder.getJson(UrlUtil.convert(config.getUrl()), TAG);
+            String json = Decoder.getJson(config.getUrl(), TAG);
             JsonObject object = Json.parse(json).getAsJsonObject();
             globalSpider = Json.safeString(object, "spider");
             checkJson(config, object);

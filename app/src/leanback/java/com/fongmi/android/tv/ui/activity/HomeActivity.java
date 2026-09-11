@@ -72,6 +72,7 @@ import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.UrlUtil;
 import com.fongmi.android.tv.utils.Util;
 import com.fongmi.android.tv.web.HomeWebController;
+import com.github.catvod.utils.Prefers;
 import com.fongmi.android.tv.web.WebHomeViewport;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
@@ -136,6 +137,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     protected void onCreate(Bundle savedInstanceState) {
         setTheme(R.style.Theme_App);
         super.onCreate(savedInstanceState);
+        if (Prefers.getBoolean("skip_startup", false)) {
+            Prefers.remove("skip_startup");
+            mStartupActionDone = true;
+        }
     }
 
     @Override
@@ -197,8 +202,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void syncNativeContentInset() {
         int top = isToolbarVisible() ? toolbarHeight() : 0;
-        if (mBinding.nativeContent.getPaddingTop() == top) return;
-        mBinding.nativeContent.setPadding(mBinding.nativeContent.getPaddingLeft(), top, mBinding.nativeContent.getPaddingRight(), mBinding.nativeContent.getPaddingBottom());
+        if (mBinding.nativeContent.getPaddingTop() != top) {
+            mBinding.nativeContent.setPadding(mBinding.nativeContent.getPaddingLeft(), top, mBinding.nativeContent.getPaddingRight(), mBinding.nativeContent.getPaddingBottom());
+        }
+        mBinding.progressLayout.setProgressTopOffset(top * 3);
     }
 
     private void syncWebOverlayLayout() {
@@ -349,6 +356,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void runStartupAction() {
         if (mStartupActionDone) return;
+        if (shouldSkipStartup()) return;
         mStartupActionDone = true;
         switch (Setting.getDefaultLaunch()) {
             case Setting.DEFAULT_LAUNCH_LIVE:

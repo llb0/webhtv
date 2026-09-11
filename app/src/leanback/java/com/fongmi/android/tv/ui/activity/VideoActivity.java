@@ -264,6 +264,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private History mHistory;
     private boolean fullscreen;
     private boolean startFullscreen;
+    private boolean mWasPlaying;
     private boolean initAuto;
     private boolean autoMode;
     private boolean revealManualSearch;
@@ -714,6 +715,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.change2.setOnClickListener(view -> onChange());
         mBinding.control.action.fullscreen.setOnClickListener(view -> onFullscreen());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
+        mBinding.control.action.setting.setOnClickListener(view -> SettingPlayerActivity.start(this));
         mBinding.control.action.cast.setOnClickListener(view -> onCast());
         mBinding.control.action.timer.setOnClickListener(view -> onTimer());
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
@@ -885,6 +887,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         addActionButton(PlayerButtonSetting.DANMAKU, mBinding.control.action.danmaku);
         addActionButton(PlayerButtonSetting.TITLE, mBinding.control.action.title);
         addActionButton(PlayerButtonSetting.REPEAT, mBinding.control.action.repeat);
+        addActionButton(PlayerButtonSetting.SETTING, mBinding.control.action.setting);
         addActionButton(PlayerButtonSetting.PUSH, mBinding.control.action.cast);
         addActionButton(PlayerButtonSetting.TIMER, mBinding.control.action.timer);
         addActionButton(PlayerButtonSetting.PDS, mBinding.control.action.panDiagnostic);
@@ -5956,7 +5959,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;
         if (isVisible(mBinding.lutQuick)) return dispatchLutQuickKey(event);
-        if (isFullscreen() && KeyUtil.isMenuKey(event)) onToggle();
+        if (KeyUtil.isMenuKey(event)) {
+            if (isFullscreen()) {
+                if (isVisible(mBinding.control.getRoot())) SettingPlayerActivity.start(this);
+                else onToggle();
+            } else {
+                onContent();
+            }
+        }
         if (isVisible(mBinding.control.getRoot())) setR1Callback();
         if (isVisible(mBinding.control.getRoot())) mFocus2 = getCurrentFocus();
         if (dispatchOpeningEndingAdjust(event)) return true;
@@ -6305,17 +6315,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     protected void onStart() {
         super.onStart();
         mClock.stop().start();
+        if (isVisible(mBinding.control.getRoot())) hideControl();
         if (mOsd != null) {
             mOsd.setDiagnosticsVisible(PlayerSetting.isOsdDiagnostics());
             setPlayParamsState();
             mOsd.start();
         }
         if (service() != null) refreshLyrics();
+        if (mActionButtons != null) PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
+        if (mWasPlaying && service() != null && !player().isPlaying() && !player().isEmpty()) onPlay();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
+        mWasPlaying = service() != null && player().isPlaying();
         if (mOsd != null) mOsd.stop();
         if (mKaraoke != null) mKaraoke.clear();
         stopAudioCoverRotation();

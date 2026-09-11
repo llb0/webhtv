@@ -148,6 +148,7 @@ import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.ui.dialog.VideoContentDialog;
+import com.fongmi.android.tv.ui.fragment.SettingPlayerFragment;
 import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
@@ -239,6 +240,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean mSuppressKaraokeResultAction;
     private boolean mRestoringConfigurationPlayback;
     private boolean mSkipKaraokeTrackAutoLoad;
+    private boolean mWasPlaying;
+    private boolean mWasPlayingBeforeSetting;
     private BottomSheetDialog mLyricsResultDialog;
     private BottomSheetDialog mAudioQueueDialog;
     private BottomSheetDialog mKaraokePitchDialog;
@@ -825,6 +828,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
+        mBinding.control.action.setting.setOnClickListener(view -> {
+            mWasPlayingBeforeSetting = service() != null && player().isPlaying();
+            if (mWasPlayingBeforeSetting) onPaused();
+            showSettingPlayer();
+        });
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
         mBinding.audioPrev.setOnClickListener(view -> checkPrev());
@@ -1031,6 +1039,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         addActionButton(PlayerButtonSetting.PREV, mBinding.control.action.prev);
         addActionButton(PlayerButtonSetting.NEXT, mBinding.control.action.next);
         addActionButton(PlayerButtonSetting.EPISODES, mBinding.control.action.episodes);
+        addActionButton(PlayerButtonSetting.SETTING, mBinding.control.action.setting);
         PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
         setupCustomActionButtons();
     }
@@ -6525,10 +6534,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     protected void onStart() {
         super.onStart();
         mClock.stop().start();
+        if (isVisible(mBinding.control.getRoot())) hideControl();
         if (mOsd != null) mOsd.start();
         setAudioOnly(false);
         setStop(false);
         if (service() != null) refreshLyrics();
+        if (mActionButtons != null) PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
+        if ((mWasPlaying || mWasPlayingBeforeSetting) && service() != null && !player().isPlaying() && !player().isEmpty()) onPlay();
+        mWasPlayingBeforeSetting = false;
         syncLyricsPlaybackState();
         syncKaraokePosition();
     }
@@ -6536,6 +6549,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     protected void onStop() {
         super.onStop();
+        mWasPlaying = service() != null && player().isPlaying();
         if (mOsd != null) mOsd.stop();
         if (mKaraoke != null) mKaraoke.clear();
         if (PlayerSetting.isBackgroundOff()) mClock.stop();
@@ -6544,6 +6558,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onBackInvoked() {
+        if (isVisible(mBinding.settingContainer)) {
+            hideSettingPlayer();
+            return;
+        }
         if (hasLutQuick() && mBinding.lutQuick.hideIfVisible()) {
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
@@ -6563,6 +6581,28 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         stopPlayback();
         if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
         super.onBackInvoked();
+    }
+
+    private void showSettingPlayer() {
+        int wallColor = Setting.getWallColor();
+        int bgColor = android.graphics.Color.argb(220, android.graphics.Color.red(wallColor), android.graphics.Color.green(wallColor), android.graphics.Color.blue(wallColor));
+        mBinding.settingContainer.setBackgroundColor(bgColor);
+        mBinding.settingContainer.setVisibility(View.VISIBLE);
+        getSupportFragmentManager().beginTransaction()
+                .replace(R.id.settingContainer, SettingPlayerFragment.newInstance())
+                .commit();
+    }
+
+    private void hideSettingPlayer() {
+        androidx.fragment.app.Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.settingContainer);
+        if (fragment != null) {
+            getSupportFragmentManager().beginTransaction().remove(fragment).commit();
+        }
+        mBinding.settingContainer.setVisibility(View.GONE);
+        if (mWasPlayingBeforeSetting && service() != null && !player().isPlaying() && !player().isEmpty()) {
+            onPlay();
+        }
+        mWasPlayingBeforeSetting = false;
     }
 
     public void finishVideoForCast() {

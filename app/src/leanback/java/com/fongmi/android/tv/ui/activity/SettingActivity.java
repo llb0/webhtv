@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.view.KeyEvent;
 import android.view.View;
 
 import androidx.viewbinding.ViewBinding;
@@ -37,6 +38,8 @@ import com.fongmi.android.tv.ui.dialog.BackupProgressDialog;
 import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.FileUtil;
+import com.fongmi.android.tv.utils.FocusLoop;
+import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -56,6 +59,19 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
     private String[] language;
     private String[] titleLines;
     private String[] defaultLaunch;
+    private String[] uiScale;
+    private static final int[] UI_SCALE_VALUES = {Setting.UI_SCALE_FOLLOW_SYSTEM, Setting.UI_SCALE_STANDARD, Setting.UI_SCALE_COMPACT};
+
+    private static final int[][] FOCUS_GRID = {
+        {R.id.vod, R.id.vodHome, R.id.vodHistory},
+        {R.id.live, R.id.liveHome, R.id.liveHistory},
+        {R.id.wall, R.id.wallDefault, R.id.wallRefresh},
+        {R.id.enhance, R.id.player, R.id.danmaku},
+        {R.id.defaultLaunch, R.id.language, R.id.titleLines},
+        {R.id.incognito, R.id.doh, R.id.size},
+        {R.id.backup, R.id.restore, R.id.uiScale},
+        {R.id.autoClearCache, R.id.cache, R.id.version}
+    };
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, SettingActivity.class));
@@ -97,6 +113,7 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         mBinding.autoClearCacheText.setText(getSwitch(Setting.isAutoClearCache()));
         mBinding.languageText.setText((language = ResUtil.getStringArray(R.array.select_language))[Setting.getLanguageIndex()]);
         mBinding.sizeText.setText((size = ResUtil.getStringArray(R.array.select_size))[PlayerSetting.getSize()]);
+        mBinding.uiScaleText.setText((uiScale = new String[]{"宽松", "标准", "紧凑"})[getUiScaleIndex()]);
         mBinding.titleLinesText.setText((titleLines = ResUtil.getStringArray(R.array.select_title_lines))[Setting.getTitleLinesIndex()]);
         mBinding.defaultLaunchText.setText((defaultLaunch = ResUtil.getStringArray(R.array.select_default_launch))[Setting.getDefaultLaunch()]);
     }
@@ -117,6 +134,7 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         mBinding.live.setOnClickListener(this::onLive);
         mBinding.wall.setOnClickListener(this::onWall);
         mBinding.size.setOnClickListener(this::setSize);
+        mBinding.uiScale.setOnClickListener(this::setUiScale);
         mBinding.language.setOnClickListener(this::setLanguage);
         mBinding.defaultLaunch.setOnClickListener(this::setDefaultLaunch);
         mBinding.titleLines.setOnClickListener(this::setTitleLines);
@@ -286,6 +304,19 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
         RefreshEvent.size();
     }
 
+    private int getUiScaleIndex() {
+        int scale = Setting.getUiScale();
+        for (int i = 0; i < UI_SCALE_VALUES.length; i++) if (UI_SCALE_VALUES[i] == scale) return i;
+        return 0;
+    }
+
+    private void setUiScale(View view) {
+        int index = (getUiScaleIndex() + 1) % uiScale.length;
+        mBinding.uiScaleText.setText(uiScale[index]);
+        Setting.putUiScale(UI_SCALE_VALUES[index]);
+        recreate();
+    }
+
     private void setLanguage(View view) {
         int index = (Setting.getLanguageIndex() + 1) % language.length;
         Setting.putLanguageIndex(index);
@@ -384,6 +415,16 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
 
     private void setWallText() {
         mBinding.wallUrl.setText(Setting.getWallDesc(WallConfig.getDesc()));
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (KeyUtil.isMenuKey(event)) {
+            Updater.create().force().start(this);
+            return true;
+        }
+        if (FocusLoop.handle(this, FOCUS_GRID, FocusLoop.Mode.BOTH, event)) return true;
+        return super.dispatchKeyEvent(event);
     }
 
 }

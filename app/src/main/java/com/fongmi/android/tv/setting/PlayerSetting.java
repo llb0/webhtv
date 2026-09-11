@@ -516,7 +516,7 @@ public class PlayerSetting {
     }
 
     public static boolean isOsdTitle() {
-        return Prefers.getBoolean("player_osd_title");
+        return Prefers.getBoolean("player_osd_title", true);
     }
 
     public static void putOsdTitle(boolean value) {
@@ -524,8 +524,7 @@ public class PlayerSetting {
     }
 
     public static boolean isOsdResolution() {
-        String key = "player_osd_resolution";
-        return Prefers.getPrefers().contains(key) ? Prefers.getBoolean(key) : isOsdTitle();
+        return Prefers.getBoolean("player_osd_resolution", true);
     }
 
     public static void putOsdResolution(boolean value) {
@@ -533,7 +532,7 @@ public class PlayerSetting {
     }
 
     public static boolean isOsdTime() {
-        return Prefers.getBoolean("player_osd_time");
+        return Prefers.getBoolean("player_osd_time", true);
     }
 
     public static void putOsdTime(boolean value) {
@@ -541,7 +540,7 @@ public class PlayerSetting {
     }
 
     public static boolean isOsdProgress() {
-        return Prefers.getBoolean("player_osd_progress");
+        return Prefers.getBoolean("player_osd_progress", true);
     }
 
     public static void putOsdProgress(boolean value) {

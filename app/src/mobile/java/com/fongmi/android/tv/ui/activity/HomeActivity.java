@@ -84,6 +84,11 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent.hasExtra(EXTRA_NAV_POSITION)) {
+            change(intent.getIntExtra(EXTRA_NAV_POSITION, 0));
+            intent.removeExtra(EXTRA_NAV_POSITION);
+        }
         checkAction(intent);
     }
 

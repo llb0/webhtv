@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.adapter;
 
 import android.view.LayoutInflater;
+import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
@@ -85,8 +86,7 @@ public class SiteCheckAdapter extends RecyclerView.Adapter<SiteCheckAdapter.View
         Site site = filtered.get(position);
         holder.binding.check.setChecked(checkedKeys.contains(site.getKey()));
         holder.binding.name.setText(site.getName());
-        String typeText = site.getType() == 1 ? "JS" : site.getType() == 2 ? "PY" : "PQ";
-        holder.binding.type.setText(typeText);
+        holder.binding.type.setVisibility(View.GONE);
         holder.binding.getRoot().setOnClickListener(v -> {
             String key = site.getKey();
             if (checkedKeys.contains(key)) checkedKeys.remove(key);
