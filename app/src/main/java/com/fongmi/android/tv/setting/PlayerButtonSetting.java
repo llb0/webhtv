@@ -64,7 +64,7 @@ public class PlayerButtonSetting {
             new Item(RESET, R.string.play_reset),
             new Item(REPEAT, R.string.play_repeat),
             new Item(TIMER, R.string.play_timer),
-            new Item(SETTING, R.string.setting),
+            new Item(SETTING, R.string.play_setting),
             new Item(PUSH, R.string.push),
             new Item(PLAY_PARAMS, R.string.play_params),
             new Item(CODEC_CAPABILITY, R.string.codec_capability_short),
@@ -145,7 +145,7 @@ public class PlayerButtonSetting {
     public static void applyVisibility(Map<String, View> views) {
         Set<String> hidden = getHidden();
         for (Map.Entry<String, View> entry : views.entrySet()) {
-            if (hidden.contains(entry.getKey())) entry.getValue().setVisibility(View.GONE);
+            entry.getValue().setVisibility(hidden.contains(entry.getKey()) ? View.GONE : View.VISIBLE);
         }
     }
 
