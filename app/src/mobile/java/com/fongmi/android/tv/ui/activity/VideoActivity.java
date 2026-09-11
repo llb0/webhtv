@@ -239,6 +239,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private boolean mSuppressKaraokeResultAction;
     private boolean mRestoringConfigurationPlayback;
     private boolean mSkipKaraokeTrackAutoLoad;
+    private boolean mWasPlaying;
     private BottomSheetDialog mLyricsResultDialog;
     private BottomSheetDialog mAudioQueueDialog;
     private BottomSheetDialog mKaraokePitchDialog;
@@ -825,7 +826,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
-        mBinding.control.action.setting.setOnClickListener(view -> onSetting());
+        mBinding.control.action.setting.setOnClickListener(view -> {
+            Intent intent = new Intent(this, com.fongmi.android.tv.ui.activity.HomeActivity.class);
+            intent.putExtra(com.fongmi.android.tv.ui.activity.HomeActivity.EXTRA_NAV_POSITION, 2);
+            startActivity(intent);
+        });
         mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         mBinding.audioNext.setOnClickListener(view -> checkNext());
         mBinding.audioPrev.setOnClickListener(view -> checkPrev());
@@ -6527,11 +6532,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     protected void onStart() {
         super.onStart();
         mClock.stop().start();
+        if (isVisible(mBinding.control.getRoot())) hideControl();
         if (mOsd != null) mOsd.start();
         setAudioOnly(false);
         setStop(false);
         if (service() != null) refreshLyrics();
         if (mActionButtons != null) PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
+        if (mWasPlaying && service() != null && !player().isPlaying() && !player().isEmpty()) onPlay();
         syncLyricsPlaybackState();
         syncKaraokePosition();
     }
@@ -6539,6 +6546,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     protected void onStop() {
         super.onStop();
+        mWasPlaying = service() != null && player().isPlaying();
         if (mOsd != null) mOsd.stop();
         if (mKaraoke != null) mKaraoke.clear();
         if (PlayerSetting.isBackgroundOff()) mClock.stop();
