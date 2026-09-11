@@ -828,7 +828,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
         mBinding.control.action.episodes.setOnClickListener(view -> onEpisodes());
-        mBinding.control.action.cast.setOnClickListener(view -> onCast());
         mBinding.control.action.setting.setOnClickListener(view -> {
             mWasPlayingBeforeSetting = service() != null && player().isPlaying();
             if (mWasPlayingBeforeSetting) onPaused();
@@ -1040,7 +1039,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         addActionButton(PlayerButtonSetting.PREV, mBinding.control.action.prev);
         addActionButton(PlayerButtonSetting.NEXT, mBinding.control.action.next);
         addActionButton(PlayerButtonSetting.EPISODES, mBinding.control.action.episodes);
-        addActionButton(PlayerButtonSetting.CAST, mBinding.control.action.cast);
+        addActionButton(PlayerButtonSetting.CAST, mBinding.control.cast);
         addActionButton(PlayerButtonSetting.SETTING, mBinding.control.action.setting);
         PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
         setupCustomActionButtons();
@@ -4195,7 +4194,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.getRoot().setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
-        mBinding.control.cast.setVisibility(View.GONE);
         mBinding.control.center.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.bottom.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.back.setVisibility(isLock() ? View.GONE : View.VISIBLE);
