@@ -6584,6 +6584,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void showSettingPlayer() {
+        int wallColor = Setting.getWallColor();
+        int bgColor = android.graphics.Color.argb(220, android.graphics.Color.red(wallColor), android.graphics.Color.green(wallColor), android.graphics.Color.blue(wallColor));
+        mBinding.settingContainer.setBackgroundColor(bgColor);
         mBinding.settingContainer.setVisibility(View.VISIBLE);
         getSupportFragmentManager().beginTransaction()
                 .replace(R.id.settingContainer, SettingPlayerFragment.newInstance())
@@ -6596,6 +6599,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             getSupportFragmentManager().beginTransaction().remove(fragment).commit();
         }
         mBinding.settingContainer.setVisibility(View.GONE);
+        if (mWasPlayingBeforeSetting && service() != null && !player().isPlaying() && !player().isEmpty()) {
+            onPlay();
+        }
+        mWasPlayingBeforeSetting = false;
     }
 
     public void finishVideoForCast() {
