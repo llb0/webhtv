@@ -137,7 +137,6 @@ import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
 import com.fongmi.android.tv.ui.dialog.TimerDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
-import com.fongmi.android.tv.ui.fragment.SettingPlayerFragment;
 import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -716,7 +715,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.change2.setOnClickListener(view -> onChange());
         mBinding.control.action.fullscreen.setOnClickListener(view -> onFullscreen());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
-        mBinding.control.action.setting.setOnClickListener(view -> showSettingPlayer());
+        mBinding.control.action.setting.setOnClickListener(view -> SettingPlayerActivity.start(this));
         mBinding.control.action.cast.setOnClickListener(view -> onCast());
         mBinding.control.action.timer.setOnClickListener(view -> onTimer());
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
@@ -5961,12 +5960,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;
         if (isVisible(mBinding.lutQuick)) return dispatchLutQuickKey(event);
         if (KeyUtil.isMenuKey(event)) {
-            if (isVisible(mBinding.settingContainer)) {
-                hideSettingPlayer();
-                return true;
-            }
             if (isFullscreen()) {
-                if (isVisible(mBinding.control.getRoot())) showSettingPlayer();
+                if (isVisible(mBinding.control.getRoot())) SettingPlayerActivity.start(this);
                 else onToggle();
             } else {
                 onContent();
@@ -6343,10 +6338,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onBackInvoked() {
-        if (isVisible(mBinding.settingContainer)) {
-            hideSettingPlayer();
-            return;
-        }
         if (mBinding.lutQuick.hideIfVisible()) {
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
@@ -6373,24 +6364,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         stopPlayback();
         if (isTaskRoot()) startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
         super.onBackInvoked();
-    }
-
-    private void showSettingPlayer() {
-        int wallColor = Setting.getWallColor();
-        int bgColor = Color.argb(230, Color.red(wallColor), Color.green(wallColor), Color.blue(wallColor));
-        mBinding.settingContainer.setBackgroundColor(bgColor);
-        mBinding.settingContainer.setVisibility(View.VISIBLE);
-        getSupportFragmentManager().beginTransaction()
-                .replace(R.id.settingContainer, SettingPlayerFragment.newInstance())
-                .commit();
-    }
-
-    private void hideSettingPlayer() {
-        androidx.fragment.app.Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.settingContainer);
-        if (fragment != null) {
-            getSupportFragmentManager().beginTransaction().remove(fragment).commit();
-        }
-        mBinding.settingContainer.setVisibility(View.GONE);
     }
 
     public void finishVideoForCast() {
