@@ -51,6 +51,7 @@ public final class ChoiceDialog extends DialogFragment {
     private OnItemEnabled itemEnabled;
     private OnNeutral neutralAction;
     private Runnable positiveAction;
+    private Runnable dismissCallback;
 
     public interface OnChoice {
         void onChoice(int which);
@@ -88,7 +89,7 @@ public final class ChoiceDialog extends DialogFragment {
         showSingle(manager, title, items, selected, true, choice);
     }
 
-    private static void showSingle(FragmentManager manager, CharSequence title, CharSequence[] items, int selected, boolean showCancel, OnChoice choice) {
+    public static ChoiceDialog showSingle(FragmentManager manager, CharSequence title, CharSequence[] items, int selected, boolean showCancel, OnChoice choice) {
         ChoiceDialog dialog = new ChoiceDialog();
         dialog.title = title;
         dialog.items = items == null ? new CharSequence[0] : Arrays.copyOf(items, items.length);
@@ -96,6 +97,7 @@ public final class ChoiceDialog extends DialogFragment {
         dialog.showCancel = showCancel;
         dialog.choice = choice;
         dialog.show(manager, ChoiceDialog.class.getSimpleName());
+        return dialog;
     }
 
     public static void showSingle(FragmentManager manager, CharSequence title, CharSequence[] items, int selected, String neutral, OnNeutral neutralAction, OnChoice choice) {
@@ -195,6 +197,16 @@ public final class ChoiceDialog extends DialogFragment {
         window.setAttributes(params);
         window.setLayout(params.width, params.height);
         window.getDecorView().post(this::focusSelectedItem);
+    }
+
+    public void setDismissCallback(Runnable callback) {
+        this.dismissCallback = callback;
+    }
+
+    @Override
+    public void onDismiss(@NonNull android.content.DialogInterface dialog) {
+        super.onDismiss(dialog);
+        if (dismissCallback != null) dismissCallback.run();
     }
 
     private View createView(LayoutInflater inflater) {
