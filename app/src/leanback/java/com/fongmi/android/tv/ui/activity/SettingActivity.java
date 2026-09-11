@@ -38,6 +38,7 @@ import com.fongmi.android.tv.ui.dialog.BackupProgressDialog;
 import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.utils.AppVersion;
 import com.fongmi.android.tv.utils.FileUtil;
+import com.fongmi.android.tv.utils.FocusLoop;
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
@@ -59,7 +60,18 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
     private String[] titleLines;
     private String[] defaultLaunch;
     private String[] uiScale;
-    private static final int[] UI_SCALE_VALUES = {Setting.UI_SCALE_FOLLOW_SYSTEM, Setting.UI_SCALE_MILD_RELAXED, Setting.UI_SCALE_STANDARD};
+    private static final int[] UI_SCALE_VALUES = {Setting.UI_SCALE_FOLLOW_SYSTEM, Setting.UI_SCALE_STANDARD, Setting.UI_SCALE_COMPACT};
+
+    private static final int[][] FOCUS_GRID = {
+        {R.id.vod, R.id.vodHome, R.id.vodHistory},
+        {R.id.live, R.id.liveHome, R.id.liveHistory},
+        {R.id.wall, R.id.wallDefault, R.id.wallRefresh},
+        {R.id.enhance, R.id.player, R.id.danmaku},
+        {R.id.defaultLaunch, R.id.language, R.id.titleLines},
+        {R.id.incognito, R.id.doh, R.id.size},
+        {R.id.backup, R.id.restore, R.id.uiScale},
+        {R.id.autoClearCache, R.id.cache, R.id.version}
+    };
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, SettingActivity.class));
@@ -407,7 +419,11 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (KeyUtil.isMenuKey(event)) Updater.create().force().start(this);
+        if (KeyUtil.isMenuKey(event)) {
+            Updater.create().force().start(this);
+            return true;
+        }
+        if (FocusLoop.handle(this, FOCUS_GRID, FocusLoop.Mode.BOTH, event)) return true;
         return super.dispatchKeyEvent(event);
     }
 
