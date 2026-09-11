@@ -69,24 +69,24 @@ public final class ChoiceDialog extends DialogFragment {
         CharSequence onNeutral();
     }
 
-    public static void showSingle(Fragment fragment, int titleRes, CharSequence[] items, int selected, OnChoice choice) {
-        showSingle(fragment.getChildFragmentManager(), fragment.getString(titleRes), items, selected, choice);
+    public static ChoiceDialog showSingle(Fragment fragment, int titleRes, CharSequence[] items, int selected, OnChoice choice) {
+        return showSingle(fragment.getChildFragmentManager(), fragment.getString(titleRes), items, selected, choice);
     }
 
-    public static void showSingle(FragmentActivity activity, int titleRes, CharSequence[] items, int selected, OnChoice choice) {
-        showSingle(activity.getSupportFragmentManager(), activity.getString(titleRes), items, selected, choice);
+    public static ChoiceDialog showSingle(FragmentActivity activity, int titleRes, CharSequence[] items, int selected, OnChoice choice) {
+        return showSingle(activity.getSupportFragmentManager(), activity.getString(titleRes), items, selected, choice);
     }
 
-    public static void showSingleNoCancel(Fragment fragment, int titleRes, CharSequence[] items, int selected, OnChoice choice) {
-        showSingle(fragment.getChildFragmentManager(), fragment.getString(titleRes), items, selected, false, choice);
+    public static ChoiceDialog showSingleNoCancel(Fragment fragment, int titleRes, CharSequence[] items, int selected, OnChoice choice) {
+        return showSingle(fragment.getChildFragmentManager(), fragment.getString(titleRes), items, selected, false, choice);
     }
 
-    public static void showSingleNoCancel(FragmentActivity activity, int titleRes, CharSequence[] items, int selected, OnChoice choice) {
-        showSingle(activity.getSupportFragmentManager(), activity.getString(titleRes), items, selected, false, choice);
+    public static ChoiceDialog showSingleNoCancel(FragmentActivity activity, int titleRes, CharSequence[] items, int selected, OnChoice choice) {
+        return showSingle(activity.getSupportFragmentManager(), activity.getString(titleRes), items, selected, false, choice);
     }
 
-    public static void showSingle(FragmentManager manager, CharSequence title, CharSequence[] items, int selected, OnChoice choice) {
-        showSingle(manager, title, items, selected, true, choice);
+    public static ChoiceDialog showSingle(FragmentManager manager, CharSequence title, CharSequence[] items, int selected, OnChoice choice) {
+        return showSingle(manager, title, items, selected, true, choice);
     }
 
     public static ChoiceDialog showSingle(FragmentManager manager, CharSequence title, CharSequence[] items, int selected, boolean showCancel, OnChoice choice) {
@@ -100,7 +100,7 @@ public final class ChoiceDialog extends DialogFragment {
         return dialog;
     }
 
-    public static void showSingle(FragmentManager manager, CharSequence title, CharSequence[] items, int selected, String neutral, OnNeutral neutralAction, OnChoice choice) {
+    public static ChoiceDialog showSingle(FragmentManager manager, CharSequence title, CharSequence[] items, int selected, String neutral, OnNeutral neutralAction, OnChoice choice) {
         ChoiceDialog dialog = new ChoiceDialog();
         dialog.title = title;
         dialog.items = items == null ? new CharSequence[0] : Arrays.copyOf(items, items.length);
@@ -111,6 +111,7 @@ public final class ChoiceDialog extends DialogFragment {
         dialog.positive = ResUtil.getString(R.string.dialog_positive);
         dialog.dismissOnChoice = false;
         dialog.show(manager, ChoiceDialog.class.getSimpleName());
+        return dialog;
     }
 
     public static void showMulti(FragmentActivity activity, int titleRes, CharSequence[] items, boolean[] checked, OnApply apply) {
