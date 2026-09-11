@@ -42,7 +42,7 @@ public class PlayerButtonSetting {
     public static final String FULLSCREEN = "fullscreen";
     public static final String CHANGE = "change";
     public static final String SETTING = "setting";
-    public static final String PUSH = "push";
+    public static final String CAST = "cast";
     public static final String TIMER = "timer";
     public static final String PDS = "diagnostic_entry";
 
@@ -51,7 +51,6 @@ public class PlayerButtonSetting {
     private static final List<Item> DEFAULT = List.of(
             new Item(PREV, R.string.play_prev),
             new Item(EPISODES, R.string.play_episodes),
-            new Item(CHANGE, R.string.play_change),
             new Item(NEXT, R.string.play_next),
             new Item(PLAYER, R.string.play_exo),
             new Item(DECODE, R.string.play_decode),
@@ -64,8 +63,9 @@ public class PlayerButtonSetting {
             new Item(RESET, R.string.play_reset),
             new Item(REPEAT, R.string.play_repeat),
             new Item(TIMER, R.string.play_timer),
+            new Item(CAST, R.string.play_cast),
             new Item(SETTING, R.string.play_setting),
-            new Item(PUSH, R.string.push),
+            new Item(CHANGE, R.string.play_change),
             new Item(PLAY_PARAMS, R.string.play_params),
             new Item(CODEC_CAPABILITY, R.string.codec_capability_short),
             new Item(LUT, R.string.play_lut),
@@ -172,7 +172,7 @@ public class PlayerButtonSetting {
                 PLAY_PARAMS, CODEC_CAPABILITY, LUT, TEXT, DANMAKU, TITLE, FULLSCREEN, PDS, CHANGE
         ));
         if (Util.isLeanback()) hidden.add(SETTING);
-        else hidden.add(PUSH);
+        else hidden.add(CAST);
         return hidden;
     }
 
