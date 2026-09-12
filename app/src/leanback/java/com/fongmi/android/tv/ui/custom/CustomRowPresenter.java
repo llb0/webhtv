@@ -44,30 +44,5 @@ public class CustomRowPresenter extends ListRowPresenter {
         HorizontalGridView grid = vh.getGridView();
         grid.setFocusScrollStrategy(strategy);
         grid.setHorizontalSpacing(ResUtil.dp2px(spacing));
-        grid.setOnKeyListener((v, keyCode, event) -> {
-            if (!KeyUtil.isActionDown(event)) return false;
-            View focus = grid.findFocus();
-            if (focus == null) return false;
-            // 向上查找 HorizontalGridView 的直接子 View
-            View itemView = focus;
-            while (itemView != null && itemView.getParent() != grid) {
-                if (!(itemView.getParent() instanceof View)) return false;
-                itemView = (View) itemView.getParent();
-            }
-            if (itemView == null) return false;
-            int position = grid.getChildAdapterPosition(itemView);
-            if (position == RecyclerView.NO_POSITION) return false;
-            int count = grid.getAdapter() == null ? 0 : grid.getAdapter().getItemCount();
-            if (count <= 1) return false;
-            if (KeyUtil.isLeftKey(event) && position == 0) {
-                grid.setSelectedPosition(count - 1);
-                return true;
-            }
-            if (KeyUtil.isRightKey(event) && position == count - 1) {
-                grid.setSelectedPosition(0);
-                return true;
-            }
-            return false;
-        });
     }
 }
