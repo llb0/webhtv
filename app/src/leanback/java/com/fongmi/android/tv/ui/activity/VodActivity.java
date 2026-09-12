@@ -174,6 +174,18 @@ public class VodActivity extends BaseActivity implements TypeAdapter.OnClickList
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (KeyUtil.isMenuKey(event)) updateFilter();
         if (KeyUtil.isActionDown(event) && KeyUtil.isDownKey(event) && mBinding.recycler.hasFocus()) return requestContentFocus();
+        if (KeyUtil.isActionDown(event) && KeyUtil.isLeftKey(event) && mBinding.recycler.hasFocus()) {
+            if (mBinding.recycler.getSelectedPosition() == 0) {
+                mBinding.recycler.setSelectedPosition(mAdapter.getItemCount() - 1);
+                return true;
+            }
+        }
+        if (KeyUtil.isActionDown(event) && KeyUtil.isRightKey(event) && mBinding.recycler.hasFocus()) {
+            if (mBinding.recycler.getSelectedPosition() == mAdapter.getItemCount() - 1) {
+                mBinding.recycler.setSelectedPosition(0);
+                return true;
+            }
+        }
         return super.dispatchKeyEvent(event);
     }
 
