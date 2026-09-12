@@ -40,6 +40,11 @@ public class SiteSortDialog extends BaseGlassDialog implements SiteSortAdapter.O
         return this;
     }
 
+    public void show(FragmentActivity activity) {
+        if (activity.isFinishing() || activity.isDestroyed()) return;
+        show(activity.getSupportFragmentManager(), SiteSortDialog.class.getSimpleName());
+    }
+
     @Override
     protected androidx.viewbinding.ViewBinding getBinding() {
         binding = DialogSiteSortBinding.inflate(LayoutInflater.from(getActivity()));
