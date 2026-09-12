@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.dialog;
 
 import android.app.Dialog;
+import android.content.DialogInterface;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -60,12 +61,9 @@ public class SiteSortDialog extends BaseGlassDialog implements SiteSortAdapter.O
     }
 
     @Override
-    protected void initEvent() {
-        binding.cancel.setOnClickListener(v -> dismiss());
-        binding.confirm.setOnClickListener(v -> {
-            if (listener != null) listener.onConfirm();
-            dismiss();
-        });
+    public void onDismiss(@NonNull DialogInterface dialog) {
+        super.onDismiss(dialog);
+        if (listener != null) listener.onConfirm();
     }
 
     private void loadSites() {
@@ -74,15 +72,6 @@ public class SiteSortDialog extends BaseGlassDialog implements SiteSortAdapter.O
         // 应用记忆排序，记忆中没有的按手机逻辑（文件源在前，接口源在后）
         SiteOrderStore.sortSites(allSites);
         adapter.addAll(allSites);
-    }
-
-    private boolean saveOrder() {
-        try {
-            SiteOrderStore.save(adapter.getItems());
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     @Override
