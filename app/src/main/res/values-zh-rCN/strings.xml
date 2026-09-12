@@ -846,6 +846,7 @@
     <string name="player_pad_live">平板直播</string>
     <string name="player_button_up">上移</string>
     <string name="player_button_down">下移</string>
+    <string name="player_button_top">置顶</string>
     <string name="play_episodes">选集</string>
     <string name="player_exo_4k_compat">播放性能</string>
     <string name="player_immersive_audio_mode">沉浸音频模式</string>
