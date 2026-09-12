@@ -261,6 +261,21 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mBinding.typeRecycler.setHorizontalSpacing(ResUtil.dp2px(16));
         mBinding.typeRecycler.setRowHeight(android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
         mBinding.typeRecycler.setAdapter(mTypeAdapter = new TypeAdapter(this));
+        mBinding.typeRecycler.setOnKeyListener((v, keyCode, event) -> {
+            if (!KeyUtil.isActionDown(event)) return false;
+            int position = mBinding.typeRecycler.getSelectedPosition();
+            int count = mTypeAdapter.getItemCount();
+            if (count <= 1) return false;
+            if (KeyUtil.isLeftKey(event) && position == 0) {
+                mBinding.typeRecycler.setSelectedPosition(count - 1);
+                return true;
+            }
+            if (KeyUtil.isRightKey(event) && position == count - 1) {
+                mBinding.typeRecycler.setSelectedPosition(0);
+                return true;
+            }
+            return false;
+        });
         FuncPresenter funcPresenter = new FuncPresenter(this);
         funcPresenter.setOnBoundaryListener(this);
         mBinding.funcRecycler.setAdapter(new ItemBridgeAdapter(mFuncAdapter = new ArrayObjectAdapter(funcPresenter)));
@@ -759,18 +774,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             if (KeyUtil.isUpKey(event) && isToolbarVisible()) return super.dispatchKeyEvent(event);
             if (mWeb.dispatchKeyEvent(event)) return true;
             return super.dispatchKeyEvent(event);
-        }
-        if (KeyUtil.isActionDown(event) & KeyUtil.isLeftKey(event) && mBinding.typeRecycler.hasFocus()) {
-            if (mBinding.typeRecycler.getSelectedPosition() == 0) {
-                mBinding.typeRecycler.setSelectedPosition(mTypeAdapter.getItemCount() - 1);
-                return true;
-            }
-        }
-        if (KeyUtil.isActionDown(event) & KeyUtil.isRightKey(event) && mBinding.typeRecycler.hasFocus()) {
-            if (mBinding.typeRecycler.getSelectedPosition() == mTypeAdapter.getItemCount() - 1) {
-                mBinding.typeRecycler.setSelectedPosition(0);
-                return true;
-            }
         }
         if (KeyUtil.isActionDown(event) & KeyUtil.isUpKey(event) && mBinding.typeRecycler.hasFocus()) return requestTitleFocus();
         if (KeyUtil.isActionDown(event) & KeyUtil.isDownKey(event) && mBinding.typeRecycler.hasFocus()) {
