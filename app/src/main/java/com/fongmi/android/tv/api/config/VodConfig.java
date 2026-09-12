@@ -357,23 +357,26 @@ public class VodConfig extends BaseConfig {
 
     private void insertFileSitesByType(List<Site> sites, List<Site> fileSites) {
         if (fileSites.isEmpty()) return;
-        // 按文件类型分组
-        Map<String, List<Site>> grouped = new LinkedHashMap<>();
-        for (Site site : fileSites) {
-            String type = site.getFileType();
-            grouped.computeIfAbsent(type, k -> new ArrayList<>()).add(site);
-        }
+        // 固定类型顺序：XBPQ、JS、PY、RAW
+        String[] typeOrder = {"XBPQ", "JS", "PY", "RAW"};
         // 文件类型 -> 配置站点type的映射
         Map<String, Integer> typeToSiteType = new HashMap<>();
         typeToSiteType.put("XBPQ", 3);
         typeToSiteType.put("JS", 1);
         typeToSiteType.put("PY", 2);
         typeToSiteType.put("RAW", 0);
-        // 从后往前插入，避免索引偏移
-        List<String> types = new ArrayList<>(grouped.keySet());
-        Collections.reverse(types);
-        for (String type : types) {
+        // 按文件类型分组
+        Map<String, List<Site>> grouped = new LinkedHashMap<>();
+        for (Site site : fileSites) {
+            String type = site.getFileType();
+            grouped.computeIfAbsent(type, k -> new ArrayList<>()).add(site);
+        }
+        // 先计算每个类型的插入位置（基于原始sites列表）
+        List<int[]> insertions = new ArrayList<>();
+        int lastInsertEnd = 0;
+        for (String type : typeOrder) {
             List<Site> group = grouped.get(type);
+            if (group == null || group.isEmpty()) continue;
             Integer siteType = typeToSiteType.get(type);
             int insertPos = sites.size();
             if (siteType != null) {
@@ -385,7 +388,27 @@ public class VodConfig extends BaseConfig {
                     }
                 }
             }
-            sites.addAll(insertPos, group);
+            // 如果该类型没有站点，插入到上一个插入位置之后，保持顺序
+            if (insertPos == sites.size() && lastInsertEnd > 0) {
+                insertPos = lastInsertEnd;
+            }
+            insertions.add(new int[]{insertPos, group.size()});
+            lastInsertEnd = insertPos + group.size();
+        }
+        // 从后往前插入，避免索引偏移
+        for (int i = insertions.size() - 1; i >= 0; i--) {
+            int pos = insertions.get(i)[0];
+            // 找到对应的类型
+            int idx = 0;
+            for (String type : typeOrder) {
+                if (grouped.containsKey(type) && !grouped.get(type).isEmpty()) {
+                    if (idx == i) {
+                        sites.addAll(pos, grouped.get(type));
+                        break;
+                    }
+                    idx++;
+                }
+            }
         }
     }
 
