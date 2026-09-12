@@ -92,10 +92,13 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     @Override
     protected boolean onMenuKey() {
         SiteSortDialog.create().setListener(() -> {
-            // 排序完成后刷新站点列表
-            if (adapter != null) adapter.refresh();
+            // 排序完成后刷新站点列表并再次聚焦到当前站
+            if (adapter != null) {
+                adapter.refresh();
+                binding.recycler.post(() -> scrollAndFocusActiveSite());
+            }
         }).show(getActivity());
-        return true;
+        return false;
     }
 
     @Override
