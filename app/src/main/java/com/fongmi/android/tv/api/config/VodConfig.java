@@ -32,6 +32,8 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -225,12 +227,19 @@ public class VodConfig extends BaseConfig {
             sites.addAll(Json.safeListElement(object, "sites").stream().map(e -> Site.objectFrom(e, spider)).distinct().collect(Collectors.toCollection(ArrayList::new)));
         }
         List<Site> fileSites = loadFileSites(spider);
-        sites.addAll(0, fileSites);
+        insertFileSitesByType(sites, fileSites);
         setSites(sites);
         Map<String, Site> items = Site.findAll().stream().collect(Collectors.toMap(Site::getKey, Function.identity()));
         getSites().forEach(site -> site.sync(items.get(site.getKey())));
         CustomCspSetting.Result custom = CustomCspSetting.inject(getSites());
-        Site home = !custom.home().isEmpty() ? custom.home() : getSites().stream().filter(item -> item.getKey().equals(config.getHome())).findFirst().orElse(getSites().isEmpty() ? new Site() : getSites().get(0));
+        String configHomeKey = config.getHome();
+        Site home;
+        if (!TextUtils.isEmpty(configHomeKey)) {
+            home = getSites().stream().filter(item -> item.getKey().equals(configHomeKey)).findFirst().orElse(null);
+        } else {
+            home = !custom.home().isEmpty() ? custom.home() : null;
+        }
+        if (home == null) home = getSites().isEmpty() ? new Site() : getSites().get(0);
         setHome(config, home, false);
     }
 
@@ -345,6 +354,60 @@ public class VodConfig extends BaseConfig {
 
     private static final String CLAN_ROOT = Path.root() + "/tvbox/";
     private static final String XBPQ_JAR = UrlUtil.convert("./jars/XBPQ.jar");
+
+    private void insertFileSitesByType(List<Site> sites, List<Site> fileSites) {
+        if (fileSites.isEmpty()) return;
+        // 固定类型顺序：XBPQ、JS、PY、RAW
+        String[] typeOrder = {"XBPQ", "JS", "PY", "RAW"};
+        // 文件类型 -> 配置站点type的映射
+        Map<String, Integer> typeToSiteType = new HashMap<>();
+        typeToSiteType.put("XBPQ", 3);
+        typeToSiteType.put("JS", 1);
+        typeToSiteType.put("PY", 2);
+        typeToSiteType.put("RAW", 0);
+        // 按文件类型分组
+        Map<String, List<Site>> grouped = new LinkedHashMap<>();
+        for (Site site : fileSites) {
+            String type = site.getFileType();
+            grouped.computeIfAbsent(type, k -> new ArrayList<>()).add(site);
+        }
+        // 记录每种类型是否已插入
+        Map<String, Boolean> inserted = new HashMap<>();
+        for (String type : typeOrder) inserted.put(type, false);
+        // 构建新列表
+        List<Site> result = new ArrayList<>();
+        for (int i = 0; i < sites.size(); i++) {
+            Site site = sites.get(i);
+            result.add(site);
+            // 检查是否是该类型的最后一个站点
+            for (String type : typeOrder) {
+                Integer siteType = typeToSiteType.get(type);
+                if (siteType == null || inserted.get(type)) continue;
+                if (site.getType() == siteType) {
+                    // 检查后面是否还有同类型站点
+                    boolean isLast = true;
+                    for (int j = i + 1; j < sites.size(); j++) {
+                        if (sites.get(j).getType() == siteType) {
+                            isLast = false;
+                            break;
+                        }
+                    }
+                    if (isLast && grouped.containsKey(type) && !grouped.get(type).isEmpty()) {
+                        result.addAll(grouped.get(type));
+                        inserted.put(type, true);
+                    }
+                }
+            }
+        }
+        // 把没有对应站点的文件源按顺序追加到末尾
+        for (String type : typeOrder) {
+            if (!inserted.get(type) && grouped.containsKey(type) && !grouped.get(type).isEmpty()) {
+                result.addAll(grouped.get(type));
+            }
+        }
+        sites.clear();
+        sites.addAll(result);
+    }
 
     private List<Site> loadFileSites(String globalSpider) {
         List<Site> result = new ArrayList<>();

@@ -120,8 +120,15 @@ public final class FocusLoop {
     public static boolean handleRecyclerGrid(RecyclerView recycler, int itemCount, int spanCount, Mode mode, KeyEvent event) {
         if (recycler == null || !KeyUtil.isActionDown(event)) return false;
         View focus = recycler.findFocus();
-        if (focus == null) return false;
-        int position = recycler.getChildAdapterPosition(focus);
+        if (focus == null || focus == recycler) return false;
+        // 向上查找 RecyclerView 的直接子 View（itemView），避免 ClassCastException
+        View itemView = focus;
+        while (itemView != null && itemView.getParent() != recycler) {
+            if (!(itemView.getParent() instanceof View)) return false;
+            itemView = (View) itemView.getParent();
+        }
+        if (itemView == null) return false;
+        int position = recycler.getChildAdapterPosition(itemView);
         if (position == RecyclerView.NO_POSITION) return false;
         int next = nextGridPosition(position, itemCount, spanCount, mode, event.getKeyCode());
         if (next < 0) return false;
@@ -130,11 +137,15 @@ public final class FocusLoop {
             return vh.itemView.requestFocus();
         }
         // 目标不在屏幕内，先滚动再请求焦点
-        recycler.scrollToPosition(next);
-        recycler.post(() -> {
-            RecyclerView.ViewHolder vh2 = recycler.findViewHolderForAdapterPosition(next);
-            if (vh2 != null && vh2.itemView.isFocusable()) vh2.itemView.requestFocus();
-        });
+        final int finalNext = next;
+        recycler.scrollToPosition(finalNext);
+        recycler.postDelayed(() -> {
+            if (recycler == null) return;
+            RecyclerView.ViewHolder vh2 = recycler.findViewHolderForAdapterPosition(finalNext);
+            if (vh2 != null && vh2.itemView != null && vh2.itemView.isFocusable()) {
+                vh2.itemView.requestFocus();
+            }
+        }, 100);
         return true;
     }
 
@@ -151,13 +162,20 @@ public final class FocusLoop {
             directChild = (View) directChild.getParent();
         }
         if (directChild == null) return false;
-        int position = container.indexOfChild(directChild);
+        // 只收集可见且可聚焦的子 View，跳过 GONE 项
+        java.util.List<View> visible = new java.util.ArrayList<>();
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View child = container.getChildAt(i);
+            if (child.getVisibility() == View.VISIBLE && child.isFocusable()) visible.add(child);
+        }
+        int position = visible.indexOf(directChild);
         if (position < 0) return false;
-        int itemCount = container.getChildCount();
+        int itemCount = visible.size();
+        if (itemCount <= 1) return false;
         int next = nextGridPosition(position, itemCount, spanCount, mode, event.getKeyCode());
         if (next < 0 || next >= itemCount) return false;
-        View target = container.getChildAt(next);
-        if (target != null && target.isFocusable() && target.getVisibility() == View.VISIBLE) {
+        View target = visible.get(next);
+        if (target != null) {
             return target.requestFocus();
         }
         return false;

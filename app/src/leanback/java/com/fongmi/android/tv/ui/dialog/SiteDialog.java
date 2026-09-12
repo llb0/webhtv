@@ -28,6 +28,8 @@ import com.fongmi.android.tv.impl.SiteListener;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ui.adapter.SiteAdapter;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
+import com.fongmi.android.tv.utils.FocusLoop;
+import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.utils.Path;
@@ -96,6 +98,15 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     @Override
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         Dialog dialog = super.onCreateDialog(savedInstanceState);
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (adapter != null && FocusLoop.handleRecyclerGrid(binding.recycler, adapter.getTotalCount(), GRID_COUNT, FocusLoop.Mode.BOTH, event))
+                return true;
+            if (KeyUtil.isMenuKey(event) && onMenuKey()) {
+                dismiss();
+                return true;
+            }
+            return false;
+        });
         dialog.setOnShowListener(d -> {
             if (listLoaded) waitForLayoutAndFocus();
         });
@@ -168,8 +179,10 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
         });
     }
 
+    private boolean mScrolledToActive = false;
+
     private void scrollAndFocusActiveSite() {
-        if (adapter == null || binding == null) return;
+        if (mScrolledToActive || adapter == null || binding == null) return;
         List<Site> showList = adapter.getItems();
         Site active = VodConfig.get().getHome();
         if (active == null || active.getKey() == null || active.getKey().isEmpty()) return;
@@ -182,17 +195,28 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
         }
         RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
         if (targetPos < 0 || !(lm instanceof GridLayoutManager glm)) return;
-        int itemHeight = ResUtil.dp2px(ITEM_HEIGHT) + ResUtil.dp2px(ITEM_SPACE);
-        int centerOffset = Math.max(0, (binding.recycler.getHeight() - itemHeight) / 2);
-        glm.scrollToPositionWithOffset(targetPos, centerOffset);
+        mScrolledToActive = true;
         final int finalTargetPos = targetPos;
-        binding.recycler.postDelayed(() -> {
-            RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
-            if (holder != null && holder.itemView != null) {
-                holder.itemView.requestFocus();
-                log("success request focus pos=" + finalTargetPos);
+        binding.recycler.post(() -> {
+            if (binding == null || binding.recycler == null || adapter == null) return;
+            int height = binding.recycler.getHeight();
+            if (height <= 0) {
+                mScrolledToActive = false;
+                binding.recycler.postDelayed(() -> scrollAndFocusActiveSite(), 50);
+                return;
             }
-        }, 50);
+            int itemHeight = ResUtil.dp2px(ITEM_HEIGHT) + ResUtil.dp2px(ITEM_SPACE);
+            int centerOffset = Math.max(0, (height - itemHeight) / 2);
+            glm.scrollToPositionWithOffset(finalTargetPos, centerOffset);
+            binding.recycler.postDelayed(() -> {
+                if (binding == null || binding.recycler == null) return;
+                RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
+                if (holder != null && holder.itemView != null) {
+                    holder.itemView.requestFocus();
+                    log("success request focus pos=" + finalTargetPos);
+                }
+            }, 50);
+        });
     }
 
     @Override
@@ -395,5 +419,8 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     public void onStart() {
         super.onStart();
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
+        if (binding != null && binding.recycler != null && adapter != null) {
+            binding.recycler.postDelayed(this::scrollAndFocusActiveSite, 50);
+        }
     }
 }
