@@ -18,6 +18,7 @@ import androidx.leanback.widget.ItemBridgeAdapter;
 import androidx.leanback.widget.ListRow;
 import androidx.leanback.widget.OnChildViewHolderSelectedListener;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.leanback.widget.HorizontalGridView;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
@@ -784,7 +785,38 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             }
             return true;
         }
+        // 视频列表/筛选左右环形跳转
+        if (KeyUtil.isActionDown(event) && (KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event))) {
+            View focus = getCurrentFocus();
+            if (focus != null) {
+                HorizontalGridView grid = findHorizontalGridView(focus);
+                if (grid != null && grid.getAdapter() != null) {
+                    int position = grid.getSelectedPosition();
+                    int count = grid.getAdapter().getItemCount();
+                    if (count > 1 && position >= 0) {
+                        if (KeyUtil.isLeftKey(event) && position == 0) {
+                            grid.setSelectedPosition(count - 1);
+                            return true;
+                        }
+                        if (KeyUtil.isRightKey(event) && position == count - 1) {
+                            grid.setSelectedPosition(0);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
         return super.dispatchKeyEvent(event);
+    }
+
+    private HorizontalGridView findHorizontalGridView(View view) {
+        View parent = view;
+        while (parent != null) {
+            if (parent instanceof HorizontalGridView) return (HorizontalGridView) parent;
+            if (!(parent.getParent() instanceof View)) break;
+            parent = (View) parent.getParent();
+        }
+        return null;
     }
 
     private boolean hasHomeContent() {
