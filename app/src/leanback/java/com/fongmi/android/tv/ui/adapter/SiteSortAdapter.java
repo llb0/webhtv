@@ -89,7 +89,9 @@ public class SiteSortAdapter extends RecyclerView.Adapter<SiteSortAdapter.ViewHo
         String typeText = item.isFile() ? item.getFileType() : "API";
         holder.binding.type.setText(typeText);
         boolean hidden = SiteBlockSetting.isBlocked(item);
-        holder.binding.toggle.setImageResource(hidden ? android.R.drawable.ic_menu_close_clear_cancel : android.R.drawable.ic_menu_view);
+        holder.binding.toggle.setImageResource(hidden ? R.drawable.ic_player_button_hidden : R.drawable.ic_player_button_visible);
+        holder.binding.toggle.setSelected(hidden);
+        holder.binding.toggle.setActivated(hidden);
         holder.binding.name.setAlpha(hidden ? 0.4f : 1.0f);
         holder.binding.up.setEnabled(position > 0);
         holder.binding.down.setEnabled(position < mItems.size() - 1);
