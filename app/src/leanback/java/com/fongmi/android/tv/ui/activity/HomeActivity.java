@@ -748,6 +748,27 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             showHomeMenu();
             return true;
         }
+        // 视频列表/筛选左右环形跳转（放在最前面，确保在VerticalGridView处理之前消费）
+        if (KeyUtil.isActionDown(event) && (KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event))) {
+            View focus = getCurrentFocus();
+            if (focus != null && mBinding.recycler.getVisibility() == View.VISIBLE) {
+                HorizontalGridView grid = findHorizontalGridView(focus);
+                if (grid != null && grid.getAdapter() != null) {
+                    int position = grid.getSelectedPosition();
+                    int count = grid.getAdapter().getItemCount();
+                    if (count > 1 && position >= 0) {
+                        if (KeyUtil.isLeftKey(event) && position == 0) {
+                            grid.setSelectedPosition(count - 1);
+                            return true;
+                        }
+                        if (KeyUtil.isRightKey(event) && position == count - 1) {
+                            grid.setSelectedPosition(0);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
         if (mWeb != null && mWeb.isVisible()) {
             if (KeyUtil.isBackKey(event)) {
                 if (KeyUtil.isActionUp(event)) onBackInvoked();
@@ -785,41 +806,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             }
             return true;
         }
-        // 视频列表/筛选左右环形跳转
-        if (KeyUtil.isActionDown(event) && (KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event))) {
-            View focus = getCurrentFocus();
-            if (focus != null) {
-                HorizontalGridView grid = findHorizontalGridView(focus);
-                if (grid != null && grid.getAdapter() != null) {
-                    int position = getGridSelectedPosition(grid);
-                    int count = grid.getAdapter().getItemCount();
-                    if (count > 1 && position >= 0) {
-                        if (KeyUtil.isLeftKey(event) && position == 0) {
-                            grid.setSelectedPosition(count - 1);
-                            return true;
-                        }
-                        if (KeyUtil.isRightKey(event) && position == count - 1) {
-                            grid.setSelectedPosition(0);
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
         return super.dispatchKeyEvent(event);
-    }
-
-    private int getGridSelectedPosition(HorizontalGridView grid) {
-        View focus = grid.findFocus();
-        if (focus == null) return grid.getSelectedPosition();
-        View itemView = focus;
-        while (itemView != null && itemView.getParent() != grid) {
-            if (!(itemView.getParent() instanceof View)) return grid.getSelectedPosition();
-            itemView = (View) itemView.getParent();
-        }
-        if (itemView == null) return grid.getSelectedPosition();
-        int position = grid.getChildAdapterPosition(itemView);
-        return position == RecyclerView.NO_POSITION ? grid.getSelectedPosition() : position;
     }
 
     private HorizontalGridView findHorizontalGridView(View view) {
