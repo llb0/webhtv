@@ -69,7 +69,11 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
         setVisible();
         format = new DecimalFormat("0.#");
         PlaybackPerformanceSetting.ensureInitialized();
-        mBinding.exo4kCompat.requestFocus();
+        if (mBinding.render.getVisibility() == View.VISIBLE) {
+            mBinding.render.requestFocus();
+        } else {
+            mBinding.playerButtons.requestFocus();
+        }
         mBinding.uaText.setText(Setting.getUa());
         mBinding.aacText.setText(getSwitch(PlayerSetting.isPreferAAC()));
         mBinding.tunnelText.setText(getSwitch(PlayerSetting.isTunnel()));
