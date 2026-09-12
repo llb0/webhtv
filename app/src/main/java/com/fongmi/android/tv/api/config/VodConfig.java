@@ -371,45 +371,42 @@ public class VodConfig extends BaseConfig {
             String type = site.getFileType();
             grouped.computeIfAbsent(type, k -> new ArrayList<>()).add(site);
         }
-        // 先计算每个类型的插入位置（基于原始sites列表）
-        List<int[]> insertions = new ArrayList<>();
-        int lastInsertEnd = 0;
-        for (String type : typeOrder) {
-            List<Site> group = grouped.get(type);
-            if (group == null || group.isEmpty()) continue;
-            Integer siteType = typeToSiteType.get(type);
-            int insertPos = sites.size();
-            if (siteType != null) {
-                // 找到该类型最后一个站点的位置
-                for (int i = sites.size() - 1; i >= 0; i--) {
-                    if (sites.get(i).getType() == siteType) {
-                        insertPos = i + 1;
-                        break;
-                    }
-                }
-            }
-            // 如果该类型没有站点，插入到上一个插入位置之后，保持顺序
-            if (insertPos == sites.size() && lastInsertEnd > 0) {
-                insertPos = lastInsertEnd;
-            }
-            insertions.add(new int[]{insertPos, group.size()});
-            lastInsertEnd = insertPos + group.size();
-        }
-        // 从后往前插入，避免索引偏移
-        for (int i = insertions.size() - 1; i >= 0; i--) {
-            int pos = insertions.get(i)[0];
-            // 找到对应的类型
-            int idx = 0;
+        // 记录每种类型是否已插入
+        Map<String, Boolean> inserted = new HashMap<>();
+        for (String type : typeOrder) inserted.put(type, false);
+        // 构建新列表
+        List<Site> result = new ArrayList<>();
+        for (int i = 0; i < sites.size(); i++) {
+            Site site = sites.get(i);
+            result.add(site);
+            // 检查是否是该类型的最后一个站点
             for (String type : typeOrder) {
-                if (grouped.containsKey(type) && !grouped.get(type).isEmpty()) {
-                    if (idx == i) {
-                        sites.addAll(pos, grouped.get(type));
-                        break;
+                Integer siteType = typeToSiteType.get(type);
+                if (siteType == null || inserted.get(type)) continue;
+                if (site.getType() == siteType) {
+                    // 检查后面是否还有同类型站点
+                    boolean isLast = true;
+                    for (int j = i + 1; j < sites.size(); j++) {
+                        if (sites.get(j).getType() == siteType) {
+                            isLast = false;
+                            break;
+                        }
                     }
-                    idx++;
+                    if (isLast && grouped.containsKey(type) && !grouped.get(type).isEmpty()) {
+                        result.addAll(grouped.get(type));
+                        inserted.put(type, true);
+                    }
                 }
             }
         }
+        // 把没有对应站点的文件源按顺序追加到末尾
+        for (String type : typeOrder) {
+            if (!inserted.get(type) && grouped.containsKey(type) && !grouped.get(type).isEmpty()) {
+                result.addAll(grouped.get(type));
+            }
+        }
+        sites.clear();
+        sites.addAll(result);
     }
 
     private List<Site> loadFileSites(String globalSpider) {
