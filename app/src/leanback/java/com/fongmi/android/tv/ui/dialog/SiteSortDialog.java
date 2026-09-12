@@ -4,7 +4,6 @@ import android.app.Dialog;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -59,20 +58,9 @@ public class SiteSortDialog extends BaseGlassDialog implements SiteSortAdapter.O
     protected void initEvent() {
         binding.cancel.setOnClickListener(v -> dismiss());
         binding.confirm.setOnClickListener(v -> {
-            boolean success = saveOrder();
-            if (success && listener != null) listener.onConfirm();
-            Toast.makeText(getActivity(), success ? R.string.setting_save_success : R.string.setting_save_failed, Toast.LENGTH_SHORT).show();
+            if (listener != null) listener.onConfirm();
             dismiss();
         });
-    }
-
-    @Override
-    protected boolean onMenuKey() {
-        boolean success = saveOrder();
-        if (success && listener != null) listener.onConfirm();
-        Toast.makeText(getActivity(), success ? R.string.setting_save_success : R.string.setting_save_failed, Toast.LENGTH_SHORT).show();
-        dismiss();
-        return true;
     }
 
     private void loadSites() {
