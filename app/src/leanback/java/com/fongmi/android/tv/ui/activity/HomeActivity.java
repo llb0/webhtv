@@ -791,7 +791,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             if (focus != null) {
                 HorizontalGridView grid = findHorizontalGridView(focus);
                 if (grid != null && grid.getAdapter() != null) {
-                    int position = grid.getSelectedPosition();
+                    int position = getGridSelectedPosition(grid);
                     int count = grid.getAdapter().getItemCount();
                     if (count > 1 && position >= 0) {
                         if (KeyUtil.isLeftKey(event) && position == 0) {
@@ -807,6 +807,19 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private int getGridSelectedPosition(HorizontalGridView grid) {
+        View focus = grid.findFocus();
+        if (focus == null) return grid.getSelectedPosition();
+        View itemView = focus;
+        while (itemView != null && itemView.getParent() != grid) {
+            if (!(itemView.getParent() instanceof View)) return grid.getSelectedPosition();
+            itemView = (View) itemView.getParent();
+        }
+        if (itemView == null) return grid.getSelectedPosition();
+        int position = grid.getChildAdapterPosition(itemView);
+        return position == RecyclerView.NO_POSITION ? grid.getSelectedPosition() : position;
     }
 
     private HorizontalGridView findHorizontalGridView(View view) {
