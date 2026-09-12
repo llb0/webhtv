@@ -32,6 +32,8 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -225,12 +227,19 @@ public class VodConfig extends BaseConfig {
             sites.addAll(Json.safeListElement(object, "sites").stream().map(e -> Site.objectFrom(e, spider)).distinct().collect(Collectors.toCollection(ArrayList::new)));
         }
         List<Site> fileSites = loadFileSites(spider);
-        sites.addAll(0, fileSites);
+        insertFileSitesByType(sites, fileSites);
         setSites(sites);
         Map<String, Site> items = Site.findAll().stream().collect(Collectors.toMap(Site::getKey, Function.identity()));
         getSites().forEach(site -> site.sync(items.get(site.getKey())));
         CustomCspSetting.Result custom = CustomCspSetting.inject(getSites());
-        Site home = !custom.home().isEmpty() ? custom.home() : getSites().stream().filter(item -> item.getKey().equals(config.getHome())).findFirst().orElse(getSites().isEmpty() ? new Site() : getSites().get(0));
+        String configHomeKey = config.getHome();
+        Site home;
+        if (!TextUtils.isEmpty(configHomeKey)) {
+            home = getSites().stream().filter(item -> item.getKey().equals(configHomeKey)).findFirst().orElse(null);
+        } else {
+            home = !custom.home().isEmpty() ? custom.home() : null;
+        }
+        if (home == null) home = getSites().isEmpty() ? new Site() : getSites().get(0);
         setHome(config, home, false);
     }
 
@@ -345,6 +354,40 @@ public class VodConfig extends BaseConfig {
 
     private static final String CLAN_ROOT = Path.root() + "/tvbox/";
     private static final String XBPQ_JAR = UrlUtil.convert("./jars/XBPQ.jar");
+
+    private void insertFileSitesByType(List<Site> sites, List<Site> fileSites) {
+        if (fileSites.isEmpty()) return;
+        // 按文件类型分组
+        Map<String, List<Site>> grouped = new LinkedHashMap<>();
+        for (Site site : fileSites) {
+            String type = site.getFileType();
+            grouped.computeIfAbsent(type, k -> new ArrayList<>()).add(site);
+        }
+        // 文件类型 -> 配置站点type的映射
+        Map<String, Integer> typeToSiteType = new HashMap<>();
+        typeToSiteType.put("XBPQ", 3);
+        typeToSiteType.put("JS", 1);
+        typeToSiteType.put("PY", 2);
+        typeToSiteType.put("RAW", 0);
+        // 从后往前插入，避免索引偏移
+        List<String> types = new ArrayList<>(grouped.keySet());
+        Collections.reverse(types);
+        for (String type : types) {
+            List<Site> group = grouped.get(type);
+            Integer siteType = typeToSiteType.get(type);
+            int insertPos = sites.size();
+            if (siteType != null) {
+                // 找到该类型最后一个站点的位置
+                for (int i = sites.size() - 1; i >= 0; i--) {
+                    if (sites.get(i).getType() == siteType) {
+                        insertPos = i + 1;
+                        break;
+                    }
+                }
+            }
+            sites.addAll(insertPos, group);
+        }
+    }
 
     private List<Site> loadFileSites(String globalSpider) {
         List<Site> result = new ArrayList<>();
