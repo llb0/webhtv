@@ -31,6 +31,7 @@ import com.fongmi.android.tv.ui.adapter.CollectAdapter;
 import com.fongmi.android.tv.ui.adapter.SearchAdapter;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.custom.CustomScroller;
+import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.SearchModeStore;
 import com.github.catvod.crawler.SpiderDebug;
@@ -132,6 +133,29 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         mBinding.recycler.setItemAnimator(null);
         mBinding.recycler.setItemViewCacheSize(count * 3);
         mBinding.recycler.setLayoutManager(new GridLayoutManager(this, count));
+        mBinding.recycler.setOnKeyListener((v, keyCode, event) -> {
+            if (!KeyUtil.isActionDown(event)) return false;
+            View focus = mBinding.recycler.getFocusedChild();
+            if (focus == null) return false;
+            int position = mBinding.recycler.getChildAdapterPosition(focus);
+            if (position == RecyclerView.NO_POSITION) return false;
+            int span = getCount();
+            if (span <= 1) return false;
+            int col = position % span;
+            if (KeyUtil.isLeftKey(event) && col == 0) {
+                int target = position + span - 1;
+                View targetView = mBinding.recycler.getLayoutManager().findViewByPosition(target);
+                if (targetView != null) targetView.requestFocus();
+                return true;
+            }
+            if (KeyUtil.isRightKey(event) && col == span - 1) {
+                int target = position - (span - 1);
+                View targetView = mBinding.recycler.getLayoutManager().findViewByPosition(target);
+                if (targetView != null) targetView.requestFocus();
+                return true;
+            }
+            return false;
+        });
         mBinding.recycler.addOnScrollListener(mScroller);
         mBinding.recycler.addOnScrollListener(mImageScrollListener = new RecyclerView.OnScrollListener() {
             @Override
