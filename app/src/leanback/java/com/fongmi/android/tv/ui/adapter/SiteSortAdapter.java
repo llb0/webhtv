@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.AdapterSiteSortBinding;
 import com.fongmi.android.tv.setting.SiteBlockSetting;
+import com.fongmi.android.tv.setting.SiteOrderStore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +44,7 @@ public class SiteSortAdapter extends RecyclerView.Adapter<SiteSortAdapter.ViewHo
         mItems.add(position - 1, item);
         notifyItemMoved(position, position - 1);
         notifyItemRangeChanged(position - 1, 2);
+        saveOrder();
     }
 
     public void moveToTop(int position) {
@@ -51,6 +53,7 @@ public class SiteSortAdapter extends RecyclerView.Adapter<SiteSortAdapter.ViewHo
         mItems.add(0, item);
         notifyItemMoved(position, 0);
         notifyItemRangeChanged(0, position + 1);
+        saveOrder();
     }
 
     public void moveDown(int position) {
@@ -59,6 +62,7 @@ public class SiteSortAdapter extends RecyclerView.Adapter<SiteSortAdapter.ViewHo
         mItems.add(position + 1, item);
         notifyItemMoved(position, position + 1);
         notifyItemRangeChanged(position, 2);
+        saveOrder();
     }
 
     public void toggleHide(int position) {
@@ -66,6 +70,10 @@ public class SiteSortAdapter extends RecyclerView.Adapter<SiteSortAdapter.ViewHo
         Site item = mItems.get(position);
         SiteBlockSetting.toggle(item);
         notifyItemChanged(position);
+    }
+
+    private void saveOrder() {
+        SiteOrderStore.save(mItems);
     }
 
     @NonNull
