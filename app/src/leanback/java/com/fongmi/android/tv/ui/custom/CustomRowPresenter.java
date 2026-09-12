@@ -44,7 +44,10 @@ public class CustomRowPresenter extends ListRowPresenter {
         grid.setHorizontalSpacing(ResUtil.dp2px(spacing));
         grid.setOnKeyListener((v, keyCode, event) -> {
             if (!KeyUtil.isActionDown(event)) return false;
-            int position = grid.getSelectedPosition();
+            View focus = grid.getFocusedChild();
+            if (focus == null) return false;
+            int position = grid.getChildAdapterPosition(focus);
+            if (position == android.view.View.NO_POSITION) return false;
             int count = grid.getAdapter() == null ? 0 : grid.getAdapter().getItemCount();
             if (count <= 1) return false;
             if (KeyUtil.isLeftKey(event) && position == 0) {
