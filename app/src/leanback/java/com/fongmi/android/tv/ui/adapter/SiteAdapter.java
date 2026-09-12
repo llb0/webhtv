@@ -86,6 +86,13 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         setEnable(type == 3);
     }
 
+    public void refresh() {
+        allItems.clear();
+        mItems.clear();
+        addAll();
+        notifyDataSetChanged();
+    }
+
     private void addAll() {
         long collectStart = System.currentTimeMillis();
         for (Site site : VodConfig.get().getSites()) if (!site.isHide()) allItems.add(site);
