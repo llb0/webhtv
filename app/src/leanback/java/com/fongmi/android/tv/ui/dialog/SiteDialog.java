@@ -406,5 +406,12 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     public void onStart() {
         super.onStart();
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
+        if (binding != null && binding.recycler != null && binding.recycler.getChildCount() > 0) {
+            binding.recycler.post(() -> {
+                if (binding.recycler.findFocus() == null) {
+                    binding.recycler.getChildAt(0).requestFocus();
+                }
+            });
+        }
     }
 }
