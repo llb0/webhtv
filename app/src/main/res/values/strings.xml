@@ -849,6 +849,7 @@
     <string name="player_button_up">Up</string>
     <string name="player_button_down">Down</string>
     <string name="player_button_top">Top</string>
+    <string name="site_sort_title">Site Sort</string>
     <string name="play_episodes">Episodes</string>
     <string name="player_exo_4k_compat">Playback performance</string>
     <string name="player_immersive_audio_mode">Immersive audio mode</string>
