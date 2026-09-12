@@ -179,8 +179,10 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
         });
     }
 
+    private boolean mScrolledToActive = false;
+
     private void scrollAndFocusActiveSite() {
-        if (adapter == null || binding == null) return;
+        if (mScrolledToActive || adapter == null || binding == null) return;
         List<Site> showList = adapter.getItems();
         Site active = VodConfig.get().getHome();
         if (active == null || active.getKey() == null || active.getKey().isEmpty()) return;
@@ -193,12 +195,14 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
         }
         RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
         if (targetPos < 0 || !(lm instanceof GridLayoutManager glm)) return;
+        mScrolledToActive = true;
         final int finalTargetPos = targetPos;
-        binding.recycler.postDelayed(() -> {
+        binding.recycler.post(() -> {
             if (binding == null || binding.recycler == null || adapter == null) return;
             int height = binding.recycler.getHeight();
             if (height <= 0) {
-                binding.recycler.postDelayed(() -> scrollAndFocusActiveSite(), 100);
+                mScrolledToActive = false;
+                binding.recycler.postDelayed(() -> scrollAndFocusActiveSite(), 50);
                 return;
             }
             int itemHeight = ResUtil.dp2px(ITEM_HEIGHT) + ResUtil.dp2px(ITEM_SPACE);
@@ -211,8 +215,8 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
                     holder.itemView.requestFocus();
                     log("success request focus pos=" + finalTargetPos);
                 }
-            }, 100);
-        }, 100);
+            }, 50);
+        });
     }
 
     @Override
@@ -415,12 +419,8 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     public void onStart() {
         super.onStart();
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
-        if (binding != null && binding.recycler != null) {
-            binding.recycler.post(() -> {
-                if (binding.recycler.getChildCount() > 0 && binding.recycler.findFocus() == null) {
-                    binding.recycler.getChildAt(0).requestFocus();
-                }
-            });
+        if (binding != null && binding.recycler != null && adapter != null) {
+            binding.recycler.postDelayed(this::scrollAndFocusActiveSite, 50);
         }
     }
 }
