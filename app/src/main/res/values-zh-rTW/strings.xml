@@ -36,6 +36,8 @@
     <string name="play_exo">EXO</string>
     <string name="play_next">下集</string>
     <string name="play_prev">上集</string>
+    <string name="play_vod">點播</string>
+    <string name="play_live">直播</string>
     <string name="play_stop">停止</string>
     <string name="play_repeat">循環</string>
     <string name="play_forward">→</string>
