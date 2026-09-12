@@ -121,7 +121,14 @@ public final class FocusLoop {
         if (recycler == null || !KeyUtil.isActionDown(event)) return false;
         View focus = recycler.findFocus();
         if (focus == null) return false;
-        int position = recycler.getChildAdapterPosition(focus);
+        // 向上查找 RecyclerView 的直接子 View（itemView），避免 ClassCastException
+        View itemView = focus;
+        while (itemView != null && itemView.getParent() != recycler) {
+            if (!(itemView.getParent() instanceof View)) return false;
+            itemView = (View) itemView.getParent();
+        }
+        if (itemView == null) return false;
+        int position = recycler.getChildAdapterPosition(itemView);
         if (position == RecyclerView.NO_POSITION) return false;
         int next = nextGridPosition(position, itemCount, spanCount, mode, event.getKeyCode());
         if (next < 0) return false;
@@ -130,11 +137,15 @@ public final class FocusLoop {
             return vh.itemView.requestFocus();
         }
         // 目标不在屏幕内，先滚动再请求焦点
-        recycler.scrollToPosition(next);
-        recycler.post(() -> {
-            RecyclerView.ViewHolder vh2 = recycler.findViewHolderForAdapterPosition(next);
-            if (vh2 != null && vh2.itemView.isFocusable()) vh2.itemView.requestFocus();
-        });
+        final int finalNext = next;
+        recycler.scrollToPosition(finalNext);
+        recycler.postDelayed(() -> {
+            if (recycler == null) return;
+            RecyclerView.ViewHolder vh2 = recycler.findViewHolderForAdapterPosition(finalNext);
+            if (vh2 != null && vh2.itemView != null && vh2.itemView.isFocusable()) {
+                vh2.itemView.requestFocus();
+            }
+        }, 100);
         return true;
     }
 
