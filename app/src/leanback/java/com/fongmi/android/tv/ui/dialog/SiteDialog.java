@@ -193,17 +193,26 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
         }
         RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
         if (targetPos < 0 || !(lm instanceof GridLayoutManager glm)) return;
-        int itemHeight = ResUtil.dp2px(ITEM_HEIGHT) + ResUtil.dp2px(ITEM_SPACE);
-        int centerOffset = Math.max(0, (binding.recycler.getHeight() - itemHeight) / 2);
-        glm.scrollToPositionWithOffset(targetPos, centerOffset);
         final int finalTargetPos = targetPos;
         binding.recycler.postDelayed(() -> {
-            RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
-            if (holder != null && holder.itemView != null) {
-                holder.itemView.requestFocus();
-                log("success request focus pos=" + finalTargetPos);
+            if (binding == null || binding.recycler == null || adapter == null) return;
+            int height = binding.recycler.getHeight();
+            if (height <= 0) {
+                binding.recycler.postDelayed(() -> scrollAndFocusActiveSite(), 100);
+                return;
             }
-        }, 50);
+            int itemHeight = ResUtil.dp2px(ITEM_HEIGHT) + ResUtil.dp2px(ITEM_SPACE);
+            int centerOffset = Math.max(0, (height - itemHeight) / 2);
+            glm.scrollToPositionWithOffset(finalTargetPos, centerOffset);
+            binding.recycler.postDelayed(() -> {
+                if (binding == null || binding.recycler == null) return;
+                RecyclerView.ViewHolder holder = binding.recycler.findViewHolderForAdapterPosition(finalTargetPos);
+                if (holder != null && holder.itemView != null) {
+                    holder.itemView.requestFocus();
+                    log("success request focus pos=" + finalTargetPos);
+                }
+            }, 100);
+        }, 100);
     }
 
     @Override
