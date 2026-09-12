@@ -34,43 +34,8 @@
         android:overScrollMode="never"
         android:focusable="true"
         android:focusableInTouchMode="true"
-        app:maxHeight="360dp"
+        app:maxHeight="420dp"
         tools:itemCount="5"
         tools:listitem="@layout/adapter_site_sort" />
-
-    <androidx.appcompat.widget.LinearLayoutCompat
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:gravity="center"
-        android:orientation="horizontal">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/cancel"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="8dp"
-            android:text="@string/dialog_negative"
-            android:textColor="@color/white"
-            android:textSize="16sp"
-            app:backgroundTint="@color/transparent"
-            app:cornerRadius="8dp"
-            app:strokeColor="@color/white"
-            app:strokeWidth="1dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/confirm"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:text="@string/confirm"
-            android:textColor="@color/white"
-            android:textSize="16sp"
-            app:backgroundTint="@color/white_30"
-            app:cornerRadius="8dp" />
-
-    </androidx.appcompat.widget.LinearLayoutCompat>
 
 </androidx.appcompat.widget.LinearLayoutCompat>
