@@ -2,11 +2,13 @@ package com.fongmi.android.tv.ui.custom;
 
 import android.annotation.SuppressLint;
 import android.view.KeyEvent;
+import android.view.View;
 
 import androidx.leanback.widget.FocusHighlight;
 import androidx.leanback.widget.HorizontalGridView;
 import androidx.leanback.widget.ListRowPresenter;
 import androidx.leanback.widget.RowPresenter;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -47,7 +49,7 @@ public class CustomRowPresenter extends ListRowPresenter {
             View focus = grid.getFocusedChild();
             if (focus == null) return false;
             int position = grid.getChildAdapterPosition(focus);
-            if (position == android.view.View.NO_POSITION) return false;
+            if (position == RecyclerView.NO_POSITION) return false;
             int count = grid.getAdapter() == null ? 0 : grid.getAdapter().getItemCount();
             if (count <= 1) return false;
             if (KeyUtil.isLeftKey(event) && position == 0) {
