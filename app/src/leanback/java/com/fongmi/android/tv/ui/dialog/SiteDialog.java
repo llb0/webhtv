@@ -99,7 +99,7 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         Dialog dialog = super.onCreateDialog(savedInstanceState);
         dialog.setOnKeyListener((d, keyCode, event) -> {
-            if (adapter != null && FocusLoop.handleRecyclerGrid(binding.recycler, adapter.getItemCount(), GRID_COUNT, FocusLoop.Mode.BOTH, event))
+            if (adapter != null && FocusLoop.handleRecyclerGrid(binding.recycler, adapter.getTotalCount(), GRID_COUNT, FocusLoop.Mode.BOTH, event))
                 return true;
             if (KeyUtil.isMenuKey(event) && onMenuKey()) {
                 dismiss();
@@ -406,9 +406,9 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     public void onStart() {
         super.onStart();
         if (adapter != null && adapter.getItemCount() == 0) dismiss();
-        if (binding != null && binding.recycler != null && binding.recycler.getChildCount() > 0) {
+        if (binding != null && binding.recycler != null) {
             binding.recycler.post(() -> {
-                if (binding.recycler.findFocus() == null) {
+                if (binding.recycler.getChildCount() > 0 && binding.recycler.findFocus() == null) {
                     binding.recycler.getChildAt(0).requestFocus();
                 }
             });
