@@ -99,6 +99,7 @@ public class HistoryActivity extends BaseActivity implements HistoryAdapter.OnCl
             View content = w.getDecorView().findViewById(android.R.id.content);
             if (content != null) content.setBackground(null);
         }
+        dialog.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).requestFocus();
     }
 
     private void clearHistory() {
