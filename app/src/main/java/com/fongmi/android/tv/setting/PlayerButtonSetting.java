@@ -49,10 +49,9 @@ public class PlayerButtonSetting {
     private static final String ORDER = "player_button_order";
     private static final String HIDDEN = "player_button_hidden";
     private static final List<Item> DEFAULT = List.of(
-            new Item(PREV, R.string.play_prev),
-            new Item(EPISODES, R.string.play_episodes),
-            new Item(CHANGE, R.string.play_change),
             new Item(NEXT, R.string.play_next),
+            new Item(EPISODES, R.string.play_episodes),
+            new Item(PREV, R.string.play_prev),
             new Item(PLAYER, R.string.play_exo),
             new Item(DECODE, R.string.play_decode),
             new Item(SPEED, R.string.play_speed),
@@ -64,8 +63,9 @@ public class PlayerButtonSetting {
             new Item(RESET, R.string.play_reset),
             new Item(REPEAT, R.string.play_repeat),
             new Item(TIMER, R.string.play_timer),
-            new Item(SETTING, R.string.play_setting),
             new Item(PUSH, R.string.push),
+            new Item(SETTING, R.string.play_setting),
+            new Item(CHANGE, R.string.play_change),
             new Item(PLAY_PARAMS, R.string.play_params),
             new Item(CODEC_CAPABILITY, R.string.codec_capability_short),
             new Item(LUT, R.string.play_lut),

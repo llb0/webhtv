@@ -571,6 +571,120 @@ public class PlayerSetting {
         Prefers.put("player_osd_diagnostics", value);
     }
 
+    // 点播屏显设置
+    public static boolean isOsdVodTitle() {
+        return Prefers.getBoolean("player_osd_vod_title", isOsdTitle());
+    }
+
+    public static void putOsdVodTitle(boolean value) {
+        Prefers.put("player_osd_vod_title", value);
+    }
+
+    public static boolean isOsdVodResolution() {
+        return Prefers.getBoolean("player_osd_vod_resolution", isOsdResolution());
+    }
+
+    public static void putOsdVodResolution(boolean value) {
+        Prefers.put("player_osd_vod_resolution", value);
+    }
+
+    public static boolean isOsdVodTime() {
+        return Prefers.getBoolean("player_osd_vod_time", isOsdTime());
+    }
+
+    public static void putOsdVodTime(boolean value) {
+        Prefers.put("player_osd_vod_time", value);
+    }
+
+    public static boolean isOsdVodProgress() {
+        return Prefers.getBoolean("player_osd_vod_progress", isOsdProgress());
+    }
+
+    public static void putOsdVodProgress(boolean value) {
+        Prefers.put("player_osd_vod_progress", value);
+    }
+
+    public static boolean isOsdVodTraffic() {
+        return Prefers.getBoolean("player_osd_vod_traffic", isOsdTraffic());
+    }
+
+    public static void putOsdVodTraffic(boolean value) {
+        Prefers.put("player_osd_vod_traffic", value);
+    }
+
+    public static boolean isOsdVodMini() {
+        return Prefers.getBoolean("player_osd_vod_mini", isOsdMini());
+    }
+
+    public static void putOsdVodMini(boolean value) {
+        Prefers.put("player_osd_vod_mini", value);
+    }
+
+    public static boolean isOsdVodDiagnostics() {
+        return Prefers.getBoolean("player_osd_vod_diagnostics", isOsdDiagnostics());
+    }
+
+    public static void putOsdVodDiagnostics(boolean value) {
+        Prefers.put("player_osd_vod_diagnostics", value);
+    }
+
+    // 直播屏显设置
+    public static boolean isOsdLiveTitle() {
+        return Prefers.getBoolean("player_osd_live_title", isOsdTitle());
+    }
+
+    public static void putOsdLiveTitle(boolean value) {
+        Prefers.put("player_osd_live_title", value);
+    }
+
+    public static boolean isOsdLiveResolution() {
+        return Prefers.getBoolean("player_osd_live_resolution", isOsdResolution());
+    }
+
+    public static void putOsdLiveResolution(boolean value) {
+        Prefers.put("player_osd_live_resolution", value);
+    }
+
+    public static boolean isOsdLiveTime() {
+        return Prefers.getBoolean("player_osd_live_time", isOsdTime());
+    }
+
+    public static void putOsdLiveTime(boolean value) {
+        Prefers.put("player_osd_live_time", value);
+    }
+
+    public static boolean isOsdLiveProgress() {
+        return Prefers.getBoolean("player_osd_live_progress", isOsdProgress());
+    }
+
+    public static void putOsdLiveProgress(boolean value) {
+        Prefers.put("player_osd_live_progress", value);
+    }
+
+    public static boolean isOsdLiveTraffic() {
+        return Prefers.getBoolean("player_osd_live_traffic", isOsdTraffic());
+    }
+
+    public static void putOsdLiveTraffic(boolean value) {
+        Prefers.put("player_osd_live_traffic", value);
+    }
+
+    public static boolean isOsdLiveMini() {
+        return Prefers.getBoolean("player_osd_live_mini", isOsdMini());
+    }
+
+    public static void putOsdLiveMini(boolean value) {
+        Prefers.put("player_osd_live_mini", value);
+    }
+
+    public static boolean isOsdLiveDiagnostics() {
+        return Prefers.getBoolean("player_osd_live_diagnostics", isOsdDiagnostics());
+    }
+
+    public static void putOsdLiveDiagnostics(boolean value) {
+        Prefers.put("player_osd_live_diagnostics", value);
+    }
+
     public static boolean isOsdEnabled() {
         return isOsdTitle() || isOsdResolution() || isOsdTime() || isOsdProgress() || isOsdTraffic() || isOsdMini() || isOsdDiagnostics();
     }

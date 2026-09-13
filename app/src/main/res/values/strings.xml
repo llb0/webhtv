@@ -37,6 +37,8 @@
     <string name="play_exo">EXO</string>
     <string name="play_next">Next</string>
     <string name="play_prev">Prev</string>
+    <string name="play_vod">VOD</string>
+    <string name="play_live">Live</string>
     <string name="play_stop">Stop</string>
     <string name="play_repeat">Repeat</string>
     <string name="play_forward">→</string>
@@ -846,6 +848,8 @@
     <string name="player_pad_live">Tablet live</string>
     <string name="player_button_up">Up</string>
     <string name="player_button_down">Down</string>
+    <string name="player_button_top">Top</string>
+    <string name="site_sort_title">Site Sort</string>
     <string name="play_episodes">Episodes</string>
     <string name="player_exo_4k_compat">Playback performance</string>
     <string name="player_immersive_audio_mode">Immersive audio mode</string>
