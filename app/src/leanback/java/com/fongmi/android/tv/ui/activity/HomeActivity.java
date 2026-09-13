@@ -53,6 +53,7 @@ import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.adapter.BaseDiffCallback;
 import com.fongmi.android.tv.ui.adapter.TypeAdapter;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.activity.VodActivity;
 import com.fongmi.android.tv.ui.custom.CustomRowPresenter;
 import com.fongmi.android.tv.ui.custom.CustomSelector;
 import com.fongmi.android.tv.ui.custom.CustomTitleView;
@@ -114,6 +115,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private boolean loadingHomeCategory;
     private boolean mStartupActionDone;
     private int mMenuButtonCount;
+
+    public static List<Vod> sRecommendCache = new ArrayList<>();
+    public static Vod sPendingVideo = null;
 
     private Site getHome() {
         return VodConfig.get().getHome();
@@ -609,15 +613,24 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     public void onItemClick(Class item) {
-        if (item.getTypeName().equals(ResUtil.getString(R.string.home_recommend))) {
-            getVideo();
-            return;
-        }
         Result result = mHomeResult == null || mHomeResult.getTypes().isEmpty() ? mResult : mHomeResult;
         boolean hasRecommend = mHomeResult != null && !mHomeResult.getList().isEmpty();
         int typeIndex = mTypeAdapter.indexOf(item);
         int realIndex = hasRecommend ? typeIndex - 1 : typeIndex;
-        VodActivity.start(this, getHome().getKey(), result, realIndex);
+        if (hasRecommend) {
+            sRecommendCache = new ArrayList<>(mHomeResult.getList());
+            List<Class> types = new ArrayList<>();
+            Class recommend = new Class();
+            recommend.setTypeId("home");
+            recommend.setTypeName(ResUtil.getString(R.string.home_recommend));
+            types.add(recommend);
+            types.addAll(result.getTypes());
+            Result merged = new Result();
+            merged.setTypes(types);
+            VodActivity.start(this, getHome().getKey(), merged, hasRecommend && item.getTypeName().equals(ResUtil.getString(R.string.home_recommend)) ? 0 : realIndex + 1);
+        } else {
+            VodActivity.start(this, getHome().getKey(), result, realIndex);
+        }
     }
 
     @Override
@@ -627,9 +640,37 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     public void onItemClick(Vod item) {
-        if (item.isAction()) mViewModel.action(getHome().getKey(), item.getAction());
-        else if (getHome().isIndex()) CollectActivity.start(this, item.getName());
-        else VideoActivity.start(this, getHome().getKey(), item.getId(), item.getName(), item.getPic());
+        if (item.isAction()) {
+            mViewModel.action(getHome().getKey(), item.getAction());
+            return;
+        }
+        boolean hasRecommend = mHomeResult != null && !mHomeResult.getList().isEmpty();
+        if (hasRecommend) {
+            sRecommendCache = new ArrayList<>(mHomeResult.getList());
+            sPendingVideo = item;
+            List<Class> types = new ArrayList<>();
+            Class recommend = new Class();
+            recommend.setTypeId("home");
+            recommend.setTypeName(ResUtil.getString(R.string.home_recommend));
+            types.add(recommend);
+            types.addAll(mHomeResult.getTypes());
+            Result merged = new Result();
+            merged.setTypes(types);
+            VodActivity.start(this, getHome().getKey(), merged, 0);
+        } else {
+            if (item.isFolder()) {
+                Class type = new Class();
+                type.setTypeId(item.getId());
+                type.setTypeName(item.getName());
+                Result result = new Result();
+                result.setTypes(java.util.Collections.singletonList(type));
+                VodActivity.start(this, getHome().getKey(), result);
+            } else if (getHome().isIndex()) {
+                CollectActivity.start(this, item.getName());
+            } else {
+                VideoActivity.start(this, getHome().getKey(), item.getId(), item.getName(), item.getPic());
+            }
+        }
     }
 
     @Override
