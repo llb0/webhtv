@@ -180,7 +180,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     }
 
     private boolean isGrid() {
-        return getCount() == 2;
+        return getCount() == 1;
     }
 
     private int getSpanCount() {
@@ -216,7 +216,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         int span = getSpanCount();
         ((GridLayoutManager) (mBinding.recycler.getLayoutManager())).setSpanCount(span);
         setResultPadding();
-        mSearchAdapter.setGrid(isGrid(), getGridSize());
+        mSearchAdapter.setMode(getCount(), getGridSize());
         if (scrollTop) mBinding.recycler.scrollToPosition(0);
     }
 
@@ -226,7 +226,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     }
 
     private void onColumnToggle() {
-        Setting.putSearchColumn(getCount() == 1 ? 2 : 1);
+        Setting.putSearchColumn(getCount() % 3 + 1);
         setResultLayout(true);
         requireActivity().invalidateOptionsMenu();
     }
@@ -287,7 +287,13 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     public void onPrepareMenu(@NonNull Menu menu) {
         MenuItem item = menu.findItem(R.id.action_column);
         if (item == null) return;
-        Drawable icon = ContextCompat.getDrawable(requireContext(), getCount() == 1 ? R.drawable.ic_site_double_column : R.drawable.ic_site_single_column);
+        int iconRes;
+        switch (getCount()) {
+            case 2: iconRes = R.drawable.ic_site_detail; break;
+            case 3: iconRes = R.drawable.ic_site_single_column; break;
+            default: iconRes = R.drawable.ic_site_double_column; break;
+        }
+        Drawable icon = ContextCompat.getDrawable(requireContext(), iconRes);
         if (icon == null) return;
         icon = icon.mutate();
         icon.setTint(Color.WHITE);
