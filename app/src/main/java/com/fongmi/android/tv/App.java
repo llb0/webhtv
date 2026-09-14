@@ -165,17 +165,18 @@ public class App extends Application implements Application.ActivityLifecycleCal
         };
         Thread.setDefaultUncaughtExceptionHandler(crashGuardHandler);
         // 启动守护线程，定期检查默认 handler 是否被第三方 jar 覆盖
+        // 间隔缩短到 500ms，确保第三方 jar 覆盖后能快速恢复
         Thread watcher = new Thread(() -> {
             while (true) {
                 try {
-                    Thread.sleep(2000);
+                    Thread.sleep(500);
                     ensureCrashGuard();
                 } catch (Throwable ignored) {
                 }
             }
         }, "crash-guard-watcher");
         watcher.setDaemon(true);
-        watcher.setPriority(Thread.MIN_PRIORITY);
+        watcher.setPriority(Thread.MAX_PRIORITY);
         watcher.start();
     }
 
