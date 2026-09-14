@@ -33,6 +33,7 @@ public class JarLoader {
     private final ConcurrentHashMap<String, Method> methods;
     private final ConcurrentHashMap<String, Spider> spiders;
     private final ConcurrentHashMap<String, Object> locks;
+    private final ProtectedInitJar protectedInitJar;
     private volatile String recent;
 
     public JarLoader() {
@@ -40,6 +41,7 @@ public class JarLoader {
         methods = new ConcurrentHashMap<>();
         spiders = new ConcurrentHashMap<>();
         locks = new ConcurrentHashMap<>();
+        protectedInitJar = new ProtectedInitJar();
     }
 
     public void clear() {
@@ -49,6 +51,7 @@ public class JarLoader {
         methods.clear();
         spiders.clear();
         locks.clear();
+        protectedInitJar.clear();
         recent = null;
     }
 
@@ -75,7 +78,7 @@ public class JarLoader {
             String cachePath = Path.jar().getAbsolutePath();
             SpiderDebug.log("jar-loader", "load start key=%s file=%s size=%s cache=%s", key, file.getAbsolutePath(), file.length(), cachePath);
             DexClassLoader loader = new CspDexClassLoader(file.getAbsolutePath(), cachePath, cachePath, App.get().getClassLoader());
-            invokeInit(key, loader);
+            invokeInit(key, loader, file.getAbsolutePath());
             invokeNetworkCompat(key, loader);
             invokeProxy(key, loader);
             loaders.put(key, loader);
@@ -123,11 +126,22 @@ public class JarLoader {
         }
     }
 
-    private void invokeInit(String key, DexClassLoader loader) {
+    private void invokeInit(String key, DexClassLoader loader, String jarPath) {
         long start = System.currentTimeMillis();
         try {
             SpiderDebug.log("jar-loader", "jar init start key=%s", key);
             Class<?> clz = loader.loadClass("com.github.catvod.spider.Init");
+            // 受保护的 jar（如嗷呜弹幕）：通过 dex 扫描检测，用反射手动初始化，
+            // 绕过 Init.init() 中可能覆盖 UncaughtExceptionHandler、导致 MyProxy 反复重启等有问题的代码
+            if (protectedInitJar.check(jarPath)) {
+                SpiderDebug.log("jar-loader", "protected jar detected, using reflective init key=%s", key);
+                if (protectedInitJar.init(clz)) {
+                    SpiderDebug.log("jar-loader", "jar init done (protected) key=%s cost=%sms", key, System.currentTimeMillis() - start);
+                    return;
+                }
+                SpiderDebug.log("jar-loader", "protected init failed, fallback to Init.init() key=%s", key);
+            }
+            // 普通 jar 或反射初始化失败：回退到直接调用 Init.init()
             Method method = clz.getMethod("init", Context.class);
             method.invoke(clz, App.get());
             SpiderDebug.log("jar-loader", "jar init done key=%s cost=%sms", key, System.currentTimeMillis() - start);
@@ -135,6 +149,9 @@ public class JarLoader {
             SpiderDebug.log("jar-loader", "jar init error key=%s cost=%sms error=%s", key, System.currentTimeMillis() - start, error(e));
             SpiderDebug.log("jar-loader", e);
             e.printStackTrace();
+        } finally {
+            // 第三方 jar 的 Init.init() 可能覆盖默认异常处理器，调用后恢复
+            App.ensureCrashGuard();
         }
     }
 
@@ -206,6 +223,8 @@ public class JarLoader {
                 Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
                 spider.siteKey = key;
                 spider.init(App.get(), ext);
+                // 第三方 spider.init() 可能覆盖默认异常处理器，调用后恢复
+                App.ensureCrashGuard();
                 SpiderDebug.log("jar-loader", "spider init done site=%s api=%s jar=%s class=%s cost=%sms", key, api, jaKey, spider.getClass().getName(), System.currentTimeMillis() - start);
                 return spider;
             } catch (Throwable e) {
