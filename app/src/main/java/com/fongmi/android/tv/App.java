@@ -111,6 +111,25 @@ public class App extends Application implements Application.ActivityLifecycleCal
         post(this::startBackgroundServices, 1200);
     }
 
+    private static volatile Thread.UncaughtExceptionHandler crashGuardHandler;
+
+    /**
+     * 确保默认异常处理器是 crash guard。
+     * 第三方 jar（如嗷呜弹幕）的 Init.init() 可能会覆盖默认处理器，
+     * 在每次调用第三方 jar 后调用此方法恢复。
+     */
+    public static void ensureCrashGuard() {
+        if (crashGuardHandler == null) return;
+        Thread.UncaughtExceptionHandler current = Thread.getDefaultUncaughtExceptionHandler();
+        if (current != crashGuardHandler) {
+            try {
+                android.util.Log.w("crash-guard", "default handler was overridden, restoring");
+            } catch (Throwable ignored) {
+            }
+            Thread.setDefaultUncaughtExceptionHandler(crashGuardHandler);
+        }
+    }
+
     /**
      * 全局未捕获异常保护器。
      * 第三方 jar（如弹幕源）在任何线程中抛出的异常都不应导致主程序崩溃，
@@ -118,7 +137,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
      */
     private void installCrashGuard() {
         final Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+        crashGuardHandler = (thread, throwable) -> {
             try {
                 String msg = throwable == null ? "null" : throwable.getClass().getSimpleName() + ":" + throwable.getMessage();
                 android.util.Log.e("crash-guard", "thread=" + thread.getName() + " id=" + thread.getId() + " error=" + msg, throwable);
@@ -143,7 +162,21 @@ public class App extends Application implements Application.ActivityLifecycleCal
                 } catch (Throwable ignored) {
                 }
             }
-        });
+        };
+        Thread.setDefaultUncaughtExceptionHandler(crashGuardHandler);
+        // 启动守护线程，定期检查默认 handler 是否被第三方 jar 覆盖
+        Thread watcher = new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(2000);
+                    ensureCrashGuard();
+                } catch (Throwable ignored) {
+                }
+            }
+        }, "crash-guard-watcher");
+        watcher.setDaemon(true);
+        watcher.setPriority(Thread.MIN_PRIORITY);
+        watcher.start();
     }
 
     /**
