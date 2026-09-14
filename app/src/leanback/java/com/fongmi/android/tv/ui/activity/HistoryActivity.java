@@ -42,7 +42,17 @@ public class HistoryActivity extends BaseActivity implements HistoryAdapter.OnCl
     @Override
     protected void initView(Bundle savedInstanceState) {
         setRecyclerView();
+        setTitleBar();
         getHistory();
+    }
+
+    private void setTitleBar() {
+        mBinding.btnDelete.setOnClickListener(v -> {
+            if (mAdapter.getItemCount() > 0) mAdapter.setDelete(true);
+        });
+        mBinding.btnClear.setOnClickListener(v -> {
+            if (mAdapter.getItemCount() > 0) showClearDialog();
+        });
     }
 
     private void setRecyclerView() {
