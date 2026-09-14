@@ -131,13 +131,14 @@ public class JarLoader {
         try {
             SpiderDebug.log("jar-loader", "jar init start key=%s", key);
             Class<?> clz = loader.loadClass("com.github.catvod.spider.Init");
-            // 受保护的 jar（如嗷呜弹幕）：用反射检测 Init 类是否有 get() + startGoProxy() 方法
-            // （不依赖 dex 扫描+白名单检测，因为白名单匹配会导致"友好的 jar"也走普通 Init.init()，
-            //  而嗷呜这类 jar 即使白名单匹配，Init.init() 中仍有 MyProxy 反复重启的 bug）
-            if (isProtectedInit(clz) && protectedInitJar.init(clz)) {
+            // 先尝试反射初始化（受保护的 jar，如嗷呜弹幕）
+            // 绕过 Init.init() 中可能覆盖 UncaughtExceptionHandler、导致 MyProxy 反复重启、调用 System.exit 等有问题的代码
+            // 反射初始化失败（方法不存在等）会自动回退到普通 Init.init()，不需要预先检测方法名
+            if (protectedInitJar.init(clz)) {
                 SpiderDebug.log("jar-loader", "jar init done (protected reflective) key=%s cost=%sms", key, System.currentTimeMillis() - start);
                 return;
             }
+            SpiderDebug.log("jar-loader", "reflective init not available, fallback to Init.init() key=%s", key);
             // 普通 jar 或反射初始化失败：回退到直接调用 Init.init()
             Method method = clz.getMethod("init", Context.class);
             method.invoke(clz, App.get());
@@ -149,20 +150,6 @@ public class JarLoader {
         } finally {
             // 第三方 jar 的 Init.init() 可能覆盖默认异常处理器，调用后恢复
             App.ensureCrashGuard();
-        }
-    }
-
-    /**
-     * 检测 Init 类是否是受保护的 jar 结构（有 get() 单例方法 + startGoProxy() 方法）
-     * 受保护的 jar 不能直接调用 Init.init()，需要用反射手动初始化
-     */
-    private boolean isProtectedInit(Class<?> clz) {
-        try {
-            clz.getMethod("get");
-            clz.getMethod("startGoProxy", Context.class);
-            return true;
-        } catch (Throwable e) {
-            return false;
         }
     }
 
