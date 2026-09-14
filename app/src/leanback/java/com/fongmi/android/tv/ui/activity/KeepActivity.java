@@ -45,7 +45,17 @@ public class KeepActivity extends BaseActivity implements KeepAdapter.OnClickLis
     @Override
     protected void initView(Bundle savedInstanceState) {
         setRecyclerView();
+        setTitleBar();
         getKeep();
+    }
+
+    private void setTitleBar() {
+        mBinding.btnDelete.setOnClickListener(v -> {
+            if (mAdapter.getItemCount() > 0) mAdapter.setDelete(true);
+        });
+        mBinding.btnClear.setOnClickListener(v -> {
+            if (mAdapter.getItemCount() > 0) showClearDialog();
+        });
     }
 
     private void setRecyclerView() {
