@@ -483,7 +483,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         int count = mFuncAdapter.size();
         if (count > 0) {
             android.view.ViewGroup.LayoutParams params = mBinding.funcRecycler.getLayoutParams();
-            params.width = ResUtil.dp2px(60 * count + 4 * (count - 1) + 64);
+            params.width = ResUtil.dp2px(66 * count + 4 * (count - 1) + 70);
             mBinding.funcRecycler.setLayoutParams(params);
         }
     }
