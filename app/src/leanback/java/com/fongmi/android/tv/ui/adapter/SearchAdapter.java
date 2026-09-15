@@ -13,6 +13,8 @@ import com.bumptech.glide.RequestBuilder;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.AdapterSearchBinding;
+import com.fongmi.android.tv.databinding.AdapterSearchDetailBinding;
+import com.fongmi.android.tv.databinding.AdapterSearchTextBinding;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -20,18 +22,37 @@ import com.fongmi.android.tv.utils.ResUtil;
 import java.util.ArrayList;
 import java.util.List;
 
-public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder> {
+public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+
+    private static final int VIEW_TYPE_GRID = 0;
+    private static final int VIEW_TYPE_TEXT = 1;
+    private static final int VIEW_TYPE_DETAIL = 2;
+
+    public static final int MODE_GRID = 1;
+    public static final int MODE_LIST = 2;
+    public static final int MODE_TEXT = 3;
 
     private final OnClickListener listener;
     private final List<Vod> items;
     private final List<Vod> source;
-    private final int height;
-    private final int width;
+    private int height;
+    private int width;
+    private int mode = MODE_GRID;
 
     public SearchAdapter(OnClickListener listener, int width, int height) {
         this.listener = listener;
         this.items = new ArrayList<>();
         this.source = new ArrayList<>();
+        this.width = width;
+        this.height = height;
+    }
+
+    public void setMode(int mode) {
+        this.mode = mode;
+        notifyDataSetChanged();
+    }
+
+    public void setSize(int width, int height) {
         this.width = width;
         this.height = height;
     }
@@ -94,12 +115,13 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
     }
 
     public RequestBuilder<?> getPreloadRequest(int position) {
-        if (position < 0 || position >= items.size()) return null;
+        if (mode != MODE_GRID || position < 0 || position >= items.size()) return null;
         Vod item = items.get(position);
         return Glide.with(App.get()).load(ImgUtil.getUrl(item.getPic())).override(width, height).centerCrop();
     }
 
     public void preload(int start, int count) {
+        if (mode != MODE_GRID) return;
         int end = Math.min(items.size(), start + count);
         for (int i = Math.max(0, start); i < end; i++) {
             RequestBuilder<?> request = getPreloadRequest(i);
@@ -112,10 +134,23 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
         return items.size();
     }
 
+    @Override
+    public int getItemViewType(int position) {
+        if (mode == MODE_TEXT) return VIEW_TYPE_TEXT;
+        if (mode == MODE_LIST) return VIEW_TYPE_DETAIL;
+        return VIEW_TYPE_GRID;
+    }
+
     @NonNull
     @Override
-    public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        ViewHolder holder = new ViewHolder(AdapterSearchBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+    public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        if (viewType == VIEW_TYPE_TEXT) {
+            return new TextHolder(AdapterSearchTextBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+        }
+        if (viewType == VIEW_TYPE_DETAIL) {
+            return new DetailHolder(AdapterSearchDetailBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+        }
+        GridHolder holder = new GridHolder(AdapterSearchBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
         holder.binding.getRoot().getLayoutParams().width = width;
         holder.binding.getRoot().getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
         holder.binding.image.getLayoutParams().height = height;
@@ -123,32 +158,113 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
     }
 
     @Override
-    public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
         Vod item = items.get(position);
-        holder.bindName(item.getName());
-        holder.binding.site.setText(item.getSiteName());
-        holder.binding.remark.setText(item.getRemarks());
-        holder.binding.site.setVisibility(item.getSiteVisible());
-        holder.binding.remark.setVisibility(item.getRemarkVisible());
-        holder.binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
-        holder.binding.getRoot().setOnKeyListener((v, keyCode, event) -> listener.onItemKey(holder.getBindingAdapterPosition(), keyCode, event));
-        ImgUtil.load(item.getName(), item.getPic(), holder.binding.image, width, height);
+        if (holder instanceof TextHolder textHolder) {
+            textHolder.bind(item);
+            return;
+        }
+        if (holder instanceof DetailHolder detailHolder) {
+            detailHolder.bind(item);
+            return;
+        }
+        if (!(holder instanceof GridHolder gridHolder)) return;
+        gridHolder.bind(item);
     }
 
     @Override
-    public void onViewRecycled(@NonNull ViewHolder holder) {
-        Glide.with(holder.binding.image).clear(holder.binding.image);
-        holder.setMarquee(false);
+    public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
+        if (holder instanceof GridHolder gridHolder) {
+            Glide.with(gridHolder.binding.image).clear(gridHolder.binding.image);
+            gridHolder.setMarquee(false);
+        }
+        if (holder instanceof DetailHolder detailHolder) {
+            Glide.with(detailHolder.binding.image).clear(detailHolder.binding.image);
+            detailHolder.setMarquee(false);
+        }
+        if (holder instanceof TextHolder textHolder) {
+            textHolder.setMarquee(false);
+        }
     }
 
-    public static class ViewHolder extends RecyclerView.ViewHolder {
+    public class GridHolder extends RecyclerView.ViewHolder {
 
         private final AdapterSearchBinding binding;
 
-        ViewHolder(@NonNull AdapterSearchBinding binding) {
+        GridHolder(@NonNull AdapterSearchBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
             binding.getRoot().setOnFocusChangeListener((view, hasFocus) -> setMarquee(hasFocus));
+        }
+
+        private void bind(Vod item) {
+            bindName(item.getName());
+            binding.site.setText(item.getSiteName());
+            binding.remark.setText(item.getRemarks());
+            binding.site.setVisibility(item.getSiteVisible());
+            binding.remark.setVisibility(item.getRemarkVisible());
+            binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
+            binding.getRoot().setOnKeyListener((v, keyCode, event) -> listener.onItemKey(getBindingAdapterPosition(), keyCode, event));
+            ImgUtil.load(item.getName(), item.getPic(), binding.image, width, height);
+        }
+
+        private void bindName(String name) {
+            Setting.applyTitleMaxLines(binding.name);
+            binding.name.setHorizontallyScrolling(Setting.resolveTitleMaxLines() <= 1);
+            binding.name.setText(name);
+            setMarquee(binding.getRoot().hasFocus());
+        }
+
+        private void setMarquee(boolean focused) {
+            binding.name.setSelected(focused);
+        }
+    }
+
+    public class TextHolder extends RecyclerView.ViewHolder {
+
+        private final AdapterSearchTextBinding binding;
+
+        TextHolder(@NonNull AdapterSearchTextBinding binding) {
+            super(binding.getRoot());
+            this.binding = binding;
+            binding.getRoot().setOnFocusChangeListener((view, hasFocus) -> setMarquee(hasFocus));
+        }
+
+        private void bind(Vod item) {
+            String siteName = item.getSiteName();
+            String text = siteName.isEmpty() ? item.getName() : item.getName() + " [" + siteName + "]";
+            Setting.applyTitleMaxLines(binding.name);
+            binding.name.setHorizontallyScrolling(Setting.resolveTitleMaxLines() <= 1);
+            binding.name.setText(text);
+            setMarquee(binding.getRoot().hasFocus());
+            binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
+            binding.getRoot().setOnKeyListener((v, keyCode, event) -> listener.onItemKey(getBindingAdapterPosition(), keyCode, event));
+        }
+
+        private void setMarquee(boolean focused) {
+            binding.name.setSelected(focused);
+        }
+    }
+
+    public class DetailHolder extends RecyclerView.ViewHolder {
+
+        private final AdapterSearchDetailBinding binding;
+
+        DetailHolder(@NonNull AdapterSearchDetailBinding binding) {
+            super(binding.getRoot());
+            this.binding = binding;
+            binding.getRoot().setOnFocusChangeListener((view, hasFocus) -> setMarquee(hasFocus));
+        }
+
+        private void bind(Vod item) {
+            bindName(item.getName());
+            binding.site.setText(item.getSiteName());
+            binding.remark.setText(item.getRemarks());
+            binding.site.setVisibility(item.getSiteVisible());
+            binding.remark.setVisibility(item.getRemarkVisible());
+            binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
+            binding.getRoot().setOnKeyListener((v, keyCode, event) -> listener.onItemKey(getBindingAdapterPosition(), keyCode, event));
+            ImgUtil.load(item.getName(), item.getPic(), binding.image);
         }
 
         private void bindName(String name) {
