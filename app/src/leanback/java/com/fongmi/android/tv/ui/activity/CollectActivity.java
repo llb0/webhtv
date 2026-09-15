@@ -313,6 +313,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         Collect item = mCollectAdapter.get(position);
         boolean same = mCollectAdapter.getPosition() == position;
         mCollectAdapter.setSelected(position);
+        mSearchAdapter.setAllMode("all".equals(item.getSite().getKey()));
         mScroller.reset();
         mScroller.setPage(item.getPage());
         mPendingItems.clear();
@@ -341,8 +342,10 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         mSearchAdapter.setSource(items, getCount() * 4);
         mBinding.recycler.post(() -> {
             scrollSearchToTop();
-            ensureSearchRows(getCount(), 2);
-            preloadNextRows(getCount());
+            mBinding.recycler.post(() -> {
+                ensureSearchRows(getCount(), 2);
+                preloadNextRows(getCount());
+            });
         });
     }
 
