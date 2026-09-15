@@ -145,10 +145,14 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         if (viewType == VIEW_TYPE_TEXT) {
-            return new TextHolder(AdapterSearchTextTvBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+            TextHolder holder = new TextHolder(AdapterSearchTextTvBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+            holder.binding.getRoot().getLayoutParams().width = width;
+            return holder;
         }
         if (viewType == VIEW_TYPE_DETAIL) {
-            return new DetailHolder(AdapterSearchDetailBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+            DetailHolder holder = new DetailHolder(AdapterSearchDetailBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+            holder.binding.getRoot().getLayoutParams().width = width;
+            return holder;
         }
         GridHolder holder = new GridHolder(AdapterSearchBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
         holder.binding.getRoot().getLayoutParams().width = width;
