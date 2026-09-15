@@ -28,12 +28,13 @@
 
         <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/modeToggle"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/shape_vod_list"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:background="@drawable/selector_item"
             android:clickable="true"
             android:focusable="true"
-            android:foreground="@drawable/selector_vod"
+            android:focusableInTouchMode="true"
             android:padding="8dp"
             android:src="@drawable/ic_site_double_column"
             android:tint="@color/white" />
