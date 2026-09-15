@@ -197,6 +197,9 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
             Glide.with(detailHolder.binding.image).clear(detailHolder.binding.image);
             detailHolder.setMarquee(false);
         }
+        if (holder instanceof TextHolder textHolder) {
+            textHolder.setMarquee(false);
+        }
     }
 
     public class GridHolder extends RecyclerView.ViewHolder {
@@ -239,8 +242,7 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
         TextHolder(@NonNull AdapterSearchTextTvBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
-            binding.name.setSingleLine(true);
-            binding.name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            binding.getRoot().setOnFocusChangeListener((view, hasFocus) -> setMarquee(hasFocus));
         }
 
         private void bind(Vod item) {
@@ -253,9 +255,16 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
                 suffix = (remark == null || remark.isEmpty()) ? "" : "【" + remark + "】";
             }
             String text = suffix.isEmpty() ? item.getName() : item.getName() + suffix;
+            Setting.applyTitleMaxLines(binding.name);
+            binding.name.setHorizontallyScrolling(Setting.resolveTitleMaxLines() <= 1);
             binding.name.setText(text);
+            setMarquee(binding.getRoot().hasFocus());
             binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
             binding.getRoot().setOnKeyListener((v, keyCode, event) -> listener.onItemKey(getBindingAdapterPosition(), keyCode, event));
+        }
+
+        private void setMarquee(boolean focused) {
+            binding.name.setSelected(focused);
         }
     }
 
