@@ -28,9 +28,14 @@ public class SearchAdapter extends BaseDiffAdapter<Vod, RecyclerView.ViewHolder>
     private final OnClickListener listener;
     private int mode = MODE_GRID;
     private int[] size = new int[]{0, 0};
+    private boolean allMode = true;
 
     public SearchAdapter(OnClickListener listener) {
         this.listener = listener;
+    }
+
+    public void setAllMode(boolean allMode) {
+        this.allMode = allMode;
     }
 
     public interface OnClickListener {
@@ -184,8 +189,15 @@ public class SearchAdapter extends BaseDiffAdapter<Vod, RecyclerView.ViewHolder>
         private void initView(Vod item) {
             Setting.applyTitleMaxLines(binding.name);
             binding.name.setHorizontallyScrolling(Setting.resolveTitleMaxLines() <= 1);
-            String siteName = item.getSiteName();
-            String text = siteName.isEmpty() ? item.getName() : item.getName() + " [" + siteName + "]";
+            String suffix;
+            if (allMode) {
+                String siteName = item.getSiteName();
+                suffix = siteName.isEmpty() ? "" : "【" + siteName + "】";
+            } else {
+                String remark = item.getRemarks();
+                suffix = (remark == null || remark.isEmpty()) ? "" : "【" + remark + "】";
+            }
+            String text = suffix.isEmpty() ? item.getName() : item.getName() + suffix;
             binding.name.setText(text);
             setMarquee(binding.getRoot().hasFocus());
             binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
