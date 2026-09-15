@@ -387,7 +387,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         if (event.getAction() != KeyEvent.ACTION_DOWN || position < 0) return false;
         int count = getCount();
         if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) return onSearchDown(position, count);
-        if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return position < count;
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return false;
         if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) return position % count == count - 1;
         return false;
     }
