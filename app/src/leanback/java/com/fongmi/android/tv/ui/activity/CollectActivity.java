@@ -22,6 +22,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Collect;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.setting.SiteBlockSetting;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.ActivityCollectBinding;
 import com.fongmi.android.tv.model.SiteViewModel;
@@ -133,6 +134,15 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         applyMode();
     }
 
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            onModeToggle();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
     private void applyMode() {
         int count = getCount();
         ((GridLayoutManager) mBinding.recycler.getLayoutManager()).setSpanCount(count);
@@ -220,6 +230,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
 
     private void setSites() {
         mSites = new ArrayList<>(SearchModeStore.filterSites(VodConfig.get().getSites(), getSiteKey()));
+        mSites.removeIf(SiteBlockSetting::isBlocked);
         SiteHealthStore.sortSites(mSites);
     }
 
