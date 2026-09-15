@@ -169,8 +169,10 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                 if (!canLoadImage()) return;
-                ensureSearchRows(getCount(), 2);
-                preloadNextRows(getCount());
+                recyclerView.post(() -> {
+                    ensureSearchRows(getCount(), 2);
+                    preloadNextRows(getCount());
+                });
             }
 
             @Override
@@ -180,13 +182,17 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
                 if (scrolling == mScrolling) return;
                 mScrolling = scrolling;
                 if (mScrolling) {
-                    ensureSearchRows(getCount(), 2);
-                    preloadNextRows(getCount());
+                    recyclerView.post(() -> {
+                        ensureSearchRows(getCount(), 2);
+                        preloadNextRows(getCount());
+                    });
                 } else {
                     Glide.with(CollectActivity.this).resumeRequests();
-                    flushPendingItems();
-                    ensureSearchRows(getCount(), 2);
-                    preloadNextRows(getCount());
+                    recyclerView.post(() -> {
+                        flushPendingItems();
+                        ensureSearchRows(getCount(), 2);
+                        preloadNextRows(getCount());
+                    });
                 }
             }
         });
