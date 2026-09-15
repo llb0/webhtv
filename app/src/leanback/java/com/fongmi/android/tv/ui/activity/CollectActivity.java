@@ -110,6 +110,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         setSites();
         search();
         initModeToggle();
+        mBinding.collect.post(() -> mBinding.collect.requestFocus());
     }
 
     private void initModeToggle() {
