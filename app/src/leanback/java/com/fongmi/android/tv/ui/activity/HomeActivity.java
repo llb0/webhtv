@@ -737,13 +737,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     @Override
     public boolean onLeftBoundary() {
         mBinding.title.setFocusable(true);
-        return mBinding.title.requestFocus();
+        mBinding.title.post(() -> mBinding.title.requestFocus());
+        return true;
     }
 
     @Override
     public boolean onRightBoundary() {
         mBinding.title.setFocusable(true);
-        return mBinding.title.requestFocus();
+        mBinding.title.post(() -> mBinding.title.requestFocus());
+        return true;
     }
 
     private void focusFirstFunc() {
