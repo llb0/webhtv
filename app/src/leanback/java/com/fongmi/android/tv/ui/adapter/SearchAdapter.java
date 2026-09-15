@@ -14,7 +14,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.AdapterSearchBinding;
 import com.fongmi.android.tv.databinding.AdapterSearchDetailBinding;
-import com.fongmi.android.tv.databinding.AdapterSearchTextBinding;
+import com.fongmi.android.tv.databinding.AdapterSearchTextTvBinding;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -145,7 +145,7 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         if (viewType == VIEW_TYPE_TEXT) {
-            return new TextHolder(AdapterSearchTextBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+            return new TextHolder(AdapterSearchTextTvBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
         }
         if (viewType == VIEW_TYPE_DETAIL) {
             return new DetailHolder(AdapterSearchDetailBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
@@ -222,9 +222,9 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
 
     public class TextHolder extends RecyclerView.ViewHolder {
 
-        private final AdapterSearchTextBinding binding;
+        private final AdapterSearchTextTvBinding binding;
 
-        TextHolder(@NonNull AdapterSearchTextBinding binding) {
+        TextHolder(@NonNull AdapterSearchTextTvBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
             binding.getRoot().setOnFocusChangeListener((view, hasFocus) -> setMarquee(hasFocus));
