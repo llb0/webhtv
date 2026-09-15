@@ -38,6 +38,7 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
     private int height;
     private int width;
     private int mode = MODE_GRID;
+    private boolean allMode = true;
 
     public SearchAdapter(OnClickListener listener, int width, int height) {
         this.listener = listener;
@@ -45,6 +46,10 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
         this.source = new ArrayList<>();
         this.width = width;
         this.height = height;
+    }
+
+    public void setAllMode(boolean allMode) {
+        this.allMode = allMode;
     }
 
     public void setMode(int mode) {
@@ -91,21 +96,31 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
 
     public boolean ensureLoaded(int position, int preloadCount) {
         if (source.isEmpty()) return false;
-        int target = Math.min(source.size(), Math.max(items.size(), position + preloadCount));
-        if (target <= items.size()) return false;
-        int start = items.size();
-        items.addAll(source.subList(start, target));
-        notifyItemRangeInserted(start, target - start);
-        return true;
+        try {
+            int target = Math.min(source.size(), Math.max(items.size(), position + preloadCount));
+            if (target <= items.size()) return false;
+            int start = items.size();
+            items.addAll(source.subList(start, target));
+            notifyItemRangeInserted(start, target - start);
+            return true;
+        } catch (Exception e) {
+            android.util.Log.e("SearchAdapter", "ensureLoaded failed", e);
+            return false;
+        }
     }
 
     public void appendSource(List<Vod> items, int minVisibleCount) {
-        source.addAll(items);
-        int target = Math.min(source.size(), Math.max(this.items.size(), minVisibleCount));
-        if (target <= this.items.size()) return;
-        int start = this.items.size();
-        this.items.addAll(source.subList(start, target));
-        notifyItemRangeInserted(start, target - start);
+        if (items == null || items.isEmpty()) return;
+        try {
+            source.addAll(items);
+            int target = Math.min(source.size(), Math.max(this.items.size(), minVisibleCount));
+            if (target <= this.items.size()) return;
+            int start = this.items.size();
+            this.items.addAll(source.subList(start, target));
+            notifyItemRangeInserted(start, target - start);
+        } catch (Exception e) {
+            android.util.Log.e("SearchAdapter", "appendSource failed", e);
+        }
     }
 
     public void clear() {
@@ -182,9 +197,6 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
             Glide.with(detailHolder.binding.image).clear(detailHolder.binding.image);
             detailHolder.setMarquee(false);
         }
-        if (holder instanceof TextHolder textHolder) {
-            textHolder.setMarquee(false);
-        }
     }
 
     public class GridHolder extends RecyclerView.ViewHolder {
@@ -227,22 +239,23 @@ public class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
         TextHolder(@NonNull AdapterSearchTextTvBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
-            binding.getRoot().setOnFocusChangeListener((view, hasFocus) -> setMarquee(hasFocus));
+            binding.name.setSingleLine(true);
+            binding.name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         }
 
         private void bind(Vod item) {
-            String siteName = item.getSiteName();
-            String text = siteName.isEmpty() ? item.getName() : item.getName() + " [" + siteName + "]";
-            Setting.applyTitleMaxLines(binding.name);
-            binding.name.setHorizontallyScrolling(Setting.resolveTitleMaxLines() <= 1);
+            String suffix;
+            if (allMode) {
+                String siteName = item.getSiteName();
+                suffix = siteName.isEmpty() ? "" : "【" + siteName + "】";
+            } else {
+                String remark = item.getRemarks();
+                suffix = (remark == null || remark.isEmpty()) ? "" : "【" + remark + "】";
+            }
+            String text = suffix.isEmpty() ? item.getName() : item.getName() + suffix;
             binding.name.setText(text);
-            setMarquee(binding.getRoot().hasFocus());
             binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
             binding.getRoot().setOnKeyListener((v, keyCode, event) -> listener.onItemKey(getBindingAdapterPosition(), keyCode, event));
-        }
-
-        private void setMarquee(boolean focused) {
-            binding.name.setSelected(focused);
         }
     }
 
