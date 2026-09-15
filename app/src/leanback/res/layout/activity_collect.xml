@@ -35,6 +35,7 @@
             android:clickable="true"
             android:focusable="true"
             android:focusableInTouchMode="true"
+            android:nextFocusDown="@id/recycler"
             android:padding="8dp"
             android:src="@drawable/ic_site_double_column"
             android:tint="@color/white" />
