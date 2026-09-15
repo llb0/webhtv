@@ -26,6 +26,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Collect;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.setting.SiteBlockSetting;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.FragmentCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
@@ -150,6 +151,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private void setSites() {
         mSites = new ArrayList<>(SearchModeStore.filterSites(VodConfig.get().getSites(), getSiteKey()));
+        mSites.removeIf(SiteBlockSetting::isBlocked);
         SiteHealthStore.sortSites(mSites);
     }
 
