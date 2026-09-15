@@ -230,7 +230,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     }
 
     private int getCount() {
-        return Setting.getSearchColumn() == SearchAdapter.MODE_GRID ? Product.getColumn() : 2;
+        return Math.max(1, Setting.getSearchColumn() == SearchAdapter.MODE_GRID ? Product.getColumn() : 2);
     }
 
     private int getItemWidth(int count) {
@@ -256,12 +256,13 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         if (result == null) return;
         mScroller.endLoading(result);
         Collect activated = mCollectAdapter.getActivated();
-        boolean same = !result.getList().isEmpty() && activated.getSite().equals(result.getVod().getSite());
+        boolean same = !result.getList().isEmpty() && activated.getSite() != null && activated.getSite().equals(result.getVod().getSite());
         if (same) activated.getList().addAll(result.getList());
         if (same) addSearchItems(result.getList());
     }
 
     private void addSearchItems(List<Vod> items) {
+        if (items == null || items.isEmpty()) return;
         if (mScrolling) mPendingItems.addAll(items);
         else mSearchAdapter.appendSource(items, getCount() * 4);
     }
