@@ -67,7 +67,19 @@ public class KeepActivity extends BaseActivity implements KeepAdapter.OnClickLis
     }
 
     private void getKeep() {
-        mAdapter.setItems(Keep.getVod(), () -> mBinding.progressLayout.showContent(true, mAdapter.getItemCount()));
+        mAdapter.setItems(Keep.getVod(), () -> {
+            mBinding.progressLayout.showContent(true, mAdapter.getItemCount());
+            focusFirstItem();
+        });
+    }
+
+    private void focusFirstItem() {
+        if (mAdapter.getItemCount() <= 0) return;
+        mBinding.recycler.post(() -> {
+            View view = mBinding.recycler.getLayoutManager().findViewByPosition(0);
+            if (view != null) view.requestFocus();
+            else mBinding.recycler.requestFocus();
+        });
     }
 
     private void loadConfig(Config config, Keep item) {
