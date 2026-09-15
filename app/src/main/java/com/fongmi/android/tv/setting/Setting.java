@@ -655,11 +655,11 @@ public class Setting {
     }
 
     public static int getSearchColumn() {
-        return Math.min(Math.max(Prefers.getInt("search_column", 1), 1), 2);
+        return Math.min(Math.max(Prefers.getInt("search_column", 1), 1), 3);
     }
 
     public static void putSearchColumn(int column) {
-        Prefers.put("search_column", column == 2 ? 2 : 1);
+        Prefers.put("search_column", column == 2 ? 2 : (column == 3 ? 3 : 1));
     }
 
     public static boolean isDebugLog() {
