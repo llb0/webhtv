@@ -208,7 +208,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         });
         mBinding.recycler.setAdapter(mSearchAdapter = new SearchAdapter(this, getItemWidth(count), getItemHeight(count)));
         mBinding.recycler.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus || v.getFocusedChild() != null) return;
+            if (!hasFocus || mBinding.recycler.getFocusedChild() != null) return;
             restoreSearchFocus();
         });
         mSearchAdapter.setMode(Setting.getSearchColumn());
