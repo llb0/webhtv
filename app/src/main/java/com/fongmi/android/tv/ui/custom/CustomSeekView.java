@@ -120,7 +120,7 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
     }
 
     private long effectiveDuration(long duration) {
-        return Math.max(0, duration - endingMs);
+        return Math.max(0, duration + endingMs);
     }
 
     private void updateTimeline() {
