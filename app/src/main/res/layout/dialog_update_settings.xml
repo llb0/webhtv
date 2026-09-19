@@ -38,7 +38,7 @@
 
     </androidx.appcompat.widget.LinearLayoutCompat>
 
-    <androidx.core.widget.NestedScrollView
+    <com.fongmi.android.tv.ui.custom.CustomNestedScrollView
         android:id="@+id/contentScroll"
         android:layout_width="match_parent"
         android:layout_height="300dp"
@@ -184,7 +184,7 @@
 
         </androidx.appcompat.widget.LinearLayoutCompat>
 
-    </androidx.core.widget.NestedScrollView>
+    </com.fongmi.android.tv.ui.custom.CustomNestedScrollView>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/save"
