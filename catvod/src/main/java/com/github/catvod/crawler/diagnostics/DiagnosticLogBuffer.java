@@ -148,12 +148,21 @@ public final class DiagnosticLogBuffer implements AutoCloseable {
         long captured = clock.monotonicNanos();
         long epoch = generation();
         long sourceSeq = sourceSequence.incrementAndGet();
-        DiagnosticText.Clean clean = DiagnosticText.clean(message);
+        DiagnosticText.Clean clean = DiagnosticText.clean(message, !isSpiderTag(tag));
         String safeTag = DiagnosticText.clean(tag == null ? "Debug" : tag).text().replace(':', '_').replace('[', '_').replace(']', '_');
         if (safeTag.length() > 64) safeTag = safeTag.substring(0, 64);
         // Reserve the structured tag; arbitrary Spider/native text cannot impersonate events.
         if ("av-diag".equals(safeTag)) safeTag = "legacy-av-diag";
         offer(safeTag, clean.text(), null, critical, false, captured, sourceSeq, clean.truncated(), DiagnosticText.origins(message), epoch);
+    }
+
+    /** 站源/脚本调试日志不脱敏 URL，便于排查请求链路。 */
+    private static boolean isSpiderTag(String tag) {
+        if (tag == null) return false;
+        String lower = tag.toLowerCase();
+        return lower.contains("spider") || lower.contains("xbpq") || lower.contains("quickjs")
+                || lower.contains("python") || lower.contains("jar") || lower.contains("csp")
+                || lower.contains("jar-loader") || lower.contains("webhome");
     }
 
     public void event(DiagnosticEvent event) {
