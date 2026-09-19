@@ -935,6 +935,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private void confirmExitHome() {
         Task.execute(() -> {
             AppDatabase.backupOnExitSync();
+            if (Setting.isAutoClearCache()) Path.clear(Path.cache());
             Process.killProcess(Process.myPid());
             System.exit(0);
         });
