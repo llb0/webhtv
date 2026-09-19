@@ -948,7 +948,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         LiveConfig.get().clear();
         VodConfig.get().clear();
         OkHttp.get().clear();
-        if (Setting.isAutoClearCache()) Path.clear(Path.cache());
         Source.get().exit();
         Server.get().stop();
         super.onDestroy();
