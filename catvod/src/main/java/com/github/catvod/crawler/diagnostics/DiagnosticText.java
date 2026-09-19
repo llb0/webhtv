@@ -25,13 +25,18 @@ public final class DiagnosticText {
     public record Clean(String text, boolean truncated) {}
 
     public static Clean clean(String input) {
+        return clean(input, true);
+    }
+
+    /** redactUrls=false 时不脱敏 URL，用于站源调试日志（需查看实际 URL 排查问题）。 */
+    public static Clean clean(String input, boolean redactUrls) {
         if (input == null) return new Clean("", false);
         boolean truncated = input.length() > MAX_CHARS;
         String value = input.substring(0, Math.min(MAX_CHARS, input.length())).replace("\\/", "/");
         value = HEADER.matcher(value).replaceAll("sensitive-header=" + REDACTED);
         value = SECRET.matcher(value).replaceAll("$1" + REDACTED);
         value = BEARER.matcher(value).replaceAll(REDACTED);
-        value = URI_TEXT.matcher(value).replaceAll("uri:" + REDACTED);
+        if (redactUrls) value = URI_TEXT.matcher(value).replaceAll("uri:" + REDACTED);
         value = LOCAL_PATH.matcher(value).replaceAll("path:" + REDACTED);
         value = ADDRESS.matcher(value).replaceAll("address:" + REDACTED);
         StringBuilder result = new StringBuilder(Math.min(MAX_CHARS, value.length()));
