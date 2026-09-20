@@ -173,7 +173,7 @@ public class PlayerButtonSetting {
 
     private static List<String> getDefaultHiddenIds() {
         List<String> hidden = new ArrayList<>(List.of(
-                PLAY_PARAMS, CODEC_CAPABILITY, LUT, TEXT, DANMAKU, TITLE, FULLSCREEN, PDS, CHANGE
+                PLAY_PARAMS, CODEC_CAPABILITY, LUT, TEXT, DANMAKU, TITLE, FULLSCREEN, PDS
         ));
         if (Util.isLeanback()) hidden.add(SETTING);
         else hidden.add(PUSH);
