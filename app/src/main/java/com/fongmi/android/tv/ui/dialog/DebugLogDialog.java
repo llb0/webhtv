@@ -40,12 +40,9 @@ public final class DebugLogDialog {
         content.setTextSize(14);
         content.setLineSpacing(ResUtil.dp2px(2), 1f);
     
-        // ========== 外层根布局 ==========
         android.widget.LinearLayout rootLayout = new android.widget.LinearLayout(activity);
         rootLayout.setOrientation(android.widget.LinearLayout.VERTICAL);
-        rootLayout.setPadding(0,0,0,0);
     
-        // ========== ScrollView 只承载滚动内容（不含按钮） ==========
         android.widget.LinearLayout scrollContentPanel = new android.widget.LinearLayout(activity);
         scrollContentPanel.setOrientation(android.widget.LinearLayout.VERTICAL);
         scrollContentPanel.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
@@ -77,24 +74,19 @@ public final class DebugLogDialog {
         scroll.setFocusableInTouchMode(true);
         scroll.setFillViewport(true);
         scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        scroll.addView(scrollContentPanel);
     
         android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
         );
-        if (isLand) {
-            int screenH = ResUtil.getScreenHeight(activity);
-            scrollLp.height = (int) (screenH * 0.72f);
-        }
-        scroll.setLayoutParams(scrollLp);
-        scroll.addView(scrollContentPanel);
-        rootLayout.addView(scroll);
+        scrollLp.weight = 0;
+        rootLayout.addView(scroll, scrollLp);
     
-        // ========== 底部按钮区域，独立在ScrollView之外，固定显示 ==========
         android.widget.LinearLayout btnPanel = new android.widget.LinearLayout(activity);
         btnPanel.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         btnPanel.setGravity(android.view.Gravity.CENTER);
-        btnPanel.setPadding(0, ResUtil.dp2px(16),0,0);
+        btnPanel.setPadding(0, ResUtil.dp2px(16), 0, ResUtil.dp2px(8));
     
         android.widget.Button mark = new android.widget.Button(activity);
         mark.setText("标记此刻故障");
@@ -143,7 +135,11 @@ public final class DebugLogDialog {
             Notify.show("深度统计已停止");
         });
     
-        rootLayout.addView(btnPanel);
+        android.widget.LinearLayout.LayoutParams btnLp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        rootLayout.addView(btnPanel, btnLp);
     
         android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), rootLayout,
                 activity.getString(R.string.debug_log_open_browser), v -> open(activity, localUrl),
