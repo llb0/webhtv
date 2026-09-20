@@ -112,7 +112,6 @@ public final class DebugLogDialog {
         android.widget.Button stop = new android.widget.Button(activity);
         stop.setText("停止深度统计");
         stop.setFocusable(true);
-        stop.setFocusable(true);
         if (isLand) {
             stop.setBackgroundResource(R.drawable.selector_dialog_step_button);
         }
