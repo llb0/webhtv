@@ -34,6 +34,8 @@ public class PlayerButtonSetting {
     public static final String VIDEO = "video";
     public static final String OPENING = "opening";
     public static final String ENDING = "ending";
+    public static final String SUB_HEAD = "sub_head";
+    public static final String SUB_TAIL = "sub_tail";
     public static final String DANMAKU = "danmaku";
     public static final String TITLE = "title";
     public static final String PREV = "prev";
@@ -58,6 +60,8 @@ public class PlayerButtonSetting {
             new Item(SCALE, R.string.play_scale),
             new Item(OPENING, R.string.play_op),
             new Item(ENDING, R.string.play_ed),
+            new Item(SUB_HEAD, R.string.play_sub_head),
+            new Item(SUB_TAIL, R.string.play_sub_tail),
             new Item(VIDEO, R.string.play_track_video),
             new Item(AUDIO, R.string.play_track_audio),
             new Item(RESET, R.string.play_reset),
