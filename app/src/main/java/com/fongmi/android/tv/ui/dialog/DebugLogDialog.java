@@ -46,6 +46,12 @@ public final class DebugLogDialog {
         panel.addView(content);
     
         boolean isLand = ResUtil.isLand(activity);
+        int maxHeightVal = 0;
+        if (isLand) {
+            int screenH = ResUtil.getScreenHeight(activity);
+            maxHeightVal = (int) (screenH * 0.72f);
+        }
+    
         for (com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category category : com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category.values()) {
             androidx.appcompat.widget.SwitchCompat toggle = new androidx.appcompat.widget.SwitchCompat(activity);
             toggle.setText(category.title);
@@ -113,37 +119,31 @@ public final class DebugLogDialog {
             Notify.show("深度统计已停止");
         });
     
-        // 自定义ScrollView，仅横屏TV限制最大高度，手机不限制
-        android.widget.ScrollView scroll = new android.widget.ScrollView(activity) {
-            private int maxH = Integer.MAX_VALUE;
-            public void setMaxHeightLimit(int value) {
-                maxH = value;
-            }
-            @Override
-            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                int limitedSpec = heightMeasureSpec;
-                if (maxH != Integer.MAX_VALUE) {
-                    limitedSpec = MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST);
-                }
-                super.onMeasure(widthMeasureSpec, limitedSpec);
-            }
-        };
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
         scroll.setFocusable(true);
         scroll.setFocusableInTouchMode(true);
         scroll.setFillViewport(true);
         scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+    
+        // 中间容器：用FrameLayout.LayoutParams 自带maxHeight
+        android.widget.FrameLayout wrapper = new android.widget.FrameLayout(activity);
+        android.widget.FrameLayout.LayoutParams wrapperLp = new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        );
+        if (isLand) {
+            wrapperLp.maxHeight = maxHeightVal;
+        }
+        wrapper.setLayoutParams(wrapperLp);
+        wrapper.addView(panel);
+    
+        scroll.addView(wrapper);
     
         android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
         );
         scroll.setLayoutParams(scrollLp);
-        if (isLand) {
-            int screenH = ResUtil.getScreenHeight(activity);
-            scroll.setMaxHeightLimit((int) (screenH * 0.72f));
-        }
-    
-        scroll.addView(panel);
     
         android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), scroll,
                 activity.getString(R.string.debug_log_open_browser), v -> open(activity, localUrl),
