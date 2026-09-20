@@ -34,19 +34,16 @@ public final class DebugLogDialog {
         String xbpqUrl = Server.get().getAddress("/proxy?do=log");
         SpiderDebug.log("debug", "logs service ready url=%s lan=%s xbpq=%s", localUrl, lanUrl, xbpqUrl);
         String message = activity.getString(R.string.debug_log_dialog_message, lanUrl, localUrl, xbpqUrl);
-        MaterialTextView content = new MaterialTextView(activity);
-        content.setText(message);
-        content.setTextColor(Color.parseColor("#5F6368"));
-        content.setTextSize(14);
-        content.setLineSpacing(ResUtil.dp2px(2), 1f);
-    
-        android.widget.LinearLayout rootLayout = new android.widget.LinearLayout(activity);
-        rootLayout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        MaterialTextView contentText = new MaterialTextView(activity);
+        contentText.setText(message);
+        contentText.setTextColor(Color.parseColor("#5F6368"));
+        contentText.setTextSize(14);
+        contentText.setLineSpacing(ResUtil.dp2px(2), 1f);
     
         android.widget.LinearLayout scrollContentPanel = new android.widget.LinearLayout(activity);
         scrollContentPanel.setOrientation(android.widget.LinearLayout.VERTICAL);
         scrollContentPanel.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        scrollContentPanel.addView(content);
+        scrollContentPanel.addView(contentText);
     
         boolean isLand = ResUtil.isLand(activity);
         for (com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category category : com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category.values()) {
@@ -69,33 +66,13 @@ public final class DebugLogDialog {
         captureNote.setTextSize(14);
         scrollContentPanel.addView(captureNote);
     
-        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
-        scroll.setFocusable(true);
-        scroll.setFocusableInTouchMode(true);
-        scroll.setFillViewport(true);
-        scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
-        scroll.addView(scrollContentPanel);
-    
-        android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                0
-        );
-        scrollLp.weight = 1;
-        scroll.setLayoutParams(scrollLp);
-        rootLayout.addView(scroll);
-    
-        android.widget.LinearLayout btnPanel = new android.widget.LinearLayout(activity);
-        btnPanel.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        btnPanel.setGravity(android.view.Gravity.CENTER);
-        btnPanel.setPadding(0, ResUtil.dp2px(16),0,0);
-    
         android.widget.Button mark = new android.widget.Button(activity);
         mark.setText("标记此刻故障");
         mark.setFocusable(true);
         if (isLand) {
             mark.setBackgroundResource(R.drawable.selector_dialog_step_button);
         }
-        btnPanel.addView(mark);
+        scrollContentPanel.addView(mark);
         mark.setOnClickListener(v -> new androidx.appcompat.app.AlertDialog.Builder(activity).setTitle("选择当前现象")
                 .setItems(com.fongmi.android.tv.player.DiagnosticControls.SYMPTOMS, (d, which) -> {
                     try {
@@ -112,7 +89,7 @@ public final class DebugLogDialog {
         if (isLand) {
             depth.setBackgroundResource(R.drawable.selector_dialog_step_button);
         }
-        btnPanel.addView(depth);
+        scrollContentPanel.addView(depth);
         depth.setOnClickListener(v -> new androidx.appcompat.app.AlertDialog.Builder(activity).setTitle("限时深度统计")
                 .setMessage("对当前播放做少量低分辨率画面和 PCM 数值统计，不保存图像或声音。到期、切换播放或关闭诊断自动停止。")
                 .setNegativeButton("取消", null).setPositiveButton("开启 60 秒", (d, which) -> {
@@ -130,40 +107,36 @@ public final class DebugLogDialog {
         if (isLand) {
             stop.setBackgroundResource(R.drawable.selector_dialog_step_button);
         }
-        btnPanel.addView(stop);
+        scrollContentPanel.addView(stop);
         stop.setOnClickListener(v -> {
             com.github.catvod.crawler.diagnostics.DiagnosticCapture.stop("user-stopped");
             Notify.show("深度统计已停止");
         });
     
-        android.widget.LinearLayout.LayoutParams btnLp = new android.widget.LinearLayout.LayoutParams(
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        scroll.setFocusable(true);
+        scroll.setFocusableInTouchMode(true);
+        scroll.setFillViewport(true);
+        scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        scroll.addView(scrollContentPanel);
+    
+        android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
         );
-        rootLayout.addView(btnPanel, btnLp);
     
-        android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), rootLayout,
+        if (isLand) {
+            int screenH = ResUtil.getScreenHeight(activity);
+            int reserved = ResUtil.dp2px(180);
+            int maxContentHeight = (int) (screenH * 0.90f) - reserved;
+            scrollLp.height = maxContentHeight;
+        }
+        scroll.setLayoutParams(scrollLp);
+    
+        android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), scroll,
                 activity.getString(R.string.debug_log_open_browser), v -> open(activity, localUrl),
                 activity.getString(R.string.dialog_negative), null,
                 activity.getString(R.string.debug_log_copy_url), v -> copy(activity, lanUrl));
-    
-        // 仅TV横屏：监听布局，限制root整体最大高度
-        if (isLand) {
-            rootLayout.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
-                @Override
-                public void onGlobalLayout() {
-                    rootLayout.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-                    int screenH = ResUtil.getScreenHeight(activity);
-                    int maxH = (int)(screenH * 0.90f);
-                    if(rootLayout.getHeight() > maxH){
-                        android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) rootLayout.getLayoutParams();
-                        lp.height = maxH;
-                        rootLayout.setLayoutParams(lp);
-                    }
-                }
-            });
-        }
-    
         dialog.show();
     }
 
