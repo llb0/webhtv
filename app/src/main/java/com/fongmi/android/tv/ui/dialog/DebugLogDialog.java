@@ -78,15 +78,16 @@ public final class DebugLogDialog {
     
         android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                0
         );
-        scrollLp.weight = 0;
-        rootLayout.addView(scroll, scrollLp);
+        scrollLp.weight = 1;
+        scroll.setLayoutParams(scrollLp);
+        rootLayout.addView(scroll);
     
         android.widget.LinearLayout btnPanel = new android.widget.LinearLayout(activity);
         btnPanel.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         btnPanel.setGravity(android.view.Gravity.CENTER);
-        btnPanel.setPadding(0, ResUtil.dp2px(16), 0, ResUtil.dp2px(8));
+        btnPanel.setPadding(0, ResUtil.dp2px(16),0,0);
     
         android.widget.Button mark = new android.widget.Button(activity);
         mark.setText("标记此刻故障");
@@ -145,6 +146,24 @@ public final class DebugLogDialog {
                 activity.getString(R.string.debug_log_open_browser), v -> open(activity, localUrl),
                 activity.getString(R.string.dialog_negative), null,
                 activity.getString(R.string.debug_log_copy_url), v -> copy(activity, lanUrl));
+    
+        // 仅TV横屏：监听布局，限制root整体最大高度
+        if (isLand) {
+            rootLayout.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                @Override
+                public void onGlobalLayout() {
+                    rootLayout.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                    int screenH = ResUtil.getScreenHeight(activity);
+                    int maxH = (int)(screenH * 0.90f);
+                    if(rootLayout.getHeight() > maxH){
+                        android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) rootLayout.getLayoutParams();
+                        lp.height = maxH;
+                        rootLayout.setLayoutParams(lp);
+                    }
+                }
+            });
+        }
+    
         dialog.show();
     }
 
