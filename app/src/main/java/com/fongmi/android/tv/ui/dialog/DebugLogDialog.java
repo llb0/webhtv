@@ -40,20 +40,18 @@ public final class DebugLogDialog {
         content.setTextSize(14);
         content.setLineSpacing(ResUtil.dp2px(2), 1f);
     
-        android.widget.LinearLayout panel = new android.widget.LinearLayout(activity);
-        panel.setOrientation(android.widget.LinearLayout.VERTICAL);
-        panel.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        panel.addView(content);
+        // ========== 外层根布局 ==========
+        android.widget.LinearLayout rootLayout = new android.widget.LinearLayout(activity);
+        rootLayout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        rootLayout.setPadding(0,0,0,0);
+    
+        // ========== ScrollView 只承载滚动内容（不含按钮） ==========
+        android.widget.LinearLayout scrollContentPanel = new android.widget.LinearLayout(activity);
+        scrollContentPanel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        scrollContentPanel.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        scrollContentPanel.addView(content);
     
         boolean isLand = ResUtil.isLand(activity);
-        int scrollHeight;
-        if (isLand) {
-            int screenH = ResUtil.getScreenHeight(activity);
-            scrollHeight = (int) (screenH * 0.72f);
-        } else {
-            scrollHeight = android.widget.LinearLayout.LayoutParams.WRAP_CONTENT;
-        }
-    
         for (com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category category : com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category.values()) {
             androidx.appcompat.widget.SwitchCompat toggle = new androidx.appcompat.widget.SwitchCompat(activity);
             toggle.setText(category.title);
@@ -66,13 +64,37 @@ public final class DebugLogDialog {
                 toggle.setBackgroundResource(R.drawable.selector_dialog_step_button);
                 toggle.setPadding(ResUtil.dp2px(12), ResUtil.dp2px(8), ResUtil.dp2px(12), ResUtil.dp2px(8));
             }
-            panel.addView(toggle);
+            scrollContentPanel.addView(toggle);
         }
     
         MaterialTextView captureNote = new MaterialTextView(activity);
         captureNote.setText("标准日志按容量轮转；深度统计只保留数值，不保存画面或声音。");
         captureNote.setTextSize(14);
-        panel.addView(captureNote);
+        scrollContentPanel.addView(captureNote);
+    
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        scroll.setFocusable(true);
+        scroll.setFocusableInTouchMode(true);
+        scroll.setFillViewport(true);
+        scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+    
+        android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        if (isLand) {
+            int screenH = ResUtil.getScreenHeight(activity);
+            scrollLp.height = (int) (screenH * 0.72f);
+        }
+        scroll.setLayoutParams(scrollLp);
+        scroll.addView(scrollContentPanel);
+        rootLayout.addView(scroll);
+    
+        // ========== 底部按钮区域，独立在ScrollView之外，固定显示 ==========
+        android.widget.LinearLayout btnPanel = new android.widget.LinearLayout(activity);
+        btnPanel.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        btnPanel.setGravity(Gravity.CENTER);
+        btnPanel.setPadding(0, ResUtil.dp2px(16),0,0);
     
         android.widget.Button mark = new android.widget.Button(activity);
         mark.setText("标记此刻故障");
@@ -80,7 +102,7 @@ public final class DebugLogDialog {
         if (isLand) {
             mark.setBackgroundResource(R.drawable.selector_dialog_step_button);
         }
-        panel.addView(mark);
+        btnPanel.addView(mark);
         mark.setOnClickListener(v -> new androidx.appcompat.app.AlertDialog.Builder(activity).setTitle("选择当前现象")
                 .setItems(com.fongmi.android.tv.player.DiagnosticControls.SYMPTOMS, (d, which) -> {
                     try {
@@ -97,7 +119,7 @@ public final class DebugLogDialog {
         if (isLand) {
             depth.setBackgroundResource(R.drawable.selector_dialog_step_button);
         }
-        panel.addView(depth);
+        btnPanel.addView(depth);
         depth.setOnClickListener(v -> new androidx.appcompat.app.AlertDialog.Builder(activity).setTitle("限时深度统计")
                 .setMessage("对当前播放做少量低分辨率画面和 PCM 数值统计，不保存图像或声音。到期、切换播放或关闭诊断自动停止。")
                 .setNegativeButton("取消", null).setPositiveButton("开启 60 秒", (d, which) -> {
@@ -115,26 +137,15 @@ public final class DebugLogDialog {
         if (isLand) {
             stop.setBackgroundResource(R.drawable.selector_dialog_step_button);
         }
-        panel.addView(stop);
+        btnPanel.addView(stop);
         stop.setOnClickListener(v -> {
             com.github.catvod.crawler.diagnostics.DiagnosticCapture.stop("user-stopped");
             Notify.show("深度统计已停止");
         });
     
-        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
-        scroll.setFocusable(true);
-        scroll.setFocusableInTouchMode(true);
-        scroll.setFillViewport(true);
-        scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        rootLayout.addView(btnPanel);
     
-        android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                scrollHeight
-        );
-        scroll.setLayoutParams(scrollLp);
-        scroll.addView(panel);
-    
-        android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), scroll,
+        android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), rootLayout,
                 activity.getString(R.string.debug_log_open_browser), v -> open(activity, localUrl),
                 activity.getString(R.string.dialog_negative), null,
                 activity.getString(R.string.debug_log_copy_url), v -> copy(activity, lanUrl));
