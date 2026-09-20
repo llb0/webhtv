@@ -46,10 +46,12 @@ public final class DebugLogDialog {
         panel.addView(content);
     
         boolean isLand = ResUtil.isLand(activity);
-        int maxHeightVal = 0;
+        int scrollHeight;
         if (isLand) {
             int screenH = ResUtil.getScreenHeight(activity);
-            maxHeightVal = (int) (screenH * 0.72f);
+            scrollHeight = (int) (screenH * 0.72f);
+        } else {
+            scrollHeight = android.widget.LinearLayout.LayoutParams.WRAP_CONTENT;
         }
     
         for (com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category category : com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category.values()) {
@@ -110,6 +112,7 @@ public final class DebugLogDialog {
         android.widget.Button stop = new android.widget.Button(activity);
         stop.setText("停止深度统计");
         stop.setFocusable(true);
+        stop.setFocusable(true);
         if (isLand) {
             stop.setBackgroundResource(R.drawable.selector_dialog_step_button);
         }
@@ -125,25 +128,12 @@ public final class DebugLogDialog {
         scroll.setFillViewport(true);
         scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
     
-        // 中间容器：用FrameLayout.LayoutParams 自带maxHeight
-        android.widget.FrameLayout wrapper = new android.widget.FrameLayout(activity);
-        android.widget.FrameLayout.LayoutParams wrapperLp = new android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
-        );
-        if (isLand) {
-            wrapperLp.maxHeight = maxHeightVal;
-        }
-        wrapper.setLayoutParams(wrapperLp);
-        wrapper.addView(panel);
-    
-        scroll.addView(wrapper);
-    
         android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                scrollHeight
         );
         scroll.setLayoutParams(scrollLp);
+        scroll.addView(panel);
     
         android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), scroll,
                 activity.getString(R.string.debug_log_open_browser), v -> open(activity, localUrl),
