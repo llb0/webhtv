@@ -54,7 +54,6 @@ public final class DebugLogDialog {
             toggle.setFocusable(true);
             toggle.setChecked(com.github.catvod.crawler.diagnostics.DiagnosticCategories.accepts(com.github.catvod.crawler.DebugLogStore.categories(), category));
             toggle.setOnCheckedChangeListener((button, checked) -> com.github.catvod.crawler.DebugLogStore.setCategory(category, checked));
-            // 横屏TV：应用自定义selector + 左右内边距，避免圆角贴边
             if (isLand) {
                 toggle.setBackgroundResource(R.drawable.selector_dialog_step_button);
                 toggle.setPadding(ResUtil.dp2px(12), ResUtil.dp2px(8), ResUtil.dp2px(12), ResUtil.dp2px(8));
@@ -114,7 +113,21 @@ public final class DebugLogDialog {
             Notify.show("深度统计已停止");
         });
     
-        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        // 自定义ScrollView，仅横屏TV限制最大高度，手机不限制
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity) {
+            private int maxH = Integer.MAX_VALUE;
+            public void setMaxHeightLimit(int value) {
+                maxH = value;
+            }
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                int limitedSpec = heightMeasureSpec;
+                if (maxH != Integer.MAX_VALUE) {
+                    limitedSpec = MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST);
+                }
+                super.onMeasure(widthMeasureSpec, limitedSpec);
+            }
+        };
         scroll.setFocusable(true);
         scroll.setFocusableInTouchMode(true);
         scroll.setFillViewport(true);
@@ -125,10 +138,9 @@ public final class DebugLogDialog {
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
         );
         scroll.setLayoutParams(scrollLp);
-        // 仅横屏(电视盒子)限制最大高度；竖屏手机完全保持原有撑满行为
         if (isLand) {
             int screenH = ResUtil.getScreenHeight(activity);
-            scroll.setMaxHeight((int) (screenH * 0.72f));
+            scroll.setMaxHeightLimit((int) (screenH * 0.72f));
         }
     
         scroll.addView(panel);
