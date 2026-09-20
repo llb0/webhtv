@@ -124,20 +124,19 @@ public final class DebugLogDialog {
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
         );
+        scroll.setLayoutParams(scrollLp);
         // 仅横屏(电视盒子)限制最大高度；竖屏手机完全保持原有撑满行为
         if (isLand) {
             int screenH = ResUtil.getScreenHeight(activity);
-            scrollLp.maxHeight = (int) (screenH * 0.72f);
+            scroll.setMaxHeight((int) (screenH * 0.72f));
         }
-        scroll.setLayoutParams(scrollLp);
+    
         scroll.addView(panel);
     
         android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), scroll,
                 activity.getString(R.string.debug_log_open_browser), v -> open(activity, localUrl),
                 activity.getString(R.string.dialog_negative), null,
                 activity.getString(R.string.debug_log_copy_url), v -> copy(activity, lanUrl));
-        // TV弹窗窗口开启焦点触摸模式，保障焦点状态正常渲染
-        dialog.getWindow().setFocusableInTouchMode(true);
         dialog.show();
     }
 
