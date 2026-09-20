@@ -68,7 +68,6 @@ public class PlayerButtonSetting {
             new Item(REPEAT, R.string.play_repeat),
             new Item(TIMER, R.string.play_timer),
             new Item(PUSH, R.string.push),
-            new Item(SETTING, R.string.play_setting),
             new Item(CHANGE, R.string.play_change),
             new Item(PLAY_PARAMS, R.string.play_params),
             new Item(CODEC_CAPABILITY, R.string.codec_capability_short),
@@ -77,7 +76,8 @@ public class PlayerButtonSetting {
             new Item(DANMAKU, R.string.danmaku),
             new Item(TITLE, R.string.play_title),
             new Item(FULLSCREEN, R.string.play_fullscreen),
-            new Item(PDS, R.string.pan_diagnostic_entry)
+            new Item(PDS, R.string.pan_diagnostic_entry),
+            new Item(SETTING, R.string.play_setting)
     );
 
     public static List<Item> getItems() {
