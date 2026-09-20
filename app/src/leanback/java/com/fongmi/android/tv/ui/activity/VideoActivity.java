@@ -912,10 +912,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         addActionButton(PlayerButtonSetting.DANMAKU, mBinding.control.action.danmaku);
         addActionButton(PlayerButtonSetting.TITLE, mBinding.control.action.title);
         addActionButton(PlayerButtonSetting.REPEAT, mBinding.control.action.repeat);
-        addActionButton(PlayerButtonSetting.SETTING, mBinding.control.action.setting);
         addActionButton(PlayerButtonSetting.PUSH, mBinding.control.action.cast);
         addActionButton(PlayerButtonSetting.TIMER, mBinding.control.action.timer);
         addActionButton(PlayerButtonSetting.PDS, mBinding.control.action.panDiagnostic);
+        addActionButton(PlayerButtonSetting.SETTING, mBinding.control.action.setting);
         PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
         setupCustomActionButtons();
         updateDiscMenuAction();
@@ -6389,7 +6389,13 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     public void onKeyDown() {
-        showControl(getFocus2());
+        if (mHistory.getSubHead() > 0 && mBinding.control.action.subTail.getVisibility() == View.VISIBLE && mHistory.getSubTail() <= 0) {
+            showControl(mBinding.control.action.subTail);
+        } else if (mBinding.control.action.subHead.getVisibility() == View.VISIBLE) {
+            showControl(mBinding.control.action.subHead);
+        } else {
+            showControl(getFocus2());
+        }
     }
 
     @Override
