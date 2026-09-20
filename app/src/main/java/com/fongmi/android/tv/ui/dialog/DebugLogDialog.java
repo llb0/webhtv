@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
@@ -91,16 +92,28 @@ public final class DebugLogDialog {
 
         MaterialButton depth = outlinedButton(activity, "深度统计 60 秒", true, false);
         actionRow.addView(depth);
-        depth.setOnClickListener(v -> new androidx.appcompat.app.AlertDialog.Builder(activity).setTitle("限时深度统计")
-                .setMessage("对当前播放做少量低分辨率画面和 PCM 数值统计，不保存图像或声音。到期、切换播放或关闭诊断自动停止。")
-                .setNegativeButton("取消", null).setPositiveButton("开启 60 秒", (d, which) -> {
-                    try {
-                        com.fongmi.android.tv.player.DiagnosticControls.startDepth(60);
-                        Notify.show("限时统计已开启");
-                    } catch (RuntimeException error) {
-                        Notify.show(error.getMessage());
-                    }
-                }).show());
+        depth.setOnClickListener(v -> {
+            androidx.appcompat.app.AlertDialog depthDialog = new androidx.appcompat.app.AlertDialog.Builder(activity)
+                    .setTitle("限时深度统计")
+                    .setMessage("对当前播放做少量低分辨率画面和 PCM 数值统计，不保存图像或声音。到期、切换播放或关闭诊断自动停止。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("开启 60 秒", (d, which) -> {
+                        try {
+                            com.fongmi.android.tv.player.DiagnosticControls.startDepth(60);
+                            Notify.show("限时统计已开启");
+                        } catch (RuntimeException error) {
+                            Notify.show(error.getMessage());
+                        }
+                    })
+                    .create();
+            depthDialog.setOnShowListener(d -> {
+                if (Util.isLeanback()) {
+                    android.widget.Button negative = depthDialog.getButton(DialogInterface.BUTTON_NEGATIVE);
+                    if (negative != null) negative.requestFocus();
+                }
+            });
+            depthDialog.show();
+        });
 
         MaterialButton stop = outlinedButton(activity, "停止深度统计", true, false);
         actionRow.addView(stop);
@@ -130,6 +143,7 @@ public final class DebugLogDialog {
         button.setGravity(Gravity.CENTER);
         button.setTextSize(14);
         button.setIncludeFontPadding(false);
+        button.setPadding(ResUtil.dp2px(6), 0, ResUtil.dp2px(6), 0);
         button.setMinWidth(ResUtil.dp2px(88));
         button.setMinimumWidth(0);
         button.setMinHeight(ResUtil.dp2px(40));
