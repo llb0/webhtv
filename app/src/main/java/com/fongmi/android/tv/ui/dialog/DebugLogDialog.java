@@ -93,7 +93,7 @@ public final class DebugLogDialog {
         // ========== 底部按钮区域，独立在ScrollView之外，固定显示 ==========
         android.widget.LinearLayout btnPanel = new android.widget.LinearLayout(activity);
         btnPanel.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        btnPanel.setGravity(Gravity.CENTER);
+        btnPanel.setGravity(android.view.Gravity.CENTER);
         btnPanel.setPadding(0, ResUtil.dp2px(16),0,0);
     
         android.widget.Button mark = new android.widget.Button(activity);
