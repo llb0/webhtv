@@ -26,7 +26,7 @@ public final class DebugLogDialog {
     public static void show(Fragment fragment) {
         show(fragment.requireActivity());
     }
-
+    
     public static void show(FragmentActivity activity) {
         Server.get().start();
         String localUrl = Server.get().getAddress("/debug/logs");
@@ -39,8 +39,13 @@ public final class DebugLogDialog {
         content.setTextColor(Color.parseColor("#5F6368"));
         content.setTextSize(14);
         content.setLineSpacing(ResUtil.dp2px(2), 1f);
-        android.widget.LinearLayout panel = new android.widget.LinearLayout(activity); panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+    
+        android.widget.LinearLayout panel = new android.widget.LinearLayout(activity);
+        panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        panel.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
         panel.addView(content);
+    
+        boolean isLand = ResUtil.isLand(activity);
         for (com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category category : com.github.catvod.crawler.diagnostics.DiagnosticCategories.Category.values()) {
             androidx.appcompat.widget.SwitchCompat toggle = new androidx.appcompat.widget.SwitchCompat(activity);
             toggle.setText(category.title);
@@ -49,28 +54,90 @@ public final class DebugLogDialog {
             toggle.setFocusable(true);
             toggle.setChecked(com.github.catvod.crawler.diagnostics.DiagnosticCategories.accepts(com.github.catvod.crawler.DebugLogStore.categories(), category));
             toggle.setOnCheckedChangeListener((button, checked) -> com.github.catvod.crawler.DebugLogStore.setCategory(category, checked));
+            // 横屏TV：应用自定义selector + 左右内边距，避免圆角贴边
+            if (isLand) {
+                toggle.setBackgroundResource(R.drawable.selector_dialog_step_button);
+                toggle.setPadding(ResUtil.dp2px(12), ResUtil.dp2px(8), ResUtil.dp2px(12), ResUtil.dp2px(8));
+            }
             panel.addView(toggle);
         }
+    
         MaterialTextView captureNote = new MaterialTextView(activity);
         captureNote.setText("标准日志按容量轮转；深度统计只保留数值，不保存画面或声音。");
-        captureNote.setTextSize(14); panel.addView(captureNote);
-        android.widget.Button mark = new android.widget.Button(activity); mark.setText("标记此刻故障"); mark.setFocusable(true); panel.addView(mark);
+        captureNote.setTextSize(14);
+        panel.addView(captureNote);
+    
+        android.widget.Button mark = new android.widget.Button(activity);
+        mark.setText("标记此刻故障");
+        mark.setFocusable(true);
+        if (isLand) {
+            mark.setBackgroundResource(R.drawable.selector_dialog_step_button);
+        }
+        panel.addView(mark);
         mark.setOnClickListener(v -> new androidx.appcompat.app.AlertDialog.Builder(activity).setTitle("选择当前现象")
                 .setItems(com.fongmi.android.tv.player.DiagnosticControls.SYMPTOMS, (d, which) -> {
-                    try { com.fongmi.android.tv.player.DiagnosticControls.mark(com.fongmi.android.tv.player.DiagnosticControls.SYMPTOMS[which]); Notify.show("已标记，继续记录后 15 秒"); }
-                    catch (RuntimeException error) { Notify.show(error.getMessage()); }
+                    try {
+                        com.fongmi.android.tv.player.DiagnosticControls.mark(com.fongmi.android.tv.player.DiagnosticControls.SYMPTOMS[which]);
+                        Notify.show("已标记，继续记录后 15 秒");
+                    } catch (RuntimeException error) {
+                        Notify.show(error.getMessage());
+                    }
                 }).show());
-        android.widget.Button depth = new android.widget.Button(activity); depth.setText("深度统计 60 秒"); depth.setFocusable(true); panel.addView(depth);
+    
+        android.widget.Button depth = new android.widget.Button(activity);
+        depth.setText("深度统计 60 秒");
+        depth.setFocusable(true);
+        if (isLand) {
+            depth.setBackgroundResource(R.drawable.selector_dialog_step_button);
+        }
+        panel.addView(depth);
         depth.setOnClickListener(v -> new androidx.appcompat.app.AlertDialog.Builder(activity).setTitle("限时深度统计")
                 .setMessage("对当前播放做少量低分辨率画面和 PCM 数值统计，不保存图像或声音。到期、切换播放或关闭诊断自动停止。")
                 .setNegativeButton("取消", null).setPositiveButton("开启 60 秒", (d, which) -> {
-                    try { com.fongmi.android.tv.player.DiagnosticControls.startDepth(60); Notify.show("限时统计已开启"); }
-                    catch (RuntimeException error) { Notify.show(error.getMessage()); }
+                    try {
+                        com.fongmi.android.tv.player.DiagnosticControls.startDepth(60);
+                        Notify.show("限时统计已开启");
+                    } catch (RuntimeException error) {
+                        Notify.show(error.getMessage());
+                    }
                 }).show());
-        android.widget.Button stop = new android.widget.Button(activity); stop.setText("停止深度统计"); stop.setFocusable(true); panel.addView(stop);
-        stop.setOnClickListener(v -> { com.github.catvod.crawler.diagnostics.DiagnosticCapture.stop("user-stopped"); Notify.show("深度统计已停止"); });
-        android.widget.ScrollView scroll = new android.widget.ScrollView(activity); scroll.addView(panel);
-        android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), scroll, activity.getString(R.string.debug_log_open_browser), v -> open(activity, localUrl), activity.getString(R.string.dialog_negative), null, activity.getString(R.string.debug_log_copy_url), v -> copy(activity, lanUrl));
+    
+        android.widget.Button stop = new android.widget.Button(activity);
+        stop.setText("停止深度统计");
+        stop.setFocusable(true);
+        if (isLand) {
+            stop.setBackgroundResource(R.drawable.selector_dialog_step_button);
+        }
+        panel.addView(stop);
+        stop.setOnClickListener(v -> {
+            com.github.catvod.crawler.diagnostics.DiagnosticCapture.stop("user-stopped");
+            Notify.show("深度统计已停止");
+        });
+    
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        scroll.setFocusable(true);
+        scroll.setFocusableInTouchMode(true);
+        scroll.setFillViewport(true);
+        scroll.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+    
+        android.widget.LinearLayout.LayoutParams scrollLp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        // 仅横屏(电视盒子)限制最大高度；竖屏手机完全保持原有撑满行为
+        if (isLand) {
+            int screenH = ResUtil.getScreenHeight(activity);
+            scrollLp.maxHeight = (int) (screenH * 0.72f);
+        }
+        scroll.setLayoutParams(scrollLp);
+        scroll.addView(panel);
+    
+        android.app.Dialog dialog = LightDialog.create(activity, activity.getString(R.string.setting_debug_log), scroll,
+                activity.getString(R.string.debug_log_open_browser), v -> open(activity, localUrl),
+                activity.getString(R.string.dialog_negative), null,
+                activity.getString(R.string.debug_log_copy_url), v -> copy(activity, lanUrl));
+        // TV弹窗窗口开启焦点触摸模式，保障焦点状态正常渲染
+        dialog.getWindow().setFocusableInTouchMode(true);
         dialog.show();
     }
 
