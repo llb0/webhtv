@@ -131,6 +131,7 @@ public abstract class AppDatabase extends RoomDatabase {
                 .addMigrations(Migrations.MIGRATION_34_35)
                 .addMigrations(Migrations.MIGRATION_35_36)
                 .addMigrations(Migrations.MIGRATION_36_37)
+                .addMigrations(Migrations.MIGRATION_37_38)
                 .addMigrations(Migrations.MIGRATION_38_39)
                 .fallbackToDestructiveMigration(true)
                 .allowMainThreadQueries().build();
