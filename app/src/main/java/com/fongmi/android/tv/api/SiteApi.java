@@ -116,12 +116,7 @@ public class SiteApi {
         if (WebHomeInlineVodStore.KEY.equals(key)) return WebHomeInlineVodStore.detail(id);
         Site site = VodConfig.get().getSite(key);
         if (site.isEmpty() && PUSH.equals(key)) {
-            Vod vod = new Vod();
-            vod.setId(id);
-            vod.setName(id);
-            vod.setPlayUrl(id);
-            vod.setPlayFrom(ResUtil.getString(R.string.push));
-            vod.setPic(ResUtil.getString(R.string.push_image));
+            Vod vod = buildPushVod(id);
             Source.get().parse(vod.setFlags());
             return Result.vod(vod);
         } else if (isSpider(site)) {
@@ -173,11 +168,8 @@ public class SiteApi {
             result.setUrl(Source.get().fetch(result, playerType));
             result.setHeader(site.getHeader());
             return result;
-        } else if (site.isEmpty() && "push_agent".equals(key)) {
-            Result result = new Result();
-            result.setUrl(id);
-            result.setParse(0);
-            result.setFlag(flag);
+        } else if (site.isEmpty() && PUSH.equals(key)) {
+            Result result = buildPushPlayer(flag, id);
             result.setUrl(Source.get().fetch(result, playerType));
             SpiderDebug.log("player", result.toString());
             return result;
@@ -243,6 +235,49 @@ public class SiteApi {
         }
     }
 
+    private static Vod buildPushVod(String id) {
+        Vod vod = new Vod();
+        vod.setId(id);
+        vod.setPic(ResUtil.getString(R.string.push_image));
+        vod.setName(id.startsWith("file://") ? new java.io.File(id).getName() : "");
+        String url = id.contains("://") && id.contains("#") ? id.replace("#", "***") : id;
+        if (isThunderUrl(url)) {
+            vod.setPlayUrl(url);
+            vod.setPlayFrom("迅雷");
+        } else if (url.contains("youtube.com")) {
+            vod.setPlayUrl(url);
+            vod.setPlayFrom("YouTube");
+        } else if (url.contains("$")) {
+            vod.setPlayFrom("直連");
+            vod.setPlayUrl(TextUtils.join("#", url.split("\n")));
+        } else {
+            vod.setPlayUrl(TextUtils.join("$$$", Arrays.asList(url, url, url)));
+            if (Sniffer.isVideoFormat(url)) vod.setPlayFrom(TextUtils.join("$$$", Arrays.asList("直連", "嗅探", "解析")));
+            else vod.setPlayFrom(TextUtils.join("$$$", Arrays.asList("嗅探", "直連", "解析")));
+        }
+        return vod;
+    }
+ 
+    private static Result buildPushPlayer(String flag, String id) {
+        Result result = new Result();
+        if (id.contains("://") && id.contains("***")) id = id.replace("***", "#");
+        result.setFlag(flag);
+        result.setUrl(id);
+        switch (flag) {
+            case "直連" -> result.setParse(0);
+            case "解析" -> result.setParse(1);
+            case "嗅探" -> result.setParse(1);
+            default -> result.setParse(0);
+        }
+        return result;
+    }
+ 
+    private static boolean isThunderUrl(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        return url.startsWith("magnet") || url.startsWith("thunder") || url.startsWith("ed2k")
+                || (!url.startsWith("magnet") && url.split(";")[0].endsWith(".torrent"));
+    }
+ 
     private static void setTypes(@NonNull Site site, @NonNull Result result) {
         result.getTypes().stream().filter(type -> result.getFilters().containsKey(type.getTypeId())).forEach(type -> type.setFilters(result.getFilters().get(type.getTypeId())));
         if (site.getCategories().isEmpty()) return;
