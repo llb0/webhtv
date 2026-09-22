@@ -13,6 +13,7 @@ import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.player.Source;
+import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -24,6 +25,8 @@ import com.github.catvod.utils.Prefers;
 import com.github.catvod.utils.Util;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -240,7 +243,7 @@ public class SiteApi {
         vod.setId(id);
         vod.setPic(ResUtil.getString(R.string.push_image));
         vod.setName(id.startsWith("file://") ? new java.io.File(id).getName() : "");
-        String url = id.contains("://") && id.contains("#") ? id.replace("#", "***") : id;
+        String url = id.startsWith("file://") ? toLanHttpUrl(id) : (id.contains("://") && id.contains("#") ? id.replace("#", "***") : id);
         if (isThunderUrl(url)) {
             vod.setPlayUrl(url);
             vod.setPlayFrom("迅雷");
@@ -256,6 +259,32 @@ public class SiteApi {
             else vod.setPlayFrom(TextUtils.join("$$$", Arrays.asList("嗅探", "直連", "解析")));
         }
         return vod;
+    }
+ 
+    private static String toLanHttpUrl(String url) {
+        if (TextUtils.isEmpty(url) || !url.startsWith("file://")) return url;
+        String filePath = url.substring(7);
+        String relative = stripStorageRoot(filePath);
+        StringBuilder encodedPath = new StringBuilder();
+        for (String segment : relative.split("/")) {
+            if (segment.isEmpty()) {
+                encodedPath.append("/");
+            } else {
+                encodedPath.append("/").append(URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20"));
+            }
+        }
+        String lan = Server.get().getAddress(false);
+        if (lan.contains("http://:")) lan = Server.get().getAddress(true);
+        return lan + "/file" + encodedPath;
+    }
+
+    private static String stripStorageRoot(String path) {
+        String extRoot = com.github.catvod.utils.Path.rootPath();
+        if (path.startsWith(extRoot + "/")) return path.substring(extRoot.length() + 1);
+        if (path.startsWith("/sdcard/")) return path.substring(8);
+        if (path.startsWith(extRoot)) return path.substring(extRoot.length());
+        if (path.startsWith("/sdcard")) return path.substring(7);
+        return path;
     }
  
     private static Result buildPushPlayer(String flag, String id) {
