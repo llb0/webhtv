@@ -902,6 +902,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         addActionButton(PlayerButtonSetting.CODEC_CAPABILITY, mBinding.control.action.codecCapability);
         addActionButton(PlayerButtonSetting.SPEED, mBinding.control.action.speed);
         addActionButton(PlayerButtonSetting.SCALE, mBinding.control.action.scale);
+        addActionButton(PlayerButtonSetting.ROTATE, mBinding.control.action.rotate);
         addActionButton(PlayerButtonSetting.LUT, mBinding.control.action.lut);
         addActionButton(PlayerButtonSetting.TEXT, mBinding.control.action.text);
         addActionButton(PlayerButtonSetting.AUDIO, mBinding.control.action.audio);
@@ -5627,12 +5628,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     @Override
     protected void onSizeChanged(VideoSize size) {
         applyResizeMode(getScale());
+        applyVideoRotation();
         mBinding.widget.size.setText(player().getSizeText());
     }
 
     @Override
     protected void onSurfaceAttached() {
         applyResizeMode(getScale());
+        applyVideoRotation();
     }
 
     @Override
