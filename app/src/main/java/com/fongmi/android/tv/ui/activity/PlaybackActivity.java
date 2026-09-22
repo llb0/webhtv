@@ -5,6 +5,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
@@ -317,8 +318,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     protected void setVideoRotation(int rotation) {
-        videoRotation = rotation % 360;
-        applyVideoRotation();
+        videoRotation = ((rotation % 360) + 360) % 360;
+        if (mService != null && player().isExo() && render != getRender()) {
+            setRender();
+        } else {
+            applyVideoRotation();
+        }
     }
  
     protected int getVideoRotation() {
@@ -329,22 +334,31 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         PlayerView view = getExoView();
         View surface = view.getVideoSurfaceView();
         if (surface == null) return;
-        surface.setRotation(videoRotation);
         if (videoRotation == 0 || videoRotation == 180) {
+            if (surface instanceof TextureView tv) tv.setTransform(null);
+            surface.setRotation(videoRotation);
             surface.setScaleX(1f);
             surface.setScaleY(1f);
-        } else {
-            view.post(() -> {
-                int sw = surface.getWidth();
-                int sh = surface.getHeight();
-                int cw = view.getWidth();
-                int ch = view.getHeight();
-                if (sw <= 0 || sh <= 0 || cw <= 0 || ch <= 0) return;
-                float scale = Math.min((float) ch / sw, (float) cw / sh);
-                surface.setScaleX(scale);
-                surface.setScaleY(scale);
-            });
+            return;
         }
+        if (!(surface instanceof TextureView tv)) return;
+        view.post(() -> {
+            int vw = view.getWidth();
+            int vh = view.getHeight();
+            int sw = tv.getWidth();
+            int sh = tv.getHeight();
+            if (vw <= 0 || vh <= 0 || sw <= 0 || sh <= 0) {
+                view.post(this::applyVideoRotation);
+                return;
+            }
+            float scale = Math.min((float) vw / sh, (float) vh / sw);
+            Matrix matrix = new Matrix();
+            matrix.setTranslate(-sw / 2f, -sh / 2f);
+            matrix.postRotate(videoRotation);
+            matrix.postScale(scale, scale);
+            matrix.postTranslate(vw / 2f, vh / 2f);
+            tv.setTransform(matrix);
+        });
     }
  
     protected void onReclaim() {
@@ -618,6 +632,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private int getRender() {
         if (mService != null && player().isNativePlayer()) return 0;
         if (mService != null && player().requiresTextureRenderForLut()) return PlayerSetting.RENDER_TEXTURE;
+        if (videoRotation != 0 && mService != null && player().isExo()) return PlayerSetting.RENDER_TEXTURE;
         return PlayerSetting.getRender();
     }
 
