@@ -178,7 +178,10 @@ public class PlayerButtonSetting {
                 PLAY_PARAMS, CODEC_CAPABILITY, LUT, TEXT, DANMAKU, TITLE, FULLSCREEN, PDS
         ));
         if (Util.isLeanback()) hidden.add(SETTING);
-        else hidden.add(PUSH);
+        else {
+            hidden.add(PUSH);
+            hidden.add(ROTATE);
+        }
         return hidden;
     }
 
