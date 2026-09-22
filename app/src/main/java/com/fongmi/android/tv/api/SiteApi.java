@@ -251,12 +251,12 @@ public class SiteApi {
             vod.setPlayUrl(url);
             vod.setPlayFrom("YouTube");
         } else if (url.contains("$")) {
-            vod.setPlayFrom("直連");
+            vod.setPlayFrom("直链");
             vod.setPlayUrl(TextUtils.join("#", url.split("\n")));
         } else {
             vod.setPlayUrl(TextUtils.join("$$$", Arrays.asList(url, url, url)));
-            if (Sniffer.isVideoFormat(url)) vod.setPlayFrom(TextUtils.join("$$$", Arrays.asList("直連", "嗅探", "解析")));
-            else vod.setPlayFrom(TextUtils.join("$$$", Arrays.asList("嗅探", "直連", "解析")));
+            if (Sniffer.isVideoFormat(url)) vod.setPlayFrom(TextUtils.join("$$$", Arrays.asList("直链", "嗅探", "解析")));
+            else vod.setPlayFrom(TextUtils.join("$$$", Arrays.asList("嗅探", "直链", "解析")));
         }
         return vod;
     }
@@ -293,7 +293,7 @@ public class SiteApi {
         result.setFlag(flag);
         result.setUrl(id);
         switch (flag) {
-            case "直連" -> result.setParse(0);
+            case "直链" -> result.setParse(0);
             case "解析" -> result.setParse(1);
             case "嗅探" -> result.setParse(1);
             default -> result.setParse(0);
