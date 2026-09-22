@@ -70,6 +70,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private boolean lock;
     private int render = -1;
     private int requestedResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT;
+    private int videoRotation = 0;
     private ExoOutputModeManager exoOutputModeManager;
     private ExoAssSession attachedAssSession;
     private ExoSubtitleSession attachedSubtitleSession;
@@ -315,6 +316,37 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         return resizeMode;
     }
 
+    protected void setVideoRotation(int rotation) {
+        videoRotation = rotation % 360;
+        applyVideoRotation();
+    }
+ 
+    protected int getVideoRotation() {
+        return videoRotation;
+    }
+ 
+    protected void applyVideoRotation() {
+        PlayerView view = getExoView();
+        View surface = view.getVideoSurfaceView();
+        if (surface == null) return;
+        surface.setRotation(videoRotation);
+        if (videoRotation == 0 || videoRotation == 180) {
+            surface.setScaleX(1f);
+            surface.setScaleY(1f);
+        } else {
+            view.post(() -> {
+                int sw = surface.getWidth();
+                int sh = surface.getHeight();
+                int cw = view.getWidth();
+                int ch = view.getHeight();
+                if (sw <= 0 || sh <= 0 || cw <= 0 || ch <= 0) return;
+                float scale = Math.min((float) ch / sw, (float) cw / sh);
+                surface.setScaleX(scale);
+                surface.setScaleY(scale);
+            });
+        }
+    }
+ 
     protected void onReclaim() {
     }
 
