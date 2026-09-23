@@ -72,6 +72,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private int render = -1;
     private int requestedResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT;
     private int videoRotation = 0;
+    private View.OnLayoutChangeListener rotationLayoutListener;
     private ExoOutputModeManager exoOutputModeManager;
     private ExoAssSession attachedAssSession;
     private ExoSubtitleSession attachedSubtitleSession;
@@ -300,7 +301,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     protected void applyResizeMode(int resizeMode) {
         requestedResizeMode = resizeMode;
-        int effectiveResizeMode = effectiveResizeMode(resizeMode);
+        int effectiveResizeMode;
+        if (videoRotation != 0 && mService != null && player().isExo()) {
+            effectiveResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL;
+        } else {
+            effectiveResizeMode = effectiveResizeMode(resizeMode);
+        }
         logSurfaceState("applyResizeMode before mode=" + resizeMode + " effective=" + effectiveResizeMode);
         PlayerView view = getExoView();
         view.setResizeMode(effectiveResizeMode);
@@ -332,33 +338,75 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
  
     protected void applyVideoRotation() {
         PlayerView view = getExoView();
+        if (view == null) return;
         View surface = view.getVideoSurfaceView();
         if (surface == null) return;
-        if (videoRotation == 0 || videoRotation == 180) {
-            if (surface instanceof TextureView tv) tv.setTransform(null);
-            surface.setRotation(videoRotation);
-            surface.setScaleX(1f);
-            surface.setScaleY(1f);
+
+        View contentFrame = view.findViewById(androidx.media3.ui.R.id.exo_content_frame);
+        AspectRatioFrameLayout arFrame = contentFrame instanceof AspectRatioFrameLayout ? (AspectRatioFrameLayout) contentFrame : null;
+ 
+        if (videoRotation == 0) {
+            surface.setRotation(0);
+            if (surface instanceof TextureView textureView) {
+                textureView.setTransform(new Matrix());
+            }
+            if (arFrame != null) {
+                arFrame.setResizeMode(effectiveResizeMode(requestedResizeMode));
+                if (mService != null && player() != null) {
+                    int vw = player().getVideoWidth();
+                    int vh = player().getVideoHeight();
+                    if (vw > 0 && vh > 0) arFrame.setAspectRatio((float) vw / vh);
+                }
+            }
+            removeRotationLayoutListener(surface);
             return;
         }
-        if (!(surface instanceof TextureView tv)) return;
-        view.post(() -> {
-            int vw = view.getWidth();
-            int vh = view.getHeight();
-            int sw = tv.getWidth();
-            int sh = tv.getHeight();
-            if (vw <= 0 || vh <= 0 || sw <= 0 || sh <= 0) {
-                view.post(this::applyVideoRotation);
-                return;
-            }
-            float scale = Math.min((float) vw / sh, (float) vh / sw);
-            Matrix matrix = new Matrix();
-            matrix.setTranslate(-sw / 2f, -sh / 2f);
-            matrix.postRotate(videoRotation);
-            matrix.postScale(scale, scale);
-            matrix.postTranslate(vw / 2f, vh / 2f);
-            tv.setTransform(matrix);
-        });
+ 
+        if (!(surface instanceof TextureView textureView)) return;
+        if (mService == null || player() == null) return;
+        int vw = player().getVideoWidth();
+        int vh = player().getVideoHeight();
+        if (vw <= 0 || vh <= 0) return;
+ 
+        if (arFrame != null) arFrame.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FILL);
+        surface.setRotation(0);
+ 
+        int viewW = textureView.getWidth();
+        int viewH = textureView.getHeight();
+        if (viewW <= 0 || viewH <= 0) {
+            ensureRotationLayoutListener(textureView);
+            return;
+        }
+ 
+        float rotatedW = (videoRotation == 90 || videoRotation == 270) ? vh : vw;
+        float rotatedH = (videoRotation == 90 || videoRotation == 270) ? vw : vh;
+        float fitScale = Math.min((float) viewW / rotatedW, (float) viewH / rotatedH);
+        float scaleX = (vw / (float) viewW) * fitScale;
+        float scaleY = (vh / (float) viewH) * fitScale;
+ 
+        Matrix matrix = new Matrix();
+        matrix.setScale(scaleX, scaleY);
+        matrix.postRotate(videoRotation, viewW * scaleX / 2f, viewH * scaleY / 2f);
+        matrix.postTranslate((viewW - viewW * scaleX) / 2f, (viewH - viewH * scaleY) / 2f);
+        textureView.setTransform(matrix);
+ 
+        ensureRotationLayoutListener(textureView);
+    }
+ 
+    private void ensureRotationLayoutListener(View surface) {
+        if (rotationLayoutListener == null) {
+            rotationLayoutListener = (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                if (videoRotation != 0) applyVideoRotation();
+            };
+        }
+        surface.removeOnLayoutChangeListener(rotationLayoutListener);
+        surface.addOnLayoutChangeListener(rotationLayoutListener);
+    }
+ 
+    private void removeRotationLayoutListener(View surface) {
+        if (rotationLayoutListener != null) {
+            surface.removeOnLayoutChangeListener(rotationLayoutListener);
+        }
     }
  
     protected void onReclaim() {
