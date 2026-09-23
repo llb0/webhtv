@@ -67,8 +67,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     @Override
     protected void initView(Bundle savedInstanceState) {
         getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        int wallColor = Setting.getWallColor();
-        mBinding.getRoot().setBackgroundColor(android.graphics.Color.argb(235, android.graphics.Color.red(wallColor), android.graphics.Color.green(wallColor), android.graphics.Color.blue(wallColor)));
+        mBinding.getRoot().setAlpha(235f / 255f);
         setVisible();
         format = new DecimalFormat("0.#");
         PlaybackPerformanceSetting.ensureInitialized();
