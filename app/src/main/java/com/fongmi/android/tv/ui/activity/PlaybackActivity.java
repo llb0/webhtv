@@ -78,6 +78,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private ExoSubtitleSession attachedSubtitleSession;
     private final com.fongmi.android.tv.player.SurfaceDiagnosticCollector surfaceDiagnostics =
             new com.fongmi.android.tv.player.SurfaceDiagnosticCollector();
+    private boolean mIsApplyingRotation = false;
+    private long mLastRotationApplyTime = 0;
+    private static final long ROTATION_DEBOUNCE_MS = 80;
 
     protected MediaController controller() {
         return mController;
@@ -337,6 +340,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
  
     protected void applyVideoRotation() {
+        long now = System.currentTimeMillis();
+        if (now - mLastRotationApplyTime < ROTATION_DEBOUNCE_MS) return;
+        if (mIsApplyingRotation) return;
+        mIsApplyingRotation = true;
+        mLastRotationApplyTime = now;
         PlayerView view = getExoView();
         if (view == null) return;
         View surface = view.getVideoSurfaceView();
@@ -396,7 +404,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private void ensureRotationLayoutListener(View surface) {
         if (rotationLayoutListener == null) {
             rotationLayoutListener = (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-                if (videoRotation != 0) applyVideoRotation();
+                if (videoRotation != 0) v.post(this::applyVideoRotation);
             };
         }
         surface.removeOnLayoutChangeListener(rotationLayoutListener);
