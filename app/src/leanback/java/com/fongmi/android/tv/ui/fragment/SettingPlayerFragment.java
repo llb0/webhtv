@@ -62,7 +62,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        mBinding.getRoot().requestFocus();
+        mBinding.playerButtons.requestFocus();
     }
 
     @Override
