@@ -6,7 +6,8 @@ import android.os.Bundle;
 
 import androidx.viewbinding.ViewBinding;
 
-import com.fongmi.android.tv.databinding.ActivitySettingPlayerBinding;
+import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.databinding.ActivitySettingPlayerContainerBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.fragment.SettingPlayerFragment;
 
@@ -18,14 +19,14 @@ public class SettingPlayerActivity extends BaseActivity {
 
     @Override
     protected ViewBinding getBinding() {
-        return ActivitySettingPlayerBinding.inflate(getLayoutInflater());
+        return ActivitySettingPlayerContainerBinding.inflate(getLayoutInflater());
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getSupportFragmentManager().beginTransaction()
-                .replace(android.R.id.content, SettingPlayerFragment.newInstance())
+                .replace(R.id.setting_player_container, SettingPlayerFragment.newInstance())
                 .commit();
     }
 }
