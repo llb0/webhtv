@@ -54,13 +54,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     private String[] osd;
 
     public static void start(Activity activity) {
-        start(activity, false);
-    }
-    
-    public static void start(Activity activity, boolean trans) {
-        Intent intent = new Intent(activity, SettingPlayerActivity.class);
-        intent.putExtra("trans", trans);
-        activity.startActivity(intent);
+        activity.startActivity(new Intent(activity, SettingPlayerActivity.class));
     }
 
     private String getSwitch(boolean value) {
@@ -73,32 +67,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        boolean trans = getIntent().getBooleanExtra("trans", false);
-        SpiderDebug.log("onCreate_trans: "+(trans ? "true" : "false"));
-        if (trans) {
-            setTheme(R.style.TransActivityTheme);
-            SpiderDebug.log("setTheme已执行");
-        }
-        super.onCreate(savedInstanceState);
-    }
-
-    @Override
     protected void initView(Bundle savedInstanceState) {
-        boolean trans = getIntent().getBooleanExtra("trans", false);
-        SpiderDebug.log("initView_trans: "+(trans ? "true" : "false"));
-        if (trans) {
-            getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-            View root = mBinding.getRoot();
-            root.setBackground(null);
-            View content = root.findViewById(R.id.content);
-            android.graphics.drawable.Drawable bg = content.getBackground();
-            if (bg != null) {
-                bg = bg.mutate();
-                bg.setAlpha(191);
-                content.setBackground(bg);
-            }
-        }
         setVisible();
         format = new DecimalFormat("0.#");
         PlaybackPerformanceSetting.ensureInitialized();
