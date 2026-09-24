@@ -659,10 +659,13 @@
         android:id="@+id/row2"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignStart="@+id/name"
+        android:layout_toEndOf="@+id/video"
         android:layout_alignBottom="@+id/video"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:clipChildren="false"
         android:orientation="horizontal">
-
+    
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/content"
             android:layout_width="wrap_content"
@@ -673,6 +676,8 @@
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
+            android:minWidth="80dp"
+            android:maxWidth="180dp"
             android:nextFocusUp="@id/actor"
             android:nextFocusDown="@id/flag"
             android:singleLine="true"
@@ -691,6 +696,8 @@
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
+            android:minWidth="80dp"
+            android:maxWidth="180dp"
             android:nextFocusUp="@id/actor"
             android:nextFocusDown="@id/flag"
             android:singleLine="true"
@@ -709,6 +716,8 @@
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
+            android:minWidth="80dp"
+            android:maxWidth="180dp"
             android:nextFocusUp="@id/actor"
             android:nextFocusDown="@id/flag"
             android:singleLine="true"
@@ -727,6 +736,8 @@
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
+            android:minWidth="80dp"
+            android:maxWidth="180dp"
             android:nextFocusUp="@id/actor"
             android:nextFocusDown="@id/flag"
             android:singleLine="true"
@@ -744,6 +755,8 @@
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
+            android:minWidth="80dp"
+            android:maxWidth="180dp"
             android:nextFocusRight="@id/change1"
             android:nextFocusUp="@id/actor"
             android:nextFocusDown="@id/flag"
@@ -752,7 +765,6 @@
             android:textColor="@color/white"
             android:textSize="16sp"
             app:drawableStartCompat="@drawable/ic_detail_change" />
-
     </androidx.appcompat.widget.LinearLayoutCompat>
 
     <androidx.appcompat.widget.LinearLayoutCompat
