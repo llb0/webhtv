@@ -75,7 +75,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         boolean trans = getIntent().getBooleanExtra("trans", false);
-        SpiderDebug.log("onCreate_trans: "+(trans ? "true" : "false");
+        SpiderDebug.log("onCreate_trans: "+(trans ? "true" : "false"));
         if (trans) {
             setTheme(R.style.TransActivityTheme);
             SpiderDebug.log("setTheme已执行");
@@ -86,7 +86,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     @Override
     protected void initView(Bundle savedInstanceState) {
         boolean trans = getIntent().getBooleanExtra("trans", false);
-        SpiderDebug.log("initView_trans: "+(trans ? "true" : "false");
+        SpiderDebug.log("initView_trans: "+(trans ? "true" : "false"));
         if (trans) {
             getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
             View root = mBinding.getRoot();
