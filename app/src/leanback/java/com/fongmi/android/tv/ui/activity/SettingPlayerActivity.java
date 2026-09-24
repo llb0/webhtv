@@ -36,6 +36,8 @@ import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 
+import com.github.catvod.crawler.SpiderDebug;
+
 import java.text.DecimalFormat;
 
 public class SettingPlayerActivity extends BaseActivity implements UaListener, BufferListener, SpeedListener {
@@ -72,22 +74,29 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        if (getIntent().getBooleanExtra("trans", false)) {
+        boolean trans = getIntent().getBooleanExtra("trans", false);
+        SpiderDebug.log("onCreate_trans: "+(trans ? "true" : "false");
+        if (trans) {
             setTheme(R.style.TransActivityTheme);
+            SpiderDebug.log("setTheme已执行");
         }
         super.onCreate(savedInstanceState);
     }
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        if (getIntent().getBooleanExtra("trans", false)) {
+        boolean trans = getIntent().getBooleanExtra("trans", false);
+        SpiderDebug.log("initView_trans: "+(trans ? "true" : "false");
+        if (trans) {
             getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
             View root = mBinding.getRoot();
-            android.graphics.drawable.Drawable bg = root.getBackground();
+            root.setBackground(null);
+            View content = root.findViewById(R.id.content);
+            android.graphics.drawable.Drawable bg = content.getBackground();
             if (bg != null) {
                 bg = bg.mutate();
                 bg.setAlpha(191);
-                root.setBackground(bg);
+                content.setBackground(bg);
             }
         }
         setVisible();
