@@ -71,6 +71,14 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     }
 
     @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        if (getIntent().getBooleanExtra("trans", false)) {
+            setTheme(R.style.TransActivityTheme);
+        }
+        super.onCreate(savedInstanceState);
+    }
+
+    @Override
     protected void initView(Bundle savedInstanceState) {
         if (getIntent().getBooleanExtra("trans", false)) {
             getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
