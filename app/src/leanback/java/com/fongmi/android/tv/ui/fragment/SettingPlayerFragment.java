@@ -5,7 +5,9 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -64,12 +66,12 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     }
 
     @Override
-    protected ViewBinding getBinding() {
-        return mBinding = ActivitySettingPlayerBinding.inflate(getLayoutInflater());
+    protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
+        return mBinding = ActivitySettingPlayerBinding.inflate(inflater, container, false);
     }
 
     @Override
-    protected void initView(Bundle savedInstanceState) {
+    protected void initView() {
         setVisible();
         format = new DecimalFormat("0.#");
         PlaybackPerformanceSetting.ensureInitialized();
@@ -255,7 +257,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     }
 
     private void onBuffer(View view) {
-        BufferDialog.show(requireContext());
+        BufferDialog.show(this);
     }
 
     @Override
