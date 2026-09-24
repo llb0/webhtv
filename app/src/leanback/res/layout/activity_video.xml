@@ -655,7 +655,7 @@
         android:textSize="16sp"
         tools:text="演員：FongMi" />
 
-    <androidx.appcompat.widget.LinearLayoutCompat
+    <com.google.android.flexbox.FlexboxLayout
         android:id="@+id/row2"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -663,16 +663,17 @@
         android:layout_alignBottom="@+id/video"
         android:layout_marginStart="424dp"
         android:layout_marginEnd="24dp"
-        android:orientation="horizontal">
+        app:flexDirection="row"
+        app:flexWrap="nowrap">
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/content"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="16dp"
             android:background="@drawable/selector_video_item"
             android:drawablePadding="6dp"
+            app:flexShrink="1"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
@@ -686,12 +687,12 @@
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/shortDisplay"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="16dp"
             android:background="@drawable/selector_video_item"
             android:drawablePadding="6dp"
+            app:flexShrink="1"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
@@ -705,12 +706,12 @@
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/search"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="16dp"
             android:background="@drawable/selector_video_item"
             android:drawablePadding="6dp"
+            app:flexShrink="1"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
@@ -724,12 +725,12 @@
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/keep"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="16dp"
             android:background="@drawable/selector_video_item"
             android:drawablePadding="6dp"
+            app:flexShrink="1"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
@@ -743,11 +744,11 @@
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/change1"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@drawable/selector_video_item"
             android:drawablePadding="6dp"
+            app:flexShrink="1"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
@@ -760,7 +761,7 @@
             android:textSize="16sp"
             app:drawableStartCompat="@drawable/ic_detail_change" />
 
-    </androidx.appcompat.widget.LinearLayoutCompat>
+    </com.google.android.flexbox.FlexboxLayout>
 
     <androidx.appcompat.widget.LinearLayoutCompat
         android:id="@+id/scroll"
