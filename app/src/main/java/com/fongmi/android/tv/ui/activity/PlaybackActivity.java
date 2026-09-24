@@ -332,7 +332,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         }
         if (mService != null && player().isExo() && render != getRender()) {
             setRender();
-            if (Build.VERSION.SDK_INT <= 27) getExoView().post(this::onReset);
+            if (android.os.Build.VERSION.SDK_INT <= 27) getExoView().post(this::onReset);
         } else {
             applyVideoRotation();
         }
