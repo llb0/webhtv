@@ -71,7 +71,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
         android.graphics.drawable.Drawable bg = root.getBackground();
         if (bg != null) {
             bg = bg.mutate();
-            bg.setAlpha(235);
+            bg.setAlpha(191);
             root.setBackground(bg);
         }
         setVisible();
