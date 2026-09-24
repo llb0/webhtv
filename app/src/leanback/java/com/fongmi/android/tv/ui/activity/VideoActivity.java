@@ -6506,12 +6506,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void showSettingPlayer() {
+        hideControl();
         int wallColor = Setting.getWallColor();
         int bgColor = android.graphics.Color.argb(220, android.graphics.Color.red(wallColor), android.graphics.Color.green(wallColor), android.graphics.Color.blue(wallColor));
         mBinding.settingContainer.setBackgroundColor(bgColor);
         mBinding.settingContainer.setVisibility(View.VISIBLE);
         if (mWasPlayingBeforeSetting && player().isPlaying()) onPaused();
-        App.removeCallbacks(mR1);
         getSupportFragmentManager().beginTransaction()
                 .replace(R.id.settingContainer, SettingPlayerFragment.newInstance())
                 .commit();
@@ -6527,7 +6527,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             onPlay();
         }
         mWasPlayingBeforeSetting = false;
-        if (isVisible(mBinding.control.getRoot())) setR1Callback();
     }
 
     private void finishVideoPlayback() {
