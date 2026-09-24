@@ -111,13 +111,13 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.kernel.setOnClickListener(this::setKernel);
         mBinding.scale.setOnClickListener(this::setScale);
         mBinding.lut.setOnClickListener(this::onLut);
-        mBinding.mpvConfig.setOnClickListener(view -> MpvConfigDialog.show(requireContext(), () -> mBinding.mpvConfigText.setText(MpvConfigStore.summary())));
+        mBinding.mpvConfig.setOnClickListener(view -> MpvConfigDialog.show(this, () -> mBinding.mpvConfigText.setText(MpvConfigStore.summary())));
         mBinding.blurayMenu.setOnClickListener(view -> {
             PlayerSetting.putBlurayMenu(!PlayerSetting.isBlurayMenu());
             mBinding.blurayMenuText.setText(getSwitch(PlayerSetting.isBlurayMenu()));
         });
         mBinding.osd.setOnClickListener(this::onOsd);
-        mBinding.playerButtons.setOnClickListener(view -> PlayerButtonConfigDialog.show(requireContext(), this::setPlayerButtonsText));
+        mBinding.playerButtons.setOnClickListener(view -> PlayerButtonConfigDialog.show(this, this::setPlayerButtonsText));
         mBinding.speed.setOnClickListener(this::onSpeed);
         mBinding.buffer.setOnClickListener(this::onBuffer);
         mBinding.bufferBytes.setOnClickListener(this::setBufferBytes);
@@ -152,7 +152,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     }
 
     private void onUa(View view) {
-        UaDialog.show(requireContext());
+        UaDialog.show(this);
     }
 
     @Override
@@ -169,7 +169,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     }
 
     private void setKernel(View view) {
-        PlayerKernelDialog.show(requireContext(), PlayerSetting.getPlayer(), index -> {
+        PlayerKernelDialog.show(this, PlayerSetting.getPlayer(), index -> {
             mBinding.kernelText.setText(kernel[index]);
             PlayerSetting.putPlayer(index);
             setMpvRows();
@@ -184,7 +184,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     }
 
     private void onLut(View view) {
-        LutDialog.show(requireContext(), null, () -> mBinding.lutText.setText(LutSetting.getSummary()));
+        LutDialog.show(this, () -> mBinding.lutText.setText(LutSetting.getSummary()));
     }
 
     private void setMpvRows() {
@@ -196,7 +196,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     }
 
     private void onOsd(View view) {
-        PlayerOsdDialog.show(requireContext(), osd, getOsdVodChecked(), getOsdLiveChecked(), (vodChecked, liveChecked) -> {
+        PlayerOsdDialog.show(this, osd, getOsdVodChecked(), getOsdLiveChecked(), (vodChecked, liveChecked) -> {
             setOsdVodChecked(vodChecked);
             setOsdLiveChecked(liveChecked);
             mBinding.osdText.setText(getOsdText(osd));
@@ -247,7 +247,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     }
 
     private void onSpeed(View view) {
-        SpeedDialog.show(requireContext());
+        SpeedDialog.show(this);
     }
 
     @Override
@@ -395,7 +395,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     }
 
     private void onPerformance(View view) {
-        PlaybackPerformanceDialog.show(requireContext(), this::refreshPerformanceSettings);
+        PlaybackPerformanceDialog.show(this, this::refreshPerformanceSettings);
     }
 
     private void refreshPerformanceSettings() {
