@@ -94,12 +94,4 @@
         <item name="cornerSize">50%</item>
     </style>
 
-    <style name="TransDialogTheme" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="android:windowIsTranslucent">true</item>
-        <item name="android:windowBackground">@android:color/transparent</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:windowContentOverlay">@null</item>
-        <item name="android:windowAnimationStyle">@style/NoAnim</item>
-    </style>
-
 </resources>
