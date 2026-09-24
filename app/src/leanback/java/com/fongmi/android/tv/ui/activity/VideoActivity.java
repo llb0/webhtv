@@ -300,6 +300,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private long detailStartTime;
     private long playerStartTime;
     private long mInitialPlaybackPosition = C.TIME_UNSET;
+    private boolean mWasPlayingBeforeSetting;
     private boolean pendingLutImport;
     private boolean playerKernelSwitchRefreshing;
     private MpvPlayer mDiscMenuPlayer;
@@ -737,7 +738,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.change2.setOnClickListener(view -> onChange());
         mBinding.control.action.fullscreen.setOnClickListener(view -> onFullscreen());
         mBinding.control.action.danmaku.setOnClickListener(view -> onDanmaku());
-        mBinding.control.action.setting.setOnClickListener(view -> SettingPlayerActivity.start(this));
+        mBinding.control.action.setting.setOnClickListener(view -> {
+            mWasPlayingBeforeSetting = player().isPlaying();
+            showSettingPlayer();
+        });
         mBinding.control.action.cast.setOnClickListener(view -> onCast());
         mBinding.control.action.timer.setOnClickListener(view -> onTimer());
         mBinding.control.action.opening.setOnClickListener(view -> onOpening());
@@ -6084,12 +6088,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (isVisible(mBinding.settingContainer)) {
+            View contentView = mBinding.settingContainer.findViewById(R.id.content);
+            if (contentView != null && FocusLoop.handleChildGrid(contentView, 1, FocusLoop.Mode.VERTICAL, event)) {
+                return true;
+            }
+        }
         if (dispatchDiscMenuKey(event)) return true;
         if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;
         if (isVisible(mBinding.lutQuick)) return dispatchLutQuickKey(event);
         if (KeyUtil.isMenuKey(event)) {
             if (isFullscreen()) {
-                if (isVisible(mBinding.control.getRoot())) SettingPlayerActivity.start(this);
+                if (isVisible(mBinding.control.getRoot())) {
+                    mWasPlayingBeforeSetting = player().isPlaying();
+                    showSettingPlayer();
+                }
                 else onToggle();
             } else {
                 onContent();
@@ -6472,6 +6485,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onBackInvoked() {
+        if (isVisible(mBinding.settingContainer)) {
+            hideSettingPlayer();
+            return;
+        }
         if (mBinding.lutQuick.hideIfVisible()) {
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
@@ -6483,6 +6500,28 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         } else {
             finishVideoPlayback();
         }
+    }
+
+    private void showSettingPlayer() {
+        int wallColor = Setting.getWallColor();
+        int bgColor = android.graphics.Color.argb(220, android.graphics.Color.red(wallColor), android.graphics.Color.green(wallColor), android.graphics.Color.blue(wallColor));
+        mBinding.settingContainer.setBackgroundColor(bgColor);
+        mBinding.settingContainer.setVisibility(View.VISIBLE);
+        getSupportFragmentManager().beginTransaction()
+                .replace(R.id.settingContainer, SettingPlayerFragment.newInstance())
+                .commit();
+    }
+    
+    private void hideSettingPlayer() {
+        androidx.fragment.app.Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.settingContainer);
+        if (fragment != null) {
+            getSupportFragmentManager().beginTransaction().remove(fragment).commit();
+        }
+        mBinding.settingContainer.setVisibility(View.GONE);
+        if (mWasPlayingBeforeSetting && service() != null && !player().isPlaying() && !player().isEmpty()) {
+            onPlay();
+        }
+        mWasPlayingBeforeSetting = false;
     }
 
     private void finishVideoPlayback() {
