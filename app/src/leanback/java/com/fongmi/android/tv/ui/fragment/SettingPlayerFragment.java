@@ -50,6 +50,12 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     private String[] render;
     private String[] scale;
     private String[] osd;
+    
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        mBinding.getRoot().requestFocus();
+    }
 
     public static SettingPlayerFragment newInstance() {
         return new SettingPlayerFragment();
