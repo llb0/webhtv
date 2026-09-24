@@ -3604,6 +3604,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void setR1Callback() {
+        if (isVisible(mBinding.settingContainer)) return;
         App.post(mR1, Constant.INTERVAL_HIDE);
     }
 
