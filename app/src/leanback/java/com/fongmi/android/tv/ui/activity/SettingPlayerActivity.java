@@ -36,8 +36,6 @@ import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 
-import com.github.catvod.crawler.SpiderDebug;
-
 import java.text.DecimalFormat;
 
 public class SettingPlayerActivity extends BaseActivity implements UaListener, BufferListener, SpeedListener {
