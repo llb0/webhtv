@@ -50,15 +50,15 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     private String[] render;
     private String[] scale;
     private String[] osd;
-    
+
+    public static SettingPlayerFragment newInstance() {
+        return new SettingPlayerFragment();
+    }
+
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         mBinding.getRoot().requestFocus();
-    }
-
-    public static SettingPlayerFragment newInstance() {
-        return new SettingPlayerFragment();
     }
 
     @Override
@@ -137,12 +137,6 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.audioDecode.setOnClickListener(this::setAudioDecode);
         mBinding.audioPassThrough.setOnClickListener(this::setAudioPassThrough);
         mBinding.videoDecode.setOnClickListener(this::setVideoDecode);
-    }
-
-    @Override
-    public boolean dispatchKeyEvent(KeyEvent event) {
-        if (FocusLoop.handleChildGrid(mBinding.content, 1, FocusLoop.Mode.VERTICAL, event)) return true;
-        return super.dispatchKeyEvent(event);
     }
 
     private String getSwitch(boolean value) {
@@ -450,7 +444,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     }
 
     private boolean onCaption(View view) {
-        if (PlayerSetting.isCaption()) startActivity(new Intent(Settings.ACTION_CAPTIONING_SETTINGS));
+        if (PlayerSetting.isCaption()) requireActivity().startActivity(new Intent(Settings.ACTION_CAPTIONING_SETTINGS));
         return PlayerSetting.isCaption();
     }
 
