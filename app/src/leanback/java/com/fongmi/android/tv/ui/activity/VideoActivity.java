@@ -6092,7 +6092,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (isVisible(mBinding.settingContainer)) {
             View contentView = mBinding.settingContainer.findViewById(R.id.content);
-            if (contentView != null && FocusLoop.handleChildGrid(contentView, 1, FocusLoop.Mode.VERTICAL, event)) {
+            if (contentView instanceof ViewGroup && FocusLoop.handleChildGrid((ViewGroup) contentView, 1, FocusLoop.Mode.VERTICAL, event)) {
                 return true;
             }
         }
