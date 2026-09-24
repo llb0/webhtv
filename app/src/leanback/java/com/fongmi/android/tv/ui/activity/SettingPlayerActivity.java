@@ -52,7 +52,13 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
     private String[] osd;
 
     public static void start(Activity activity) {
-        activity.startActivity(new Intent(activity, SettingPlayerActivity.class));
+        start(activity, false);
+    }
+    
+    public static void start(Activity activity, boolean trans) {
+        Intent intent = new Intent(activity, SettingPlayerActivity.class);
+        intent.putExtra("trans", trans);
+        activity.startActivity(intent);
     }
 
     private String getSwitch(boolean value) {
@@ -66,13 +72,15 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-        View root = mBinding.getRoot();
-        android.graphics.drawable.Drawable bg = root.getBackground();
-        if (bg != null) {
-            bg = bg.mutate();
-            bg.setAlpha(191);
-            root.setBackground(bg);
+        if (getIntent().getBooleanExtra("trans", false)) {
+            getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+            View root = mBinding.getRoot();
+            android.graphics.drawable.Drawable bg = root.getBackground();
+            if (bg != null) {
+                bg = bg.mutate();
+                bg.setAlpha(191);
+                root.setBackground(bg);
+            }
         }
         setVisible();
         format = new DecimalFormat("0.#");
