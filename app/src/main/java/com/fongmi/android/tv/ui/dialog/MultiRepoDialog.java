@@ -434,20 +434,20 @@ public class MultiRepoDialog extends DialogFragment {
             boolean isSel = position == selected;
             MaterialButton btn = holder.btn;
             btn.setText(items.get(position).getName());
-            btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#1A73E8") : Color.WHITE));
-            btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#DADCE0")));
-            btn.setTextColor(ColorStateList.valueOf(isSel ? Color.WHITE : Color.parseColor("#202124")));
+            btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#E8F0FE") : Color.WHITE));
+            btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#8AB4F8") : Color.parseColor("#DADCE0")));
+            btn.setTextColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#202124")));
             btn.setOnClickListener(v -> onClick.onSelect(position));
             btn.setOnFocusChangeListener((v, hasFocus) -> {
                 if (hasFocus && position != selected) {
-                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#E8F0FE")));
-                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#8AB4F8")));
-                    btn.setTextColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
+                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
+                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
+                    btn.setTextColor(ColorStateList.valueOf(Color.WHITE));
                 } else {
                     // 恢复选中态或未选中态
-                    btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#1A73E8") : Color.WHITE));
-                    btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#DADCE0")));
-                    btn.setTextColor(ColorStateList.valueOf(isSel ? Color.WHITE : Color.parseColor("#202124")));
+                    btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#E8F0FE") : Color.WHITE));
+                    btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#8AB4F8") : Color.parseColor("#DADCE0")));
+                    btn.setTextColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#202124")));
                 }
             });
         }
@@ -504,20 +504,20 @@ public class MultiRepoDialog extends DialogFragment {
             boolean isSel = position == selected;
             MaterialButton btn = holder.btn;
             btn.setText(items.get(position).getName());
-            btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#1A73E8") : Color.WHITE));
-            btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#DADCE0")));
-            btn.setTextColor(ColorStateList.valueOf(isSel ? Color.WHITE : Color.parseColor("#202124")));
+            btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#E8F0FE") : Color.WHITE));
+            btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#8AB4F8") : Color.parseColor("#DADCE0")));
+            btn.setTextColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#202124")));
             btn.setOnClickListener(v -> onClick.onSelect(items.get(position)));
             btn.setOnFocusChangeListener((v, hasFocus) -> {
                 if (hasFocus && position != selected) {
-                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#E8F0FE")));
-                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#8AB4F8")));
-                    btn.setTextColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
+                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
+                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
+                    btn.setTextColor(ColorStateList.valueOf(Color.WHITE));
                 } else {
                     // 恢复选中态或未选中态
-                    btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#1A73E8") : Color.WHITE));
-                    btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#DADCE0")));
-                    btn.setTextColor(ColorStateList.valueOf(isSel ? Color.WHITE : Color.parseColor("#202124")));
+                    btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#E8F0FE") : Color.WHITE));
+                    btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#8AB4F8") : Color.parseColor("#DADCE0")));
+                    btn.setTextColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#202124")));
                 }
             });
         }
@@ -578,9 +578,9 @@ public class MultiRepoDialog extends DialogFragment {
             btn.setOnClickListener(v -> onClick.onSelect(site));
             btn.setOnFocusChangeListener((v, hasFocus) -> {
                 if (hasFocus) {
-                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#E8F0FE")));
-                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#8AB4F8")));
-                    btn.setTextColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
+                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
+                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
+                    btn.setTextColor(ColorStateList.valueOf(Color.WHITE));
                 } else {
                     btn.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
                     btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#DADCE0")));
