@@ -1621,8 +1621,8 @@
     <string name="multi_repo_name_empty">Please enter repo name</string>
     <string name="multi_repo_url_empty">Please enter repo URL</string>
     <string name="multi_repo_fetch_fail">Failed to load repo</string>
-    <string name="multi_repo_Config">Config</string>
-    <string name="multi_repo_sites">Sites</string>
+    <string name="multi_repo_config_list">Config list</string>
+    <string name="multi_repo_site_list">Site list</string>
     <string name="multi_repo_site_empty">No sites in this interface</string>
     <string name="multi_repo_first_open">No repo configured. Add one now?</string>
     <string name="multi_repo_settings">Multi Repo Settings</string>
