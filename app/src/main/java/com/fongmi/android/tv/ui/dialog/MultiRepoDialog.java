@@ -142,14 +142,14 @@ public class MultiRepoDialog extends DialogFragment {
         MaterialButton settingsBtn = new MaterialButton(requireContext());
         settingsBtn.setAllCaps(false);
         settingsBtn.setIconResource(R.drawable.ic_remote_settings);
-        settingsBtn.setIconSize(ResUtil.dp2px(20));
+        settingsBtn.setIconSize(ResUtil.dp2px(18));
         settingsBtn.setText("");
-        settingsBtn.setMinHeight(ResUtil.dp2px(36));
-        settingsBtn.setMinWidth(ResUtil.dp2px(40));
+        settingsBtn.setMinHeight(ResUtil.dp2px(26));
+        settingsBtn.setMinWidth(ResUtil.dp2px(26));
         settingsBtn.setInsetTop(0);
         settingsBtn.setInsetBottom(0);
-        settingsBtn.setInsetLeft(ResUtil.dp2px(8));
-        settingsBtn.setInsetRight(ResUtil.dp2px(8));
+        settingsBtn.setInsetLeft(ResUtil.dp2px(0));
+        settingsBtn.setInsetRight(ResUtil.dp2px(0));
         settingsBtn.setStrokeWidth(ResUtil.dp2px(1));
         settingsBtn.setCornerRadius(ResUtil.dp2px(6));
         settingsBtn.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
@@ -157,7 +157,7 @@ public class MultiRepoDialog extends DialogFragment {
         settingsBtn.setIconTint(ColorStateList.valueOf(Color.parseColor("#5F6368")));
         settingsBtn.setOnFocusChangeListener((v, hasFocus) -> styleIconBtn(v, hasFocus));
         settingsBtn.setOnClickListener(v -> openManageDialog());
-        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(ResUtil.dp2px(44), ResUtil.dp2px(36));
+        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(ResUtil.dp2px(26), ResUtil.dp2px(26));
         btnParams.leftMargin = ResUtil.dp2px(12);
         settingsBtn.setLayoutParams(btnParams);
         titleBar.addView(settingsBtn);
@@ -187,14 +187,14 @@ public class MultiRepoDialog extends DialogFragment {
         LinearLayout leftPane = new LinearLayout(requireContext());
         leftPane.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.38f);
-        lp.rightMargin = ResUtil.dp2px(10);
+        lp.rightMargin = ResUtil.dp2px(12);
         leftPane.setLayoutParams(lp);
  
         MaterialTextView leftLabel = new MaterialTextView(requireContext());
-        leftLabel.setText(R.string.multi_repo_url);
+        leftLabel.setText(R.string.multi_repo_config_list);
         leftLabel.setTextColor(Color.parseColor("#5F6368"));
         leftLabel.setTextSize(13);
-        leftLabel.setPadding(ResUtil.dp2px(4), 0, 0, ResUtil.dp2px(6));
+        leftLabel.setPadding(ResUtil.dp2px(3), 0, 0, ResUtil.dp2px(3));
         leftPane.addView(leftLabel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
  
         apiList = new RecyclerView(requireContext());
@@ -213,10 +213,10 @@ public class MultiRepoDialog extends DialogFragment {
         rightPane.setLayoutParams(rp);
  
         MaterialTextView rightLabel = new MaterialTextView(requireContext());
-        rightLabel.setText(R.string.multi_repo_name);
+        rightLabel.setText(R.string.multi_repo_site_list);
         rightLabel.setTextColor(Color.parseColor("#5F6368"));
         rightLabel.setTextSize(13);
-        rightLabel.setPadding(ResUtil.dp2px(4), 0, 0, ResUtil.dp2px(6));
+        rightLabel.setPadding(ResUtil.dp2px(3), 0, 0, ResUtil.dp2px(3));
         rightPane.addView(rightLabel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
  
         LinearLayout gridWrap = new LinearLayout(requireContext());
@@ -416,15 +416,15 @@ public class MultiRepoDialog extends DialogFragment {
             MaterialButton btn = new MaterialButton(parent.getContext());
             btn.setAllCaps(false);
             btn.setGravity(Gravity.CENTER);
-            btn.setMinHeight(ResUtil.dp2px(36));
+            btn.setMinHeight(ResUtil.dp2px(26));
             btn.setInsetTop(0);
             btn.setInsetBottom(0);
-            btn.setInsetLeft(ResUtil.dp2px(10));
-            btn.setInsetRight(ResUtil.dp2px(10));
+            btn.setInsetLeft(ResUtil.dp2px(4));
+            btn.setInsetRight(ResUtil.dp2px(4));
             btn.setStrokeWidth(ResUtil.dp2px(1));
             btn.setCornerRadius(ResUtil.dp2px(6));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.rightMargin = ResUtil.dp2px(8);
+            lp.rightMargin = ResUtil.dp2px(3);
             btn.setLayoutParams(lp);
             return new VH(btn);
         }
@@ -440,9 +440,9 @@ public class MultiRepoDialog extends DialogFragment {
             btn.setOnClickListener(v -> onClick.onSelect(position));
             btn.setOnFocusChangeListener((v, hasFocus) -> {
                 if (hasFocus && position != selected) {
-                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
-                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
-                    btn.setTextColor(ColorStateList.valueOf(Color.WHITE));
+                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#E8F0FE")));
+                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#8AB4F8")));
+                    btn.setTextColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
                 } else {
                     // 恢复选中态或未选中态
                     btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#1A73E8") : Color.WHITE));
@@ -486,13 +486,13 @@ public class MultiRepoDialog extends DialogFragment {
             btn.setAllCaps(false);
             btn.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
             btn.setSingleLine(false);
-            btn.setMinHeight(ResUtil.dp2px(44));
+            btn.setMinHeight(ResUtil.dp2px(26));
             btn.setInsetTop(0);
             btn.setInsetBottom(0);
             btn.setStrokeWidth(ResUtil.dp2px(1));
             btn.setCornerRadius(ResUtil.dp2px(6));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = ResUtil.dp2px(8);
+            lp.bottomMargin = ResUtil.dp2px(6);
             btn.setLayoutParams(lp);
             return new VH(btn);
         }
@@ -502,19 +502,20 @@ public class MultiRepoDialog extends DialogFragment {
             boolean isSel = position == selected;
             MaterialButton btn = holder.btn;
             btn.setText(items.get(position).getName());
-            btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#E8F0FE") : Color.WHITE));
-            btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#8AB4F8") : Color.parseColor("#DADCE0")));
-            btn.setTextColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#202124")));
+            btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#1A73E8") : Color.WHITE));
+            btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#DADCE0")));
+            btn.setTextColor(ColorStateList.valueOf(isSel ? Color.WHITE : Color.parseColor("#202124")));
             btn.setOnClickListener(v -> onClick.onSelect(items.get(position)));
             btn.setOnFocusChangeListener((v, hasFocus) -> {
-                if (hasFocus) {
-                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
-                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
-                    btn.setTextColor(ColorStateList.valueOf(Color.WHITE));
+                if (hasFocus && position != selected) {
+                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#E8F0FE")));
+                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#8AB4F8")));
+                    btn.setTextColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
                 } else {
-                    btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#E8F0FE") : Color.WHITE));
-                    btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#8AB4F8") : Color.parseColor("#DADCE0")));
-                    btn.setTextColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#202124")));
+                    // 恢复选中态或未选中态
+                    btn.setBackgroundTintList(ColorStateList.valueOf(isSel ? Color.parseColor("#1A73E8") : Color.WHITE));
+                    btn.setStrokeColor(ColorStateList.valueOf(isSel ? Color.parseColor("#174EA6") : Color.parseColor("#DADCE0")));
+                    btn.setTextColor(ColorStateList.valueOf(isSel ? Color.WHITE : Color.parseColor("#202124")));
                 }
             });
         }
@@ -550,13 +551,14 @@ public class MultiRepoDialog extends DialogFragment {
             MaterialButton btn = new MaterialButton(parent.getContext());
             btn.setAllCaps(false);
             btn.setGravity(Gravity.CENTER);
-            btn.setMinHeight(ResUtil.dp2px(44));
+            btn.setMinHeight(ResUtil.dp2px(26));
             btn.setInsetTop(0);
             btn.setInsetBottom(0);
             btn.setStrokeWidth(ResUtil.dp2px(1));
             btn.setCornerRadius(ResUtil.dp2px(6));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = ResUtil.dp2px(8);
+            lp.leftMargin = ResUtil.dp2px(4);
+            lp.bottomMargin = ResUtil.dp2px(6);
             btn.setLayoutParams(lp);
             return new VH(btn);
         }
@@ -572,9 +574,9 @@ public class MultiRepoDialog extends DialogFragment {
             btn.setOnClickListener(v -> onClick.onSelect(site));
             btn.setOnFocusChangeListener((v, hasFocus) -> {
                 if (hasFocus) {
-                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
-                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
-                    btn.setTextColor(ColorStateList.valueOf(Color.WHITE));
+                    btn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#E8F0FE")));
+                    btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#8AB4F8")));
+                    btn.setTextColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
                 } else {
                     btn.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
                     btn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#DADCE0")));
