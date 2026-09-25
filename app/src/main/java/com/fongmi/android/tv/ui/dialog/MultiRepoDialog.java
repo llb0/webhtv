@@ -136,7 +136,7 @@ public class MultiRepoDialog extends DialogFragment {
         repoList.setHorizontalScrollBarEnabled(false);
         repoList.setVerticalScrollBarEnabled(false);
         LinearLayout.LayoutParams repoParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        repoParams.rightMargin = ResUtil.dp2px(8);
+        repoParams.rightMargin = ResUtil.dp2px(4);
         repoList.setLayoutParams(repoParams);
         titleBar.addView(repoList);
  
@@ -423,8 +423,9 @@ public class MultiRepoDialog extends DialogFragment {
             btn.setMinHeight(ResUtil.dp2px(26));
             btn.setInsetTop(0);
             btn.setInsetBottom(0);
-            btn.setInsetLeft(ResUtil.dp2px(4));
-            btn.setInsetRight(ResUtil.dp2px(4));
+            btn.setInsetLeft(0);
+            btn.setInsetRight(0);
+            btn.setPadding(ResUtil.dp2px(3), ResUtil.dp2px(3), ResUtil.dp2px(3), ResUtil.dp2px(3));
             btn.setStrokeWidth(ResUtil.dp2px(1));
             btn.setCornerRadius(ResUtil.dp2px(6));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -493,8 +494,9 @@ public class MultiRepoDialog extends DialogFragment {
             btn.setMinHeight(ResUtil.dp2px(26));
             btn.setInsetTop(0);
             btn.setInsetBottom(0);
-            btn.setInsetLeft(ResUtil.dp2px(4));
-            btn.setInsetRight(ResUtil.dp2px(4));
+            btn.setInsetLeft(0);
+            btn.setInsetRight(0);
+            btn.setPadding(ResUtil.dp2px(3), ResUtil.dp2px(3), ResUtil.dp2px(3), ResUtil.dp2px(3));
             btn.setStrokeWidth(ResUtil.dp2px(1));
             btn.setCornerRadius(ResUtil.dp2px(6));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -560,8 +562,9 @@ public class MultiRepoDialog extends DialogFragment {
             btn.setMinHeight(ResUtil.dp2px(26));
             btn.setInsetTop(0);
             btn.setInsetBottom(0);
-            btn.setInsetLeft(ResUtil.dp2px(4));
-            btn.setInsetRight(ResUtil.dp2px(4));
+            btn.setInsetLeft(0);
+            btn.setInsetRight(0);
+            btn.setPadding(ResUtil.dp2px(3), ResUtil.dp2px(3), ResUtil.dp2px(3), ResUtil.dp2px(3));
             btn.setStrokeWidth(ResUtil.dp2px(1));
             btn.setCornerRadius(ResUtil.dp2px(6));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
