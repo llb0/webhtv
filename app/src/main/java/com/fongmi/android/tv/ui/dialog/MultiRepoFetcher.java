@@ -9,6 +9,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.Depot;
 import com.fongmi.android.tv.bean.MultiRepo;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.UrlUtil;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Json;
 import com.google.gson.JsonArray;
@@ -36,6 +37,7 @@ final class MultiRepoFetcher {
                 postError(callback, "仓库链接为空");
                 return;
             }
+            if (!url.startsWith("http")) url = UrlUtil.convert(url);
             try {
                 Request.Builder rb = new Request.Builder().url(url);
                 if (!force) {
