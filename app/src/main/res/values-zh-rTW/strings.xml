@@ -1597,6 +1597,8 @@
     <string name="multi_repo_name_empty">請輸入倉庫名稱</string>
     <string name="multi_repo_url_empty">請輸入倉庫連結</string>
     <string name="multi_repo_fetch_fail">倉庫載入失敗</string>
+    <string name="multi_repo_config_list">接口列表</string>
+    <string name="multi_repo_site_list">站點列表</string>
     <string name="multi_repo_site_empty">該介面暫無站點</string>
     <string name="multi_repo_first_open">未配置任何介面倉庫，是否現在新增？</string>
     <string name="multi_repo_settings">多倉設置</string>
