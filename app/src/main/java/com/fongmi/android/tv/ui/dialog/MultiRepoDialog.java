@@ -141,7 +141,7 @@ public class MultiRepoDialog extends DialogFragment {
         // 右侧：设置按钮
         MaterialButton settingsBtn = new MaterialButton(requireContext());
         settingsBtn.setAllCaps(false);
-        settingsBtn.setIconRes(R.drawable.ic_remote_settings);
+        settingsBtn.setIconResource(R.drawable.ic_remote_settings);
         settingsBtn.setIconSize(ResUtil.dp2px(20));
         settingsBtn.setText("");
         settingsBtn.setMinHeight(ResUtil.dp2px(36));
