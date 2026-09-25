@@ -177,7 +177,7 @@ public class MultiRepoManageDialog extends DialogFragment {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(ResUtil.dp2px(44));
-        row.setPadding(ResUtil.dp2px(4), 0, ResUtil.dp2px(4), 0);
+        row.setPadding(ResUtil.dp2px(6), 0, ResUtil.dp2px(6), 0);
         row.setBackgroundColor(Color.TRANSPARENT);
  
         // 使用 ChoiceDialog 风格的 MaterialButton 作为背景（让焦点样式和播放器内核一致）
@@ -210,6 +210,7 @@ public class MultiRepoManageDialog extends DialogFragment {
         });
  
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        nameParams.rightMargin = ResUtil.dp2px(8);
         nameParams.bottomMargin = ResUtil.dp2px(8);
         nameBtn.setLayoutParams(nameParams);
         row.addView(nameBtn);
@@ -227,6 +228,7 @@ public class MultiRepoManageDialog extends DialogFragment {
         deleteBtn.setInsetLeft(0);
         deleteBtn.setInsetRight(0);
         deleteBtn.setIconPadding(0);
+        deleteBtn.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
         deleteBtn.setStrokeWidth(ResUtil.dp2px(1));
         deleteBtn.setCornerRadius(ResUtil.dp2px(6));
         deleteBtn.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
@@ -255,6 +257,7 @@ public class MultiRepoManageDialog extends DialogFragment {
         LinearLayout.LayoutParams delParams = new LinearLayout.LayoutParams(ResUtil.dp2px(44), ResUtil.dp2px(44));
         delParams.leftMargin = ResUtil.dp2px(8);
         delParams.bottomMargin = ResUtil.dp2px(8);
+        delParams.gravity = Gravity.CENTER_VERTICAL;
         deleteBtn.setLayoutParams(delParams);
         row.addView(deleteBtn);
  
