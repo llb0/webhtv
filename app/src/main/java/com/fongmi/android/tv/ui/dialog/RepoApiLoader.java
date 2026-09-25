@@ -5,6 +5,7 @@ import android.text.TextUtils;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
  
+import com.fongmi.android.tv.api.Decoder;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.Depot;
 import com.fongmi.android.tv.bean.Site;
@@ -24,6 +25,8 @@ import okhttp3.ResponseBody;
  */
 final class RepoApiLoader {
  
+    private static final String TAG = RepoApiLoader.class.getSimpleName();
+
     private RepoApiLoader() {
     }
  
@@ -35,20 +38,7 @@ final class RepoApiLoader {
                 return;
             }
             try {
-                String json;
-                Request.Builder rb = new Request.Builder().url(url);
-                try (Response response = OkHttp.client().newCall(rb.build()).execute()) {
-                    if (!response.isSuccessful()) {
-                        App.post(() -> callback.onError("接口请求失败: HTTP " + response.code()));
-                        return;
-                    }
-                    ResponseBody body = response.body();
-                    if (body == null) {
-                        App.post(() -> callback.onError("接口响应为空"));
-                        return;
-                    }
-                    json = body.string();
-                }
+                String json = Decoder.getJson(url, TAG);
                 com.google.gson.JsonObject object = Json.parse(json).getAsJsonObject();
                 List<Site> sites = new ArrayList<>();
                 // 先 spider
