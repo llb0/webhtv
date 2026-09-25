@@ -61,7 +61,13 @@ public class MultiRepoManageDialog extends DialogFragment {
         Window window = dialog.getWindow();
         if (window == null) return;
         WindowManager.LayoutParams params = window.getAttributes();
-        params.width = (int) (ResUtil.getScreenWidth(requireContext()) * 0.85f);
+        boolean land = ResUtil.isLand(requireContext());
+        // 横屏TV 0.6f；手机竖屏0.85f
+        if (land) {
+            params.width = (int) (ResUtil.getScreenWidth(requireContext()) * 0.55f);
+        } else {
+            params.width = (int) (ResUtil.getScreenWidth(requireContext()) * 0.85f);
+        }
         params.height = WindowManager.LayoutParams.WRAP_CONTENT;
         params.dimAmount = 0.58f;
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -79,7 +85,7 @@ public class MultiRepoManageDialog extends DialogFragment {
         root.setBackgroundResource(R.drawable.shape_shell_proxy_dialog);
         int horizontal = ResUtil.dp2px(24);
         int vertical = ResUtil.dp2px(20);
-        root.setPadding(horizontal, vertical, horizontal, vertical);
+        root.setPadding(horizontal, ResUtil.dp2px(24), horizontal, vertical);
  
         // 标题
         MaterialTextView title = new MaterialTextView(requireContext());
@@ -220,6 +226,7 @@ public class MultiRepoManageDialog extends DialogFragment {
         deleteBtn.setInsetBottom(0);
         deleteBtn.setInsetLeft(0);
         deleteBtn.setInsetRight(0);
+        deleteBtn.setIconPadding(0);
         deleteBtn.setStrokeWidth(ResUtil.dp2px(1));
         deleteBtn.setCornerRadius(ResUtil.dp2px(6));
         deleteBtn.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
