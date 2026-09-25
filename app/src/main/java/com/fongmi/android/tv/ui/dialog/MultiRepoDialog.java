@@ -126,6 +126,7 @@ public class MultiRepoDialog extends DialogFragment {
         LinearLayout titleBar = new LinearLayout(requireContext());
         titleBar.setOrientation(LinearLayout.HORIZONTAL);
         titleBar.setGravity(Gravity.CENTER_VERTICAL);
+        titleBar.setPadding(ResUtil.dp2px(4), 0, ResUtil.dp2px(4), 0);
         LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         root.addView(titleBar, barParams);
  
@@ -135,6 +136,7 @@ public class MultiRepoDialog extends DialogFragment {
         repoList.setHorizontalScrollBarEnabled(false);
         repoList.setVerticalScrollBarEnabled(false);
         LinearLayout.LayoutParams repoParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        repoParams.rightMargin = ResUtil.dp2px(8);
         repoList.setLayoutParams(repoParams);
         titleBar.addView(repoList);
  
@@ -142,14 +144,16 @@ public class MultiRepoDialog extends DialogFragment {
         MaterialButton settingsBtn = new MaterialButton(requireContext());
         settingsBtn.setAllCaps(false);
         settingsBtn.setIconResource(R.drawable.ic_remote_settings);
-        settingsBtn.setIconSize(ResUtil.dp2px(18));
+        settingsBtn.setIconSize(ResUtil.dp2px(20));
         settingsBtn.setText("");
-        settingsBtn.setMinHeight(ResUtil.dp2px(26));
-        settingsBtn.setMinWidth(ResUtil.dp2px(26));
+        settingsBtn.setMinHeight(ResUtil.dp2px(36));
+        settingsBtn.setMinWidth(ResUtil.dp2px(36));
         settingsBtn.setInsetTop(0);
         settingsBtn.setInsetBottom(0);
         settingsBtn.setInsetLeft(ResUtil.dp2px(0));
         settingsBtn.setInsetRight(ResUtil.dp2px(0));
+        settingsBtn.setIconPadding(0);
+        settingsBtn.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
         settingsBtn.setStrokeWidth(ResUtil.dp2px(1));
         settingsBtn.setCornerRadius(ResUtil.dp2px(6));
         settingsBtn.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
@@ -157,8 +161,8 @@ public class MultiRepoDialog extends DialogFragment {
         settingsBtn.setIconTint(ColorStateList.valueOf(Color.parseColor("#5F6368")));
         settingsBtn.setOnFocusChangeListener((v, hasFocus) -> styleIconBtn(v, hasFocus));
         settingsBtn.setOnClickListener(v -> openManageDialog());
-        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(ResUtil.dp2px(26), ResUtil.dp2px(26));
-        btnParams.leftMargin = ResUtil.dp2px(12);
+        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(ResUtil.dp2px(36), ResUtil.dp2px(36));
+        btnParams.leftMargin = ResUtil.dp2px(4);
         settingsBtn.setLayoutParams(btnParams);
         titleBar.addView(settingsBtn);
     }
@@ -186,7 +190,7 @@ public class MultiRepoDialog extends DialogFragment {
         // 左栏：接口列表
         LinearLayout leftPane = new LinearLayout(requireContext());
         leftPane.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.2f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.28f);
         lp.rightMargin = ResUtil.dp2px(12);
         leftPane.setLayoutParams(lp);
  
@@ -209,7 +213,7 @@ public class MultiRepoDialog extends DialogFragment {
         // 右栏：站点网格
         LinearLayout rightPane = new LinearLayout(requireContext());
         rightPane.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.8f);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.72f);
         rightPane.setLayoutParams(rp);
  
         MaterialTextView rightLabel = new MaterialTextView(requireContext());
