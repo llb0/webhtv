@@ -12,6 +12,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
  
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -189,13 +190,13 @@ public class MultiRepoManageDialog extends DialogFragment {
         nameBtn.setText(repo.getName());
         nameBtn.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
-                v.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
-                v.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
-                ((MaterialButton) v).setTextColor(ColorStateList.valueOf(Color.WHITE));
+                nameBtn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
+                nameBtn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
+                nameBtn.setTextColor(ColorStateList.valueOf(Color.WHITE));
             } else {
-                v.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
-                v.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#DADCE0")));
-                ((MaterialButton) v).setTextColor(ColorStateList.valueOf(Color.parseColor("#202124")));
+                nameBtn.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
+                nameBtn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#DADCE0")));
+                nameBtn.setTextColor(ColorStateList.valueOf(Color.parseColor("#202124")));
             }
         });
         nameBtn.setOnClickListener(v -> {
@@ -226,13 +227,13 @@ public class MultiRepoManageDialog extends DialogFragment {
         deleteBtn.setIconTint(ColorStateList.valueOf(Color.parseColor("#D93025")));
         deleteBtn.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
-                v.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
-                v.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
-                ((MaterialButton) v).setIconTint(ColorStateList.valueOf(Color.WHITE));
+                deleteBtn.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
+                deleteBtn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#174EA6")));
+                deleteBtn.setIconTint(ColorStateList.valueOf(Color.WHITE));
             } else {
-                v.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
-                v.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#DADCE0")));
-                ((MaterialButton) v).setIconTint(ColorStateList.valueOf(Color.parseColor("#D93025")));
+                deleteBtn.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
+                deleteBtn.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#DADCE0")));
+                deleteBtn.setIconTint(ColorStateList.valueOf(Color.parseColor("#D93025")));
             }
         });
         deleteBtn.setOnClickListener(v -> {
