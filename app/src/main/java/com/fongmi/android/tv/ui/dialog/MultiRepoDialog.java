@@ -221,7 +221,9 @@ public class MultiRepoDialog extends DialogFragment {
         rightLabel.setTextColor(Color.parseColor("#5F6368"));
         rightLabel.setTextSize(13);
         rightLabel.setPadding(ResUtil.dp2px(3), 0, 0, ResUtil.dp2px(3));
-        rightPane.addView(rightLabel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.leftMargin = ResUtil.dp2px(4);
+        rightPane.addView(rightLabel, rl);
  
         LinearLayout gridWrap = new LinearLayout(requireContext());
         gridWrap.setOrientation(LinearLayout.VERTICAL);
