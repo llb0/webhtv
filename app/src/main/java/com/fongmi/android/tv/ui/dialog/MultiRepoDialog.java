@@ -252,7 +252,7 @@ public class MultiRepoDialog extends DialogFragment {
         repos = new ArrayList<>(MultiRepoStore.get());
         if (repos.isEmpty()) {
             // 第一次使用：自动打开维护弹窗
-            ChoiceDialog.showConfirm(getParentFragmentManager(), R.string.multi_repo_manage_title, getString(R.string.multi_repo_first_open), () -> {
+            ChoiceDialog.showConfirm(this, R.string.multi_repo_manage_title, getString(R.string.multi_repo_first_open), R.string.dialog_positive, () -> {
                 openManageDialog();
             });
             repoList.setAdapter(new RepoLabelAdapter(new ArrayList<>(), -1, pos -> { }));
