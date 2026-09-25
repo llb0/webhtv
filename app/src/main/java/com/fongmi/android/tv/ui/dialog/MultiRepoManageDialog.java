@@ -238,7 +238,7 @@ public class MultiRepoManageDialog extends DialogFragment {
         });
         deleteBtn.setOnClickListener(v -> {
             // 确认删除
-            ChoiceDialog.showConfirm(getParentFragmentManager(), R.string.dialog_positive, getString(R.string.multi_repo_manage_title) + ": " + repo.getName(), () -> {
+            ChoiceDialog.showConfirm(this, R.string.multi_repo_manage_title, getString(R.string.multi_repo_manage_title) + ": " + repo.getName(), R.string.dialog_positive, () -> {
                 MultiRepoStore.removeAt(index);
                 // 重新构造对话框来刷新
                 dismiss();
