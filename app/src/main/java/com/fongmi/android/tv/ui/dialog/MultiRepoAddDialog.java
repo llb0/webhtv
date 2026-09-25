@@ -60,7 +60,13 @@ public class MultiRepoAddDialog extends DialogFragment {
         Window window = dialog.getWindow();
         if (window == null) return;
         WindowManager.LayoutParams params = window.getAttributes();
-        params.width = (int) (ResUtil.getScreenWidth(requireContext()) * 0.85f);
+        boolean land = ResUtil.isLand(requireContext());
+         // 横屏TV 0.55f；手机竖屏0.85f
+        if (land) {
+            params.width = (int) (ResUtil.getScreenWidth(requireContext()) * 0.55f);
+        } else {
+            params.width = (int) (ResUtil.getScreenWidth(requireContext()) * 0.85f);
+        }
         params.height = WindowManager.LayoutParams.WRAP_CONTENT;
         params.dimAmount = 0.58f;
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
