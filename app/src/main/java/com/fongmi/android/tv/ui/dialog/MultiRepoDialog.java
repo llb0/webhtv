@@ -186,7 +186,7 @@ public class MultiRepoDialog extends DialogFragment {
         // 左栏：接口列表
         LinearLayout leftPane = new LinearLayout(requireContext());
         leftPane.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.38f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.2f);
         lp.rightMargin = ResUtil.dp2px(12);
         leftPane.setLayoutParams(lp);
  
@@ -209,7 +209,7 @@ public class MultiRepoDialog extends DialogFragment {
         // 右栏：站点网格
         LinearLayout rightPane = new LinearLayout(requireContext());
         rightPane.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.62f);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.8f);
         rightPane.setLayoutParams(rp);
  
         MaterialTextView rightLabel = new MaterialTextView(requireContext());
@@ -489,6 +489,8 @@ public class MultiRepoDialog extends DialogFragment {
             btn.setMinHeight(ResUtil.dp2px(26));
             btn.setInsetTop(0);
             btn.setInsetBottom(0);
+            btn.setInsetLeft(ResUtil.dp2px(4));
+            btn.setInsetRight(ResUtil.dp2px(4));
             btn.setStrokeWidth(ResUtil.dp2px(1));
             btn.setCornerRadius(ResUtil.dp2px(6));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -554,6 +556,8 @@ public class MultiRepoDialog extends DialogFragment {
             btn.setMinHeight(ResUtil.dp2px(26));
             btn.setInsetTop(0);
             btn.setInsetBottom(0);
+            btn.setInsetLeft(ResUtil.dp2px(4));
+            btn.setInsetRight(ResUtil.dp2px(4));
             btn.setStrokeWidth(ResUtil.dp2px(1));
             btn.setCornerRadius(ResUtil.dp2px(6));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
