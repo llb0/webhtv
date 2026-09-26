@@ -348,6 +348,12 @@ public class MultiRepoDialog extends DialogFragment {
                     currentApis = freshApis;
                     currentApiIndex = Math.min(newIndex, Math.max(0, freshApis.size() - 1));
                     apiAdapter.updateData(currentApis, currentApiIndex);
+                    // 保持当前焦点，避免在线刷新导致焦点跳回顶部
+                    final int focusPos = currentApiIndex;
+                    apiList.post(() -> {
+                        RecyclerView.ViewHolder vh = apiList.findViewHolderForAdapterPosition(focusPos);
+                        if (vh != null) vh.itemView.requestFocus();
+                    });
                     if (!currentApis.isEmpty()) {
                         onApiSelected(currentApis.get(currentApiIndex));
                     }
@@ -376,6 +382,13 @@ public class MultiRepoDialog extends DialogFragment {
         // 同步更新 Adapter 内部的 selected，否则 notifyDataSetChanged 后高亮仍指向旧索引
         apiAdapter.setSelected(currentApiIndex);
         apiAdapter.notifyDataSetChanged();
+        // notifyDataSetChanged 会 rebinding 可见项，导致被点击按钮丢失焦点，
+        // 系统默认把焦点移到第一个可聚焦控件。这里在布局完成后把焦点请求回点击位置。
+        final int focusPos = currentApiIndex;
+        apiList.post(() -> {
+            RecyclerView.ViewHolder vh = apiList.findViewHolderForAdapterPosition(focusPos);
+            if (vh != null) vh.itemView.requestFocus();
+        });
         loading.setVisibility(View.VISIBLE);
         siteAdapter.updateData(new ArrayList<>());
         RepoApiLoader.loadSites(depot, new RepoApiLoader.Callback() {
