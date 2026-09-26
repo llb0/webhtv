@@ -152,7 +152,7 @@ public class MultiRepoAddDialog extends DialogFragment {
         rightPane.setLayoutParams(rp);
 
         MaterialTextView info = new MaterialTextView(requireContext());
-        info.setText(ResUtil.getString(R.string.push_info, Server.get().getAddress()).replace("\uff0c", "\n"));
+        info.setText(ResUtil.getString(R.string.multi_repo_push_info, Server.get().getAddress()).replace("\uff0c", "\n"));
         info.setTextColor(Color.parseColor("#3C4043"));
         info.setTextSize(13);
         info.setLineSpacing(ResUtil.dp2px(4), 1f);
