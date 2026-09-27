@@ -313,7 +313,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
                 actionBinding.check.setChecked(getChecked(item));
                 actionBinding.text.setSelected(item.isSelected());
                 actionBinding.getRoot().setSelected(item.isSelected());
-                actionBinding.delete.setVisibility(item.isFile() && type != 0 ? View.VISIBLE : View.GONE);
+                actionBinding.delete.setVisibility(View.GONE);
                 actionBinding.delete.setOnClickListener(v -> {
                     if (listener instanceof OnDeleteListener) ((OnDeleteListener) listener).onDelete(item);
                 });

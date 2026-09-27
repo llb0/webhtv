@@ -528,7 +528,10 @@ public class VodConfig extends BaseConfig {
         float ratio = 0;
 
         void apply(Site site) {
-            if (searchable != null) site.setSearchable(searchable);
+            if (searchable != null) {
+                site.setSearchable(searchable);
+                if (searchable == 0) site.setChangeable(2);
+            }
             if (quickSearch != null) site.setQuickSearch(quickSearch);
             if (hide != null) site.setHide(hide);
             if (ratio > 0) site.setStyle(new Style("rect", ratio));
