@@ -111,6 +111,7 @@ public class SiteDialog extends BaseGlassDialog implements SiteAdapter.OnClickLi
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         Dialog dialog = super.onCreateDialog(savedInstanceState);
         dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (action && keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) return false;
             if (adapter != null && FocusLoop.handleRecyclerGrid(binding.recycler, adapter.getTotalCount(), GRID_COUNT, FocusLoop.Mode.BOTH, event))
                 return true;
             if (KeyUtil.isMenuKey(event) && onMenuKey()) {
