@@ -119,7 +119,30 @@ final class MultiRepoFetcher {
                 trimmed = trimmed.substring(1);
             }
             // 提取主体JSON，剔除前后HTML/无关文本
-            trimmed = extractInnerJson(trimmed);
+            boolean quickMatch = false;
+            if (trimmed.length() > 2) {
+                 int lastValidIdx = trimmed.length() - 1;
+                 // 向前跳过末尾空白字符
+                 while (lastValidIdx >= 0 && Character.isWhitespace(trimmed.charAt(lastValidIdx))) {
+                     lastValidIdx--;
+                 }
+                 if (lastValidIdx > 0) {
+                     char first = trimmed.charAt(0);
+                     char last = trimmed.charAt(lastValidIdx);
+                     if ((first == '{' && last == '}') || (first == '[' && last == ']')) {
+                         quickMatch = true;
+                     }
+                 }
+            }
+            if (!quickMatch) {
+                 int idxBrace = trimmed.indexOf('{');
+                 int idxBracket = trimmed.indexOf('[');
+                 if (idxBracket != -1 && (idxBrace == -1 || idxBracket < idxBrace)) {
+                     trimmed = extractInnerJsonBlock(trimmed, '[', ']');
+                 } else {
+                     trimmed = extractInnerJsonBlock(trimmed, '{', '}');
+                 }
+            }
             Set<String> urlUniqueSet = new HashSet<>();
             if (trimmed.startsWith("{")) {
                 // 判断是否存在多个对象拼接（} 后面空白字符，然后 {）
@@ -165,20 +188,22 @@ final class MultiRepoFetcher {
     }
 
     /**
-     * 提取文本中第一个完整的{} JSON对象，剔除前后无关垃圾字符（html、文本等）
-     * @param raw 原始粘贴文本
+     * 提取文本中第一个成对括号包裹的JSON块，剔除前后无关垃圾字符
+     * @param raw 原始文本
+     * @param open 起始字符 '{' 或 '['
+     * @param close 闭合字符 '}' 或 ']'
      * @return 截取后的完整json字符串；找不到返回原文本
      */
-    private static String extractInnerJson(String raw) {
-        int start = raw.indexOf('{');
+    private static String extractInnerJsonBlock(String raw, char open, char close) {
+        int start = raw.indexOf(open);
         if (start == -1) return raw;
         int count = 0;
         int end = -1;
         for (int i = start; i < raw.length(); i++) {
             char c = raw.charAt(i);
-            if (c == '{') {
+            if (c == open) {
                 count++;
-            } else if (c == '}') {
+            } else if (c == close) {
                 count--;
                 if (count == 0) {
                     end = i;
