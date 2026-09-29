@@ -89,27 +89,23 @@ public class WebViewResolver implements Source.Extractor {
     /** Set Referer / User-Agent / Cookie / Origin on the Result so the native player can access the stream. */
     private void applyHeaders(Result result, String resolvedUrl) {
         Map<String, String> headers = new HashMap<>(result.getHeader());
-        // 1. Use captured WebView request headers as the base (includes Cookie/Referer the page sent)
+        // 1. Use captured WebView request headers, but strip browser-only headers that
+        //    would conflict with the desktop UA (sec-ch-ua* reveals "Android WebView").
         Map<String, String> captured = capturedHeaders.get();
         if (captured != null) {
             for (Map.Entry<String, String> e : captured.entrySet()) {
                 String key = e.getKey();
-                // Skip content-type / range / host — these are request mechanics, not playback headers
-                if (key.equalsIgnoreCase("content-type") || key.equalsIgnoreCase("content-length")
-                        || key.equalsIgnoreCase("host") || key.equalsIgnoreCase("connection")
-                        || key.equalsIgnoreCase("accept-encoding") || key.equalsIgnoreCase("accept")
-                        || key.equalsIgnoreCase("range")) continue;
+                if (isBrowserOnlyHeader(key)) continue;
                 headers.putIfAbsent(UrlUtil.fixHeader(key), e.getValue());
             }
         }
-        // 2. Fallback: ensure Referer and User-Agent are always set
+        // 2. Force desktop User-Agent (captured UA may be the Android WebView default)
+        headers.put(HttpHeaders.USER_AGENT, DESKTOP_UA);
+        // 3. Ensure Referer is set to the page that requested the stream
         if (!hasKey(headers, HttpHeaders.REFERER) && !targetUrl.isEmpty()) {
             headers.put(HttpHeaders.REFERER, targetUrl);
         }
-        if (!hasKey(headers, HttpHeaders.USER_AGENT)) {
-            headers.put(HttpHeaders.USER_AGENT, DESKTOP_UA);
-        }
-        // 3. Try to get cookies from CookieManager for the resolved URL domain
+        // 4. Get cookies from CookieManager (the CDN ties streams to the session cookie)
         if (!hasKey(headers, HttpHeaders.COOKIE)) {
             try {
                 String cookie = CookieManager.getInstance().getCookie(resolvedUrl);
@@ -118,22 +114,38 @@ public class WebViewResolver implements Source.Extractor {
             } catch (Throwable ignored) {
             }
         }
-        // 4. Set Origin for good measure
+        // 5. Set Origin
         if (!hasKey(headers, HttpHeaders.ORIGIN) && !targetUrl.isEmpty()) {
             try {
                 Uri uri = Uri.parse(targetUrl);
-                String origin = uri.getScheme() + "://" + uri.getHost();
-                headers.put(HttpHeaders.ORIGIN, origin);
+                headers.put(HttpHeaders.ORIGIN, uri.getScheme() + "://" + uri.getHost());
             } catch (Throwable ignored) {
             }
         }
-        // Write back: directly modify the stored map if it exists, otherwise set it
+        // Write back to Result
         if (result.getHeader().isEmpty()) {
             result.setHeader(headers);
         } else {
             result.getHeader().putAll(headers);
         }
-        SpiderDebug.log(TAG, "applied headers for %s: %s", resolvedUrl, headers.keySet());
+        SpiderDebug.log(TAG, "applied headers for %s: %s", resolvedUrl, headers);
+    }
+ 
+    /** Headers that belong to the browser's request mechanics and must not be
+     *  forwarded to the native player (they conflict with the desktop UA). */
+    private static boolean isBrowserOnlyHeader(String key) {
+        String k = key.toLowerCase();
+        return k.equals("content-type") || k.equals("content-length")
+                || k.equals("host") || k.equals("connection")
+                || k.equals("accept-encoding") || k.equals("accept")
+                || k.equals("accept-language") || k.equals("range")
+                || k.startsWith("sec-ch-ua") || k.startsWith("sec-fetch-")
+                || k.equals("sec-fetch-mode") || k.equals("sec-fetch-site")
+                || k.equals("sec-fetch-dest") || k.equals("upgrade-insecure-requests")
+                || k.equals("dnt") || k.equals("purpose")
+                || k.equals("save-data") || k.equals("device-memory")
+                || k.equals("viewport-width") || k.equals("rtt")
+                || k.equals("downlink") || k.equals("ect");
     }
  
     private static boolean hasKey(Map<String, String> map, String key) {
