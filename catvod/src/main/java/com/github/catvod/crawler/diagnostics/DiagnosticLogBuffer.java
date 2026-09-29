@@ -163,6 +163,8 @@ public final class DiagnosticLogBuffer implements AutoCloseable {
         long epoch = generation();
         long sourceSeq = sourceSequence.incrementAndGet();
         try {
+            String name = event.name();
+            if ("env.native".equals(name) || "diag.session.begin".equals(name)) return;
             offer("av-diag", event.json(), event.pinKey(), event.critical(), true, captured, sourceSeq, event.truncated(), List.of(), epoch);
         } catch (RuntimeException error) {
             collectorFailure(); // Diagnostics cannot throw into a player callback.
