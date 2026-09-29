@@ -41,7 +41,11 @@ final class RepoApiLoader {
             try {
                 String json = Decoder.getJson(url, TAG);
                 if (json != null && json.length()>0) {
-                    SpiderDebug.log("多仓", "接口json：\n"+json);
+                    if (!json.startsWith("{") && !json.startsWith("[")) {
+                        SpiderDebug.log("Console", "接口加载异常：\n"+json);
+                        App.post(() -> callback.onError("接口加载异常："+json));
+                        return;
+                    }
                     com.google.gson.JsonObject object = Json.parse(json).getAsJsonObject();
                     List<Site> sites = new ArrayList<>();
                     // 先 spider
