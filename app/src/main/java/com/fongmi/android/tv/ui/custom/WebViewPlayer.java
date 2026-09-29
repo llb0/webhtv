@@ -38,20 +38,48 @@ public class WebViewPlayer {
     private static final String DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             + "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
  
+    /**
+     * Injected after page load to make the {@code <video>} element fill the whole
+     * WebView (fixed positioning + highest z-index) and autoplay, so the user
+     * sees fullscreen video instead of the surrounding page chrome.
+     */
+    private static final String FULLSCREEN_VIDEO_JS = "(function(){"
+            + "function f(v){if(!v||v._wvfs)return;v._wvfs=1;"
+            + "v.style.cssText='position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;"
+            + "max-width:100%!important;max-height:100%!important;object-fit:contain!important;z-index:2147483647!important;background:#000!important;';"
+            + "try{v.setAttribute('playsinline','');v.play()}catch(e){}"
+            + "var r=v.requestFullscreen||v.webkitRequestFullscreen||v.webkitEnterFullscreen||v.msRequestFullscreen;"
+            + "if(r){try{r.call(v)}catch(e){}}"
+            + "}"
+            + "function s(){var a=document.querySelectorAll('video');for(var i=0;i<a.length;i++)f(a[i]);return a.length>0}"
+            + "if(!s()){var n=0,t=setInterval(function(){if(s()||++n>40)clearInterval(t)},300)}"
+            + "document.addEventListener('DOMNodeInserted',function(e){"
+            + "if(e.target&&e.target.tagName==='VIDEO')f(e.target);"
+            + "else if(e.target&&e.target.querySelectorAll){var a=e.target.querySelectorAll('video');for(var i=0;i<a.length;i++)f(a[i])}"
+            + "});"
+            + "})()";
+ 
     private WebView webView;
     private ViewGroup container;
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
     private Activity activity;
+    private View.OnTouchListener touchListener;
  
-    @SuppressLint("SetJavaScriptEnabled")
     public void attach(Activity activity, ViewGroup container, String url) {
+        attach(activity, container, url, null);
+    }
+  
+    @SuppressLint("SetJavaScriptEnabled")
+    public void attach(Activity activity, ViewGroup container, String url, View.OnTouchListener touchListener) {
         detach();
         this.activity = activity;
         this.container = container;
+        this.touchListener = touchListener;
  
         webView = new WebView(activity);
         webView.setBackgroundColor(0xFF000000);
+        if (touchListener != null) webView.setOnTouchListener(touchListener);
  
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -72,6 +100,12 @@ public class WebViewPlayer {
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.proceed();
+            }
+ 
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
             }
  
             @Override
@@ -169,5 +203,6 @@ public class WebViewPlayer {
         }
         container = null;
         activity = null;
+        touchListener = null;
     }
 }
