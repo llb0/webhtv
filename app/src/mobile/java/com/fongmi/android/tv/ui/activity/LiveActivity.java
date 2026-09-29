@@ -1241,7 +1241,19 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             player().clear();
         }
         hideProgress();
-        mWebViewPlayer.attach(this, mBinding.video, url);
+        View.OnTouchListener webTouchListener = (v, e) -> {
+            mKeyDown.onTouchEvent(e);
+            return false;
+        };
+        mWebViewPlayer.attach(this, mBinding.video, url, webTouchListener);
+        bringOverlaysToFront();
+    }
+ 
+    private void bringOverlaysToFront() {
+        if (mBinding.widget != null) mBinding.widget.getRoot().bringToFront();
+        if (mBinding.control != null) mBinding.control.getRoot().bringToFront();
+        if (mBinding.progress != null) mBinding.progress.getRoot().bringToFront();
+        if (mBinding.osd != null) mBinding.osd.getRoot().bringToFront();
     }
  
     private boolean isSameReloadUrl(String realUrl) {
