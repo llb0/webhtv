@@ -114,6 +114,12 @@ final class MultiRepoFetcher {
         if (TextUtils.isEmpty(content)) return result;
         try {
             String trimmed = content.trim();
+            // 清除BOM头
+            if (trimmed.startsWith("\uFEFF")) {
+                trimmed = trimmed.substring(1);
+            }
+            // 提取主体JSON，剔除前后HTML/无关文本
+            trimmed = extractInnerJson(trimmed);
             Set<String> urlUniqueSet = new HashSet<>();
             if (trimmed.startsWith("{")) {
                 // 判断是否存在多个对象拼接（} 后面空白字符，然后 {）
@@ -156,6 +162,32 @@ final class MultiRepoFetcher {
         } catch (Throwable ignored) {
         }
         return result;
+    }
+
+    /**
+     * 提取文本中第一个完整的{} JSON对象，剔除前后无关垃圾字符（html、文本等）
+     * @param raw 原始粘贴文本
+     * @return 截取后的完整json字符串；找不到返回原文本
+     */
+    private static String extractInnerJson(String raw) {
+        int start = raw.indexOf('{');
+        if (start == -1) return raw;
+        int count = 0;
+        int end = -1;
+        for (int i = start; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == '{') {
+                count++;
+            } else if (c == '}') {
+                count--;
+                if (count == 0) {
+                    end = i;
+                    break;
+                }
+            }
+        }
+        if (end == -1) return raw;
+        return raw.substring(start, end + 1);
     }
 
     /**
