@@ -151,6 +151,7 @@ public final class DiagnosticLogBuffer implements AutoCloseable {
         DiagnosticText.Clean clean = DiagnosticText.clean(message);
         String safeTag = DiagnosticText.clean(tag == null ? "Debug" : tag).text().replace(':', '_').replace('[', '_').replace(']', '_');
         if (safeTag.length() > 64) safeTag = safeTag.substring(0, 64);
+        if (safeTag.startsWith("env.native") || safeTag.startsWith("diag.session.begin")) return;
         // Reserve the structured tag; arbitrary Spider/native text cannot impersonate events.
         if ("av-diag".equals(safeTag)) safeTag = "legacy-av-diag";
         offer(safeTag, clean.text(), null, critical, false, captured, sourceSeq, clean.truncated(), DiagnosticText.origins(message), epoch);
