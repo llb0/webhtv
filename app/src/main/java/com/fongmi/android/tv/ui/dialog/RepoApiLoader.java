@@ -42,8 +42,8 @@ final class RepoApiLoader {
                 String json = Decoder.getJson(url, TAG);
                 if (json != null && json.length()>0) {
                     if (!json.startsWith("{") && !json.startsWith("[") && !json.startsWith("/")) {
-                        SpiderDebug.log("多仓", "接口格式错误：\n"+json);
-                        App.post(() -> callback.onError("格式错误："+json));
+                        SpiderDebug.log("多仓", "接口加载失败：\n"+json);
+                        App.post(() -> callback.onError("加载失败："+json));
                         return;
                     }
                     com.google.gson.JsonObject object = Json.parse(json).getAsJsonObject();
