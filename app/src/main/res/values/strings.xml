@@ -1614,6 +1614,8 @@
     <string name="multi_repo_manage_title">Repo Management</string>
     <string name="multi_repo_add">Add Repo</string>
     <string name="multi_repo_add_title">Add Repo Source</string>
+    <string name="copied_repo_url">Repo link copied to clipboard: %s</string>
+    <string name="empty_url_tip">Repo link is empty</string>
     <string name="multi_repo_name">Repo Name</string>
     <string name="multi_repo_url">Repo URL</string>
     <string name="multi_repo_name_hint">Enter repo name…</string>

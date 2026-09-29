@@ -1590,6 +1590,8 @@
     <string name="multi_repo_manage_title">接口倉庫維護</string>
     <string name="multi_repo_add">新增倉庫</string>
     <string name="multi_repo_add_title">增加接口倉庫</string>
+    <string name="copied_repo_url">已複製倉庫連結到剪貼簿：%s</string>
+    <string name="empty_url_tip">倉庫連結為空</string>
     <string name="multi_repo_name">倉庫名稱</string>
     <string name="multi_repo_url">倉庫連結</string>
     <string name="multi_repo_name_hint">輸入倉庫名稱…</string>

@@ -1606,6 +1606,8 @@
     <string name="multi_repo_manage_title">接口仓库维护</string>
     <string name="multi_repo_add">新增仓库</string>
     <string name="multi_repo_add_title">增加接口仓库</string>
+    <string name="copied_repo_url">已复制仓库链接到剪贴板：%s</string>
+    <string name="empty_url_tip">仓库链接为空</string>
     <string name="multi_repo_name">仓库名称</string>
     <string name="multi_repo_url">仓库链接</string>
     <string name="multi_repo_name_hint">输入仓库名称…</string>

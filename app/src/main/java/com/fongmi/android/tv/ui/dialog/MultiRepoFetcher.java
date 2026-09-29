@@ -16,7 +16,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
  
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
  
 import okhttp3.Request;
 import okhttp3.Response;
@@ -112,16 +114,55 @@ final class MultiRepoFetcher {
         if (TextUtils.isEmpty(content)) return result;
         try {
             String trimmed = content.trim();
+            // 清除BOM头
+            if (trimmed.startsWith("\uFEFF")) {
+                trimmed = trimmed.substring(1);
+            }
+            // 提取主体JSON，剔除前后HTML/无关文本
+            boolean quickMatch = false;
+            if (trimmed.length() > 2) {
+                 int lastValidIdx = trimmed.length() - 1;
+                 // 向前跳过末尾空白字符
+                 while (lastValidIdx >= 0 && Character.isWhitespace(trimmed.charAt(lastValidIdx))) {
+                     lastValidIdx--;
+                 }
+                 if (lastValidIdx > 0) {
+                     char first = trimmed.charAt(0);
+                     char last = trimmed.charAt(lastValidIdx);
+                     if ((first == '{' && last == '}') || (first == '[' && last == ']')) {
+                         quickMatch = true;
+                     }
+                 }
+            }
+            if (!quickMatch) {
+                 int idxBrace = trimmed.indexOf('{');
+                 int idxBracket = trimmed.indexOf('[');
+                 if (idxBracket != -1 && (idxBrace == -1 || idxBracket < idxBrace)) {
+                     trimmed = extractInnerJsonBlock(trimmed, '[', ']');
+                 } else {
+                     trimmed = extractInnerJsonBlock(trimmed, '{', '}');
+                 }
+            }
+            Set<String> urlUniqueSet = new HashSet<>();
             if (trimmed.startsWith("{")) {
-                com.google.gson.JsonObject obj = Json.parse(trimmed).getAsJsonObject();
-                if (obj.has("urls")) {
-                    result.addAll(Depot.arrayFrom(obj.getAsJsonArray("urls").toString()));
-                } else if (obj.has("name") && obj.has("url")) {
-                    Depot single = App.gson().fromJson(obj.toString(), Depot.class);
-                    if (single != null && !TextUtils.isEmpty(single.getUrl())) result.add(single);
+                // 判断是否存在多个对象拼接（} 后面空白字符，然后 {）
+                if (hasConcatJsonObject(trimmed)) {
+                    String fixedStr = fixConcatJsonObject(trimmed);
+                    com.google.gson.JsonArray arr = Json.parse(fixedStr).getAsJsonArray();
+                    for (com.google.gson.JsonElement item : arr) {
+                        if (!item.isJsonObject()) continue;
+                        com.google.gson.JsonObject obj = item.getAsJsonObject();
+                        addDepotFromJsonObj(obj, result, urlUniqueSet);
+                    }
+                } else {
+                    com.google.gson.JsonObject obj = Json.parse(trimmed).getAsJsonObject();
+                    addDepotFromJsonObj(obj, result, urlUniqueSet);
                 }
             } else if (trimmed.startsWith("[")) {
-                result.addAll(Depot.arrayFrom(trimmed));
+                List<Depot> tempList = Depot.arrayFrom(trimmed);
+                for (Depot depot : tempList) {
+                    addDepot(depot, result, urlUniqueSet);
+                }
             } else {
                 // 文本格式 name,url
                 JsonArray arr = new JsonArray();
@@ -144,6 +185,103 @@ final class MultiRepoFetcher {
         } catch (Throwable ignored) {
         }
         return result;
+    }
+
+    /**
+     * 提取文本中第一个成对括号包裹的JSON块，剔除前后无关垃圾字符
+     * @param raw 原始文本
+     * @param open 起始字符 '{' 或 '['
+     * @param close 闭合字符 '}' 或 ']'
+     * @return 截取后的完整json字符串；找不到返回原文本
+     */
+    private static String extractInnerJsonBlock(String raw, char open, char close) {
+        int start = raw.indexOf(open);
+        if (start == -1) return raw;
+        int count = 0;
+        int end = -1;
+        for (int i = start; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == open) {
+                count++;
+            } else if (c == close) {
+                count--;
+                if (count == 0) {
+                    end = i;
+                    break;
+                }
+            }
+        }
+        if (end == -1) return raw;
+        return raw.substring(start, end + 1);
+    }
+
+    /**
+     * 检查是否存在：} + 任意空白字符 + {，代表多个json对象拼接
+     */
+    private static boolean hasConcatJsonObject(String raw) {
+        int len = raw.length();
+        for (int i = 0; i < len; i++) {
+            if (raw.charAt(i) == '}') {
+                int j = i + 1;
+                // 跳过所有空白字符 空格 \n \r \t
+                while (j < len && Character.isWhitespace(raw.charAt(j))) {
+                    j++;
+                }
+                if (j < len && raw.charAt(j) == '{') {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 修复多对象拼接：}{中间有空白的情况，转为 },{
+     */
+    private static String fixConcatJsonObject(String raw) {
+        StringBuilder sb = new StringBuilder();
+        int len = raw.length();
+        for (int i = 0; i < len; i++) {
+            char c = raw.charAt(i);
+            sb.append(c);
+            if (c == '}') {
+                int j = i + 1;
+                while (j < len && Character.isWhitespace(raw.charAt(j))) {
+                    j++;
+                }
+                if (j < len && raw.charAt(j) == '{') {
+                    sb.append(',');
+                }
+            }
+        }
+        return "[" + sb + "]";
+    }
+    
+    /**
+     * 解析单个JsonObject，两种结构：{urls:[...]} 或者单条 {name,url}
+     */
+    private static void addDepotFromJsonObj(com.google.gson.JsonObject obj, List<Depot> result, Set<String> urlUniqueSet) {
+        if (obj.has("urls")) {
+            List<Depot> list = Depot.arrayFrom(obj.getAsJsonArray("urls").toString());
+            for (Depot depot : list) {
+                addDepot(depot, result, urlUniqueSet);
+            }
+        } else if (obj.has("name") && obj.has("url")) {
+            Depot single = App.gson().fromJson(obj.toString(), Depot.class);
+            addDepot(single, result, urlUniqueSet);
+        }
+    }
+    
+    /**
+     * 添加Depot，URL去重，过滤空url
+     */
+    private static void addDepot(Depot depot, List<Depot> result, Set<String> urlUniqueSet) {
+        if (depot == null || TextUtils.isEmpty(depot.getUrl())) return;
+        String url = depot.getUrl().trim();
+        if (!urlUniqueSet.contains(url)) {
+            urlUniqueSet.add(url);
+            result.add(depot);
+        }
     }
  
     public static class RepoResult {

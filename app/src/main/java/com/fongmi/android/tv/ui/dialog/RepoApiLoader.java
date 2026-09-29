@@ -10,6 +10,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.Depot;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.utils.Task;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Json;
  
@@ -39,16 +40,23 @@ final class RepoApiLoader {
             }
             try {
                 String json = Decoder.getJson(url, TAG);
-                com.google.gson.JsonObject object = Json.parse(json).getAsJsonObject();
-                List<Site> sites = new ArrayList<>();
-                // 先 spider
-                String spider = Json.safeString(object, "spider");
-                sites.addAll(Json.safeListElement(object, "sites").stream().map(e -> Site.objectFrom(e, spider)).toList());
-                if (sites.isEmpty()) {
-                    App.post(() -> callback.onError("接口站点列表为空"));
-                    return;
+                if (json != null && json.length()>0) {
+                    if (!json.startsWith("{") && !json.startsWith("[") && !json.startsWith("/")) {
+                        SpiderDebug.log("spider", "多仓接口加载异常：\n"+json);
+                        App.post(() -> callback.onError("加载异常："+json));
+                        return;
+                    }
+                    com.google.gson.JsonObject object = Json.parse(json).getAsJsonObject();
+                    List<Site> sites = new ArrayList<>();
+                    // 先 spider
+                    String spider = Json.safeString(object, "spider");
+                    sites.addAll(Json.safeListElement(object, "sites").stream().map(e -> Site.objectFrom(e, spider)).toList());
+                    if (sites.isEmpty()) {
+                        App.post(() -> callback.onError("接口站点列表为空"));
+                        return;
+                    }
+                    App.post(() -> callback.onSuccess(sites));
                 }
-                App.post(() -> callback.onSuccess(sites));
             } catch (Throwable e) {
                 App.post(() -> callback.onError("接口加载异常: " + e.getMessage()));
             }
