@@ -42,8 +42,8 @@ final class RepoApiLoader {
                 String json = Decoder.getJson(url, TAG);
                 if (json != null && json.length()>0) {
                     if (!json.startsWith("{") && !json.startsWith("[") && !json.startsWith("/")) {
-                        SpiderDebug.log("spider", "多仓接口加载异常：\n"+json);
-                        App.post(() -> callback.onError("加载异常："+json));
+                        SpiderDebug.log("多仓", "接口加载失败：\n"+json);
+                        App.post(() -> callback.onError("加载失败："+json));
                         return;
                     }
                     com.google.gson.JsonObject object = Json.parse(json).getAsJsonObject();
@@ -58,7 +58,8 @@ final class RepoApiLoader {
                     App.post(() -> callback.onSuccess(sites));
                 }
             } catch (Throwable e) {
-                App.post(() -> callback.onError("接口加载异常: " + e.getMessage()));
+                SpiderDebug.log("多仓", "接口加载异常：\n"+e.getMessage());
+                App.post(() -> callback.onError("加载异常: " + e.getMessage()));
             }
         });
     }
