@@ -1,10 +1,14 @@
 package com.fongmi.android.tv.ui.dialog;
 
 import android.app.Dialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -23,6 +27,7 @@ import androidx.fragment.app.FragmentActivity;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.MultiRepo;
 import com.fongmi.android.tv.setting.MultiRepoStore;
+import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textview.MaterialTextView;
@@ -207,7 +212,15 @@ public class MultiRepoManageDialog extends DialogFragment {
             }
         });
         nameBtn.setOnClickListener(v -> {
-            // 点击仓库行也没什么动作（只做维护）
+            String url = repo.getUrl();
+            if (TextUtils.isEmpty(url)) {
+                Notify.show(R.string.empty_url_tip);
+                return;
+            }
+            ClipboardManager clipboard = (ClipboardManager) v.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("repo_url", url);
+            clipboard.setPrimaryClip(clip);
+            Notify.show(getString(R.string.copied_repo_url, url));
         });
 
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
