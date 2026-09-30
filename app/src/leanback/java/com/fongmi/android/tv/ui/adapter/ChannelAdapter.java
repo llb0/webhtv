@@ -72,7 +72,7 @@ public class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHold
         holder.binding.epg.setText(epg);
         holder.binding.epg.setVisibility(epg.isEmpty() ? View.GONE : View.VISIBLE);
         holder.binding.getRoot().setSelected(item.isSelected());
-        holder.binding.getRoot().setRightListener(() -> mListener.showEpg(item));
+        holder.binding.program.setOnClickListener(v -> mListener.showEpg(item));
         holder.binding.getRoot().setOnClickListener(v -> mListener.onItemClick(item));
         holder.binding.getRoot().setOnLongClickListener(v -> mListener.onLongClick(item));
     }
