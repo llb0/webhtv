@@ -1,12 +1,11 @@
 package com.fongmi.android.tv.ui.custom;
- 
+
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.pm.ActivityInfo;
 import android.net.http.SslError;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
@@ -18,30 +17,21 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
- 
+
 import com.github.catvod.crawler.SpiderDebug;
- 
+
 /**
  * Fullscreen WebView playback helper for {@code webview://} live channels.
- *
- * <p>Used for sites whose stream cannot be played by native players (e.g.
- * yangshipin.cn, which uses CMG encryption). The page's own player handles
- * decryption via WebAssembly inside the WebView.</p>
- *
- * <p>Usage: call {@link #attach(Activity, ViewGroup, String)} to overlay a
- * WebView on top of the video container, and {@link #detach()} when the channel
- * changes or the activity is destroyed.</p>
+ * 回退稳定版本，移除JS桥；央视导航使用实测DOM选择器，延时执行隐藏
  */
 public class WebViewPlayer {
- 
+
     private static final String TAG = "WebViewPlayer";
     private static final String DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             + "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
- 
+
     /**
-     * Injected after page load to make the {@code <video>} element fill the whole
-     * WebView (fixed positioning + highest z-index) and autoplay, so the user
-     * sees fullscreen video instead of the surrounding page chrome.
+     * 原版全屏JS，不动
      */
     private static final String FULLSCREEN_VIDEO_JS = "(function(){"
             + "function f(v){if(!v||v._wvfs)return;v._wvfs=1;"
@@ -58,32 +48,44 @@ public class WebViewPlayer {
             + "else if(e.target&&e.target.querySelectorAll){var a=e.target.querySelectorAll('video');for(var i=0;i<a.length;i++)f(a[i])}"
             + "});"
             + "})()";
- 
+
+    /**
+     * 实测抓取 tv.cctv.com 直播页面DOM，精准隐藏顶部导航，避开.player-box播放器
+     */
+    private static final String CCTV_HIDE_HEADER_JS = "(function(){"
+            + "var selectors=[\".header\",\".header-top\",\".header-nav\",\".banner-box\",\".top-fixed\"];"
+            + "selectors.forEach(function(sel){"
+            + "var el=document.querySelector(sel);if(el)el.style.display='none';"
+            + "});"
+            + "})()";
+
     private WebView webView;
     private ViewGroup container;
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
     private Activity activity;
     private View.OnTouchListener touchListener;
- 
+    private boolean alreadyTriggerClick;
+
     public void attach(Activity activity, ViewGroup container, String url) {
         attach(activity, container, url, null);
     }
-  
-    @SuppressLint("SetJavaScriptEnabled")
+
+    @SuppressLint({"SetJavaScriptEnabled"})
     public void attach(Activity activity, ViewGroup container, String url, View.OnTouchListener touchListener) {
         detach();
         this.activity = activity;
         this.container = container;
         this.touchListener = touchListener;
- 
+        alreadyTriggerClick = false;
+
         webView = new WebView(activity);
         webView.setBackgroundColor(0xFF000000);
         if (touchListener != null) webView.setOnTouchListener(touchListener);
- 
+
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
- 
+
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -95,19 +97,39 @@ public class WebViewPlayer {
         s.setUseWideViewPort(true);
         s.setSupportZoom(false);
         s.setDisplayZoomControls(false);
- 
+
         webView.setWebViewClient(new WebViewClient() {
+            private String currentUrl;
+
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                currentUrl = url;
+                alreadyTriggerClick = false;
+                //加载黑屏
+                view.evaluateJavascript("(function(){document.body.style.background='#000';document.documentElement.style.background='#000';})()", null);
+            }
+
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.proceed();
             }
- 
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
+
+                // ==========重点改动==========
+                // 央视页面：延迟1200ms再执行隐藏脚本，等待JS动态渲染导航DOM
+                if (url.contains("tv.cctv.com") || url.contains("cctv.com")) {
+                    webView.postDelayed(() -> view.evaluateJavascript(CCTV_HIDE_HEADER_JS, null),1200);
+                }
+
+                // 模拟点击：2000ms，留给播放器控件渲染
+                webView.postDelayed(() -> simulateClick(), 2000);
             }
- 
+
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
@@ -115,14 +137,14 @@ public class WebViewPlayer {
                         request.isForMainFrame(), error.getErrorCode(), error.getDescription(), request.getUrl());
             }
         });
- 
+
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onConsoleMessage(ConsoleMessage cm) {
                 SpiderDebug.log(TAG, "console: %s", cm == null ? "" : cm.message());
                 return super.onConsoleMessage(cm);
             }
- 
+
             @Override
             public void onShowCustomView(View view, CustomViewCallback callback) {
                 if (customView != null) {
@@ -136,7 +158,7 @@ public class WebViewPlayer {
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                 if (webView != null) webView.setVisibility(View.GONE);
             }
- 
+
             @Override
             public void onHideCustomView() {
                 if (customView == null) return;
@@ -147,38 +169,67 @@ public class WebViewPlayer {
                 customViewCallback = null;
                 if (webView != null) webView.setVisibility(View.VISIBLE);
             }
- 
+
             @Override
             public void onPermissionRequest(PermissionRequest request) {
                 request.grant(request.getResources());
             }
         });
- 
+
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         container.addView(webView, lp);
- 
+
         webView.onResume();
         webView.loadUrl(url);
         SpiderDebug.log(TAG, "loading %s", url);
     }
- 
+
+    private void simulateClick() {
+        if (alreadyTriggerClick) return;
+        alreadyTriggerClick = true;
+
+        View targetView;
+        if (customView != null) {
+            targetView = customView;
+        } else {
+            targetView = webView;
+        }
+
+        if (targetView == null || targetView.getWidth() <= 0 || targetView.getHeight() <= 0) {
+            SpiderDebug.log(TAG, "simulate click skip, view size invalid");
+            return;
+        }
+
+        int x = targetView.getWidth() / 2;
+        int y = (int) (targetView.getHeight() * 0.75f);
+
+        long downTime = System.currentTimeMillis();
+        MotionEvent down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0);
+        MotionEvent up = MotionEvent.obtain(downTime, downTime + 100, MotionEvent.ACTION_UP, x, y, 0);
+        targetView.dispatchTouchEvent(down);
+        targetView.dispatchTouchEvent(up);
+        down.recycle();
+        up.recycle();
+        SpiderDebug.log(TAG, "simulate click target=%s x=%d y=%d", customView != null ? "customView" : "webView", x, y);
+    }
+
     public void onResume() {
         if (webView != null) webView.onResume();
     }
- 
+
     public void onPause() {
         if (webView != null) webView.onPause();
     }
- 
+
     public boolean canGoBack() {
         return webView != null && webView.canGoBack();
     }
- 
+
     public void goBack() {
         if (webView != null) webView.goBack();
     }
- 
+
     public void detach() {
         if (customView != null) {
             FrameLayout decor = activity != null ? (FrameLayout) activity.getWindow().getDecorView() : null;
