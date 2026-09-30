@@ -99,8 +99,8 @@ public class WebViewPlayer {
             + "})()";
 
     // 硬编码延时：央视频500ms，其他1000ms
-    private static final int DELAY_CCTV = 1500;
-    private static final int DELAY_OTHER = 2000;
+    private static final int DELAY_CCTV = 500;
+    private static final int DELAY_OTHER = 1000;
 
     private WebView activeWebView;
     private WebView idleWebView;
@@ -217,7 +217,7 @@ public class WebViewPlayer {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if ("about:blank".equals(url)) return;
-                if (url.contains("tv.cctv.com")) {
+                if (url.contains("tv.cctv.com") || url.contains("yangshipin.cn")) {
                     view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
                 } else {
                     view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
