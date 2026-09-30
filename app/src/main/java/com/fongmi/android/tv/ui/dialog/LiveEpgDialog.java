@@ -65,6 +65,7 @@ public class LiveEpgDialog extends BaseBottomSheetDialog implements LiveEpgAdapt
         binding.recycler.setHasFixedSize(false);
         binding.recycler.setItemAnimator(null);
         binding.recycler.setAdapter(adapter = new LiveEpgAdapter(this));
+        binding.input.requestFocus();
     }
 
     @Override
