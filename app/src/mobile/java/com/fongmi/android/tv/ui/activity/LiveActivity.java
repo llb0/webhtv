@@ -1178,6 +1178,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void setEpg(boolean success) {
+        if (success) mChannelAdapter.notifyDataSetChanged();
         if (mChannel != null && success)
             mViewModel.getEpg(mChannel);
     }
