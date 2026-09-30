@@ -88,6 +88,12 @@ public class WebViewPlayer {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowContentAccess(true);
+        // 启用WebAssembly（央视频解密核心依赖，很多AOSP开发版webview默认关闭）
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
+        // 缓存策略
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setUserAgentString(DESKTOP_UA);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
@@ -150,7 +156,19 @@ public class WebViewPlayer {
  
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                request.grant(request.getResources());
+                String[] resources = request.getResources();
+                // 只允许媒体相关，过滤摄像头麦克风等无关权限
+                String[] allow = {"android.webkit.resource.VIDEO_CAPTURE", "android.webkit.resource.AUDIO_CAPTURE"};
+                boolean needGrant = false;
+                for (String res : resources) {
+                    if (res.equals(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID)) {
+                        // 重点：PROTECTED_MEDIA_ID 就是Widevine受保护媒体密钥请求
+                        needGrant = true;
+                        break;
+                    }
+                }
+                if (needGrant) request.grant(request.getResources());
+                else request.deny();
             }
         });
  
