@@ -85,7 +85,7 @@ public class WebViewPlayer {
     private static final String FULLSCREEN_VIDEO_JS = "(function(){"
             + "function f(v){if(!v||v._wvfs)return;v._wvfs=1;"
             + "v.style.cssText='position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;"
-            + "max-width:100%!important;max-height:100%!important;object-fit:contain!important;z-index:2147483647!important;background:#000!important;';"
+            + "max-width:100%!important;max-height:100%!important;object-fit:contain!important;z-index:2147483647!important;';"
             + "try{v.setAttribute('playsinline','');v.play()}catch(e){}"
             + "var r=v.requestFullscreen||v.webkitRequestFullscreen||v.webkitEnterFullscreen||v.msRequestFullscreen;"
             + "if(r){try{r.call(v)}catch(e){}}"
@@ -138,18 +138,20 @@ public class WebViewPlayer {
             activeWebView.loadUrl(url);
             SpiderDebug.log(TAG, "first load: %s", url);
         } else {
-            // 上层再次调用attach，触发后台idle预加载轮换，完全不改动上层调用
             if (isChanging || activity == null || container == null) return;
             isChanging = true;
             SpiderDebug.log(TAG, "preload next url: %s", url);
-
+            if (idleWebView != null) {
+                destroyWebView(idleWebView);
+                idleWebView = null;
+            }
             idleWebView = createWebViewInstance(activity);
             if (touchListener != null) idleWebView.setOnTouchListener(touchListener);
 
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            idleWebView.setVisibility(View.GONE);
             container.addView(idleWebView, lp);
-            idleWebView.setVisibility(View.INVISIBLE);
             idleWebView.onResume();
             idleWebView.loadUrl(url);
 
@@ -166,6 +168,7 @@ public class WebViewPlayer {
                 idleWebView = null;
 
                 activeWebView.setVisibility(View.VISIBLE);
+                oldWeb.setVisibility(View.GONE);
                 destroyWebView(oldWeb);
                 isChanging = false;
             }, delay);
@@ -176,6 +179,7 @@ public class WebViewPlayer {
     private WebView createWebViewInstance(Activity ctx) {
         WebView webView = new WebView(ctx);
         webView.setBackgroundColor(0xFF000000);
+        webView.setFocusable(false);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -192,6 +196,7 @@ public class WebViewPlayer {
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
         s.setSupportZoom(false);
+        s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setLoadsImagesAutomatically(false);
         s.setBlockNetworkImage(true);
