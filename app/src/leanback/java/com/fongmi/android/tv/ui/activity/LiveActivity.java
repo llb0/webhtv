@@ -814,6 +814,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void setEpg(boolean success) {
+        if (success) mChannelAdapter.notifyDataSetChanged();
         if (mChannel != null && success) mViewModel.getEpg(mChannel);
     }
 
