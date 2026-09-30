@@ -216,7 +216,7 @@ public class WebViewPlayer {
                     view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
                 } else {
                     view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
-                    if (url.contains("miguvideo.com")) webView.postDelayed(() -> simulateClick(), 3000);
+                    if (url.contains("miguvideo.com")) webView.postDelayed(() -> simulateClick(webView), 3000);
                 }
                 SpiderDebug.log(TAG, "onPageFinished %s", url);
             }
@@ -269,7 +269,7 @@ public class WebViewPlayer {
         return webView;
     }
 
-    private void simulateClick() {
+    private void simulateClick(WebView webView) {
         View targetView;
         if (customView != null) {
             targetView = customView;
