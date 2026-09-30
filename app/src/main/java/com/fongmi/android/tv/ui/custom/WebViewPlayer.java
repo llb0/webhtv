@@ -6,6 +6,7 @@ import android.graphics.Bitmap;
 import android.net.http.SslError;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.ConsoleMessage;
@@ -30,7 +31,7 @@ import com.github.catvod.crawler.SpiderDebug;
  * <p>Usage: call {@link #attach(Activity, ViewGroup, String)} to overlay a
  * WebView on top of the video container, and {@link #detach()} when the channel
  * changes or the activity is destroyed.</p>
- * <p>内置双WebView轮换，上层调用完全不变；完整复用参考版onPageStarted清理JS、onPageFinished AutoFullscreen、硬编码延时；系统WebView，无X5</p>
+ * <p>内置双WebView轮换，onPageStarted清理JS、onPageFinished AutoFullscreen、硬编码延时；系统WebView，无X5</p>
  */
 public class WebViewPlayer {
 
@@ -80,6 +81,22 @@ public class WebViewPlayer {
             }
             AutoFullscreen();
             """;
+
+    private static final String FULLSCREEN_VIDEO_JS = "(function(){"
+            + "function f(v){if(!v||v._wvfs)return;v._wvfs=1;"
+            + "v.style.cssText='position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;"
+            + "max-width:100%!important;max-height:100%!important;object-fit:contain!important;z-index:2147483647!important;background:#000!important;';"
+            + "try{v.setAttribute('playsinline','');v.play()}catch(e){}"
+            + "var r=v.requestFullscreen||v.webkitRequestFullscreen||v.webkitEnterFullscreen||v.msRequestFullscreen;"
+            + "if(r){try{r.call(v)}catch(e){}}"
+            + "}"
+            + "function s(){var a=document.querySelectorAll('video');for(var i=0;i<a.length;i++)f(a[i]);return a.length>0}"
+            + "if(!s()){var n=0,t=setInterval(function(){if(s()||++n>40)clearInterval(t)},300)}"
+            + "document.addEventListener('DOMNodeInserted',function(e){"
+            + "if(e.target&&e.target.tagName==='VIDEO')f(e.target);"
+            + "else if(e.target&&e.target.querySelectorAll){var a=e.target.querySelectorAll('video');for(var i=0;i<a.length;i++)f(a[i])}"
+            + "});"
+            + "})()";
 
     // 硬编码延时：央视频500ms，其他1000ms
     private static final int DELAY_CCTV = 500;
@@ -195,7 +212,12 @@ public class WebViewPlayer {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if ("about:blank".equals(url)) return;
-                view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
+                if (url.contains("tv.cctv.com")) {
+                    view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
+                } else {
+                    view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
+                    if (url.contains("miguvideo.com")) webView.postDelayed(() -> simulateClick(), 3000);
+                }
                 SpiderDebug.log(TAG, "onPageFinished %s", url);
             }
 
@@ -245,6 +267,32 @@ public class WebViewPlayer {
             }
         });
         return webView;
+    }
+
+    private void simulateClick() {
+        View targetView;
+        if (customView != null) {
+            targetView = customView;
+        } else {
+            targetView = webView;
+        }
+
+        if (targetView == null || targetView.getWidth() <= 0 || targetView.getHeight() <= 0) {
+            SpiderDebug.log(TAG, "simulate click skip, view size invalid");
+            return;
+        }
+
+        int x = targetView.getWidth() / 2;
+        int y = (int) (targetView.getHeight() * 0.75f);
+
+        long downTime = System.currentTimeMillis();
+        MotionEvent down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0);
+        MotionEvent up = MotionEvent.obtain(downTime, downTime + 100, MotionEvent.ACTION_UP, x, y, 0);
+        targetView.dispatchTouchEvent(down);
+        targetView.dispatchTouchEvent(up);
+        down.recycle();
+        up.recycle();
+        SpiderDebug.log(TAG, "simulate click target=%s x=%d y=%d", customView != null ? "customView" : "webView", x, y);
     }
 
     private void destroyWebView(WebView wv) {
