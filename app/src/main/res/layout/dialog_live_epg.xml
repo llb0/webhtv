@@ -32,10 +32,13 @@
                 android:id="@+id/clear"
                 android:layout_width="54dp"
                 android:layout_height="match_parent"
-                android:background="@null"
+                android:background="@drawable/selector_control_sheet_button"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
                 android:gravity="center_vertical"
+                android:nextFocusRight="@id/add"
                 android:text="@string/live_epg_follow"
-                android:textColor="@color/white_70"
+                android:textColor="@color/selector_control_sheet_text"
                 android:textSize="14sp" />
 
             <com.google.android.material.textview.MaterialTextView
@@ -55,14 +58,48 @@
                 android:id="@+id/add"
                 android:layout_width="54dp"
                 android:layout_height="match_parent"
-                android:background="@null"
+                android:background="@drawable/selector_control_sheet_button"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
                 android:gravity="center_vertical|end"
+                android:nextFocusLeft="@id/clear"
                 android:text="@string/live_epg_apply"
-                android:textColor="@color/white_70"
+                android:textColor="@color/selector_control_sheet_text"
                 android:textSize="14sp" />
 
         </androidx.appcompat.widget.LinearLayoutCompat>
 
+        <androidx.appcompat.widget.LinearLayoutCompat
+            android:id="@+id/qrSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="7dp"
+            android:orientation="horizontal"
+            android:visibility="gone">
+ 
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/code"
+                android:layout_width="150dp"
+                android:layout_height="150dp"
+                android:scaleType="centerCrop" />
+ 
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/info"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:lineSpacingExtra="4dp"
+                android:maxLines="3"
+                android:textColor="@color/white_80"
+                android:textSize="14sp"
+                tools:text="@string/push_info" />
+ 
+        </androidx.appcompat.widget.LinearLayoutCompat>
+ 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/input"
             android:layout_width="match_parent"
@@ -70,6 +107,8 @@
             android:layout_marginTop="10dp"
             android:layout_marginEnd="7dp"
             android:background="@drawable/shape_dialog_glass_input"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
             android:hint="@string/live_epg_hint"
             android:imeOptions="actionDone"
             android:inputType="textUri"
