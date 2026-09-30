@@ -58,6 +58,7 @@ import com.fongmi.android.tv.ui.custom.CustomKeyDownLive;
 import com.fongmi.android.tv.ui.custom.CustomLiveListView;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
+import com.fongmi.android.tv.ui.custom.WebViewPlayer;
 import com.fongmi.android.tv.ui.dialog.HistoryDialog;
 import com.fongmi.android.tv.ui.dialog.LiveDialog;
 import com.fongmi.android.tv.ui.dialog.PassDialog;
@@ -95,6 +96,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private Channel mChannel;
     private View mOldView;
     private Group mGroup;
+    private WebViewPlayer mWebViewPlayer;
     private Runnable mR0;
     private Runnable mR1;
     private Runnable mR2;
@@ -186,6 +188,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
             }
         }, 14f);
         setVideoView();
+        mWebViewPlayer = new WebViewPlayer();
         setViewModel();
     }
 
@@ -818,6 +821,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (mChannel == null) return;
         playbackCatchup = true;
         mViewModel.getUrl(mChannel, item);
+        mWebViewPlayer.detach();
         player().clear();
         player().stop();
         hideUI();
@@ -828,6 +832,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         playbackCatchup = false;
         LiveConfig.get().setKeep(mChannel);
         mViewModel.getUrl(mChannel);
+        mWebViewPlayer.detach();
         player().clear();
         player().stop();
         showProgress();
@@ -843,10 +848,36 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         }
         clearPendingReload();
         mPlaybackKey = realUrl;
+        if (isWebViewChannel()) {
+            startWebView(realUrl);
+            return;
+        }
+        mWebViewPlayer.detach();
         startPlayer(mPlaybackKey, result, false, getHome().getTimeout(), buildMetadata());
         mBinding.control.action.speed.setText(player().setSpeed(playbackCatchup ? PlayerSetting.getDefaultSpeed() : 1f));
     }
 
+    private boolean isWebViewChannel() {
+        return mChannel != null && mChannel.getCurrent().startsWith("webview://");
+    }
+ 
+    private void startWebView(String url) {
+        if (player() != null) {
+            player().stop();
+            player().clear();
+        }
+        hideProgress();
+        mWebViewPlayer.attach(this, mBinding.video, url);
+        bringOverlaysToFront();
+    }
+ 
+    private void bringOverlaysToFront() {
+        if (mBinding.widget != null) mBinding.widget.getRoot().bringToFront();
+        if (mBinding.control != null) mBinding.control.getRoot().bringToFront();
+        if (mBinding.progress != null) mBinding.progress.getRoot().bringToFront();
+        if (mBinding.osd != null) mBinding.osd.getRoot().bringToFront();
+    }
+ 
     private boolean isSameReloadUrl(String realUrl) {
         return !TextUtils.isEmpty(mPendingReloadUrl) && TextUtils.equals(mPendingReloadUrl, realUrl);
     }
@@ -912,6 +943,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     public void setLive(Live item) {
         if (item.isSelected()) item.getGroups().clear();
         LiveConfig.get().setHome(item);
+        if (mWebViewPlayer != null) mWebViewPlayer.detach();
         player().reset();
         player().clear();
         player().stop();
@@ -1158,6 +1190,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
             mOsd.setDiagnosticsVisible(PlayerSetting.isOsdDiagnostics());
             mOsd.start();
         }
+        if (mWebViewPlayer != null) mWebViewPlayer.onResume();
         setPlayParamsState();
     }
 
@@ -1165,6 +1198,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     protected void onStop() {
         super.onStop();
         if (mOsd != null) mOsd.stop();
+        if (mWebViewPlayer != null) mWebViewPlayer.onPause();
         if (PlayerSetting.isBackgroundOff()) mClock.stop();
     }
 
@@ -1185,6 +1219,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     @Override
     protected void onDestroy() {
         mClock.release();
+        if (mWebViewPlayer != null) mWebViewPlayer.detach();
         Source.get().exit();
         App.removeCallbacks(mR0, mR1, mR2, mR3, mR4);
         if (mOsd != null) mOsd.release();

@@ -18,6 +18,7 @@ import com.fongmi.android.tv.player.extractor.Strm;
 import com.fongmi.android.tv.player.extractor.TVBus;
 import com.fongmi.android.tv.player.extractor.Thunder;
 import com.fongmi.android.tv.player.extractor.Video;
+import com.fongmi.android.tv.player.extractor.WebViewResolver;
 import com.fongmi.android.tv.player.extractor.Youtube;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.github.catvod.crawler.SpiderDebug;
@@ -47,6 +48,7 @@ public class Source {
         extractors.add(new Thunder());
         extractors.add(new TVBus());
         extractors.add(new Video());
+        extractors.add(new WebViewResolver());
         extractors.add(new Youtube());
     }
 
