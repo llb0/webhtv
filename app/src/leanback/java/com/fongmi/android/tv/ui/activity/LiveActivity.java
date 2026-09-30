@@ -49,6 +49,7 @@ import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.service.PlaybackService;
+import com.fongmi.android.tv.setting.LiveEpgSetting;
 import com.fongmi.android.tv.setting.LiveSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.ui.adapter.ChannelAdapter;
@@ -61,6 +62,7 @@ import com.fongmi.android.tv.ui.custom.PlayerOsdController;
 import com.fongmi.android.tv.ui.custom.WebViewPlayer;
 import com.fongmi.android.tv.ui.dialog.HistoryDialog;
 import com.fongmi.android.tv.ui.dialog.LiveDialog;
+import com.fongmi.android.tv.ui.dialog.LiveEpgDialog;
 import com.fongmi.android.tv.ui.dialog.PassDialog;
 import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
@@ -78,7 +80,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnClickListener, ChannelAdapter.OnClickListener, EpgDataAdapter.OnClickListener, CustomKeyDownLive.Listener, CustomLiveListView.Callback, TrackDialog.Listener, PassListener, ConfigListener, LiveListener {
+public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnClickListener, ChannelAdapter.OnClickListener, EpgDataAdapter.OnClickListener, CustomKeyDownLive.Listener, CustomLiveListView.Callback, TrackDialog.Listener, PassListener, ConfigListener, LiveListener, LiveEpgDialog.Listener {
 
     private ActivityLiveBinding mBinding;
     private ChannelAdapter mChannelAdapter;
@@ -206,6 +208,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mBinding.control.action.text.setUpListener(this::onSubtitleClick);
         mBinding.control.action.text.setDownListener(this::onSubtitleClick);
         mBinding.control.action.source.setOnClickListener(view -> onLiveSource());
+        mBinding.control.action.epg.setOnClickListener(view -> onLiveEpg());
         mBinding.control.action.line.setOnClickListener(view -> onLine());
         mBinding.control.action.scale.setOnClickListener(view -> onScale());
         mBinding.control.action.speed.setOnClickListener(view -> onSpeed());
@@ -441,6 +444,22 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         hideControl();
     }
 
+    private void onLiveEpg() {
+        LiveEpgDialog.create().show(this);
+        hideControl();
+    }
+ 
+    @Override
+    public void onLiveEpgSelected(String url) {
+        if (mChannel == null) return;
+        LiveEpgSetting.apply(getHome());
+        if (LiveEpgSetting.isGlobalXmlUrl(LiveEpgSetting.getUrl()) || (LiveEpgSetting.getUrl().isEmpty() && !getHome().getEpgXml().isEmpty())) {
+            mViewModel.parseXml(getHome());
+        } else {
+            mViewModel.getEpg(mChannel);
+        }
+    }
+ 
     private void onAction() {
         checkPlay();
     }
