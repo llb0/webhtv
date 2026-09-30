@@ -1621,4 +1621,15 @@
     <string name="multi_repo_site_empty">该接口暂无站点</string>
     <string name="multi_repo_first_open">未配置任何接口仓库，是否现在新增？</string>
     <string name="multi_repo_settings">多仓设置</string>
+    <string name="live_epg_select">选择EPG源</string>
+    <string name="live_epg_default">随直播源</string>
+    <string name="live_epg_follow">随源</string>
+    <string name="live_epg_apply">使用</string>
+    <string name="live_epg_save">保存</string>
+    <string name="live_epg_edit">编辑</string>
+    <string name="live_epg_delete">删除</string>
+    <string name="live_epg_hint">输入 XML/GZ 或 {name}/{date} 模板地址</string>
+    <string name="live_epg_empty">请输入EPG地址，或直接选择下方来源</string>
+    <string name="push_info">使用手机扫描二维码，或于浏览器访问地址\n<xliff:g name="name">%s</xliff:g></string>
+    <string name="live_program">节目单</string>
 </resources>
