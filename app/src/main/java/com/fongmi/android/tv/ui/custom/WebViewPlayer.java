@@ -6,6 +6,7 @@ import android.net.http.SslError;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.JavascriptInterface;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
@@ -38,7 +39,7 @@ public class WebViewPlayer {
             + "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
     /**
-     * 原版JS保持不变，所有站点共用，不改动全屏逻辑
+     * 原版JS保留；增加逻辑：video准备就绪后调用Android接口通知Java执行点击
      */
     private static final String FULLSCREEN_VIDEO_JS = "(function(){"
             + "function f(v){if(!v||v._wvfs)return;v._wvfs=1;"
@@ -47,6 +48,10 @@ public class WebViewPlayer {
             + "try{v.setAttribute('playsinline','');v.play()}catch(e){}"
             + "var r=v.requestFullscreen||v.webkitRequestFullscreen||v.webkitEnterFullscreen||v.msRequestFullscreen;"
             + "if(r){try{r.call(v)}catch(e){}}"
+            + "// video加载就绪回调，通知Java执行点击"
+            + "v.addEventListener('canplay',function(){"
+            + "AndroidBridge.onVideoReady();"
+            + "},{once:true});"
             + "}"
             + "function s(){var a=document.querySelectorAll('video');for(var i=0;i<a.length;i++)f(a[i]);return a.length>0}"
             + "if(!s()){var n=0,t=setInterval(function(){if(s()||++n>40)clearInterval(t)},300)}"
@@ -57,11 +62,12 @@ public class WebViewPlayer {
             + "})()";
 
     /**
-     * 仅央视专用：模糊匹配隐藏顶部header/top类DOM，其他网站不执行
+     * 央视专用：精准选择页面顶部导航，不再模糊匹配top/header，避免把播放器一起隐藏
+     * tv.cctv.com 顶部导航实际id/class：#header、.header-banner，不匹配播放器内部元素
      */
     private static final String CCTV_HIDE_HEADER_JS = "(function(){"
-            + "var els=document.querySelectorAll('div[class*=\"header\"],div[class*=\"top\"]');"
-            + "for(var i=0;i<els.length;i++){els[i].style.display='none';}"
+            + "var topBanner = document.querySelector('#header'); if(topBanner) topBanner.style.display='none';"
+            + "var topBanner2 = document.querySelector('.header-banner'); if(topBanner2) topBanner2.style.display='none';"
             + "})()";
 
     private WebView webView;
@@ -70,21 +76,26 @@ public class WebViewPlayer {
     private WebChromeClient.CustomViewCallback customViewCallback;
     private Activity activity;
     private View.OnTouchListener touchListener;
+    private boolean alreadyTriggerClick;
 
     public void attach(Activity activity, ViewGroup container, String url) {
         attach(activity, container, url, null);
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     public void attach(Activity activity, ViewGroup container, String url, View.OnTouchListener touchListener) {
         detach();
         this.activity = activity;
         this.container = container;
         this.touchListener = touchListener;
+        alreadyTriggerClick = false;
 
         webView = new WebView(activity);
         webView.setBackgroundColor(0xFF000000);
         if (touchListener != null) webView.setOnTouchListener(touchListener);
+
+        // 注入JS桥，JS回调Java
+        webView.addJavascriptInterface(new JsBridge(), "AndroidBridge");
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -108,6 +119,7 @@ public class WebViewPlayer {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 currentUrl = url;
+                alreadyTriggerClick = false;
                 // 加载阶段黑屏
                 view.evaluateJavascript("(function(){document.body.style.background='#000';document.documentElement.style.background='#000';})()", null);
             }
@@ -120,14 +132,11 @@ public class WebViewPlayer {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                // 原版全屏脚本全部站点执行
                 view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
-                // 央视额外隐藏导航
+                // 仅央视执行顶部导航隐藏
                 if (url.contains("tv.cctv.com") || url.contains("cctv.com")) {
                     view.evaluateJavascript(CCTV_HIDE_HEADER_JS, null);
                 }
-                // 延迟模拟点击：横向居中，纵向3/4位置（下半屏中部）
-                webView.postDelayed(() -> simulateClickOnWebView(webView), 800);
             }
 
             @Override
@@ -186,10 +195,28 @@ public class WebViewPlayer {
     }
 
     /**
-     * 模拟真实触屏事件：X=水平中点，Y=画面3/4高度位置（偏下，播放器播放按钮区域）
+     * JS桥：JS在video canplay时回调这里，再执行模拟点击
+     */
+    public class JsBridge {
+        @JavascriptInterface
+        public void onVideoReady() {
+            if (alreadyTriggerClick) return;
+            alreadyTriggerClick = true;
+            // 切回UI线程，增加短暂延迟留给播放按钮渲染
+            if (webView != null) {
+                webView.postDelayed(() -> simulateClickOnWebView(webView), 400);
+            }
+        }
+    }
+
+    /**
+     * 模拟点击：
+     * ✅ TV场景：customView原生全屏**依然执行模拟点击**，保证能触发播放按钮
+     * ✅ 只发送一次DOWN+UP手势，发送结束后不会影响后续遥控器真实点击
      */
     private void simulateClickOnWebView(WebView wv) {
         if (wv == null || wv.getWidth() <= 0 || wv.getHeight() <= 0) return;
+
         int x = wv.getWidth() / 2;
         int y = (int) (wv.getHeight() * 0.75f);
 
@@ -235,6 +262,8 @@ public class WebViewPlayer {
                 webView.loadUrl("about:blank");
                 webView.onPause();
                 webView.removeAllViews();
+                // 移除JS桥，防止内存泄漏
+                webView.removeJavascriptInterface("AndroidBridge");
                 if (container != null) container.removeView(webView);
                 webView.destroy();
             } catch (Throwable ignored) {
