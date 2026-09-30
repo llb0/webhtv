@@ -39,4 +39,16 @@
         android:textSize="14sp"
         tools:text="CNN" />
 
+    <com.google.android.material.textview.MaterialTextView
+        android:id="@+id/epg"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:duplicateParentState="true"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="@color/white_60"
+        android:textSize="12sp"
+        tools:text="朝闻天下" />
+ 
 </androidx.appcompat.widget.LinearLayoutCompat>
