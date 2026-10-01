@@ -96,6 +96,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private String mPendingReloadUrl;
     private String mPendingReloadMsg;
     private Channel mChannel;
+    private Channel mEpgChannel;
     private View mOldView;
     private Group mGroup;
     private WebViewPlayer mWebViewPlayer;
@@ -200,7 +201,14 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mBinding.group.setListener(this);
         mBinding.channel.setListener(this);
         mBinding.epgData.setListener(this);
-        mBinding.program.setOnClickListener(view -> showEpg(mChannel));
+        mBinding.program.setOnFocusChangeListener((v, hasFocus) -> onEpgFocusChange());
+        mBinding.epgData.setOnFocusChangeListener((v, hasFocus) -> onEpgFocusChange());
+        mBinding.channel.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
+            @Override
+            public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
+                onChannelSelected(position);
+            }
+        });
         mBinding.control.action.text.setOnClickListener(this::onTrack);
         mBinding.control.action.audio.setOnClickListener(this::onTrack);
         mBinding.control.action.video.setOnClickListener(this::onTrack);
@@ -619,21 +627,39 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         applyResizeMode(LiveSetting.getScale());
     }
 
+    private void onChannelSelected(int position) {
+        if (mChannelAdapter == null || position < 0 || position >= mChannelAdapter.getItemCount()) return;
+        Channel channel = mChannelAdapter.get(position);
+        boolean hasEpg = channel != null && !channel.getData(mViewModel.getZoneId()).getList().isEmpty();
+        mBinding.program.setVisibility(hasEpg ? View.VISIBLE : View.GONE);
+    }
+ 
+    private void onEpgFocusChange() {
+        mBinding.program.post(() -> {
+            boolean focusEpg = mBinding.program.hasFocus() || mBinding.epgData.hasFocus();
+            if (focusEpg) showEpg(getFocusedChannel());
+            else hideEpg();
+        });
+    }
+ 
+    private Channel getFocusedChannel() {
+        int position = mBinding.channel.getSelectedPosition();
+        if (mChannelAdapter == null || position < 0 || position >= mChannelAdapter.getItemCount()) return null;
+        return mChannelAdapter.get(position);
+    }
+ 
     public void showEpg(Channel item) {
-        if (mChannel == null || mChannel.getData(mViewModel.getZoneId()).getList().isEmpty() || mEpgDataAdapter.getItemCount() == 0 || !mChannel.equals(item) || !mChannel.getGroup().equals(mGroup)) return;
-        mBinding.epgData.setSelectedPosition(mChannel.getData(mViewModel.getZoneId()).getSelected());
+        if (item == null || item.getData(mViewModel.getZoneId()).getList().isEmpty()) return;
+        mEpgChannel = item;
+        mEpgDataAdapter.addAll(item.getData(mViewModel.getZoneId()).getList());
+        mBinding.epgData.setSelectedPosition(item.getData(mViewModel.getZoneId()).getSelected());
         mBinding.epgData.setVisibility(View.VISIBLE);
-        mBinding.channel.setVisibility(View.GONE);
-        mBinding.group.setVisibility(View.GONE);
-        mBinding.epgData.requestFocus();
     }
 
     @Override
     public void hideEpg() {
-        mBinding.channel.setVisibility(View.VISIBLE);
-        mBinding.group.setVisibility(View.VISIBLE);
+        mEpgChannel = null;
         mBinding.epgData.setVisibility(View.GONE);
-        mBinding.channel.requestFocus();
     }
 
     private void showProgress() {
@@ -756,9 +782,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     public void onItemClick(Channel item) {
-        if (!item.getData(mViewModel.getZoneId()).getList().isEmpty() && item.isSelected() && mChannel != null && mChannel.equals(item) && mChannel.getGroup().equals(mGroup)) {
-            showEpg(item);
-        } else if (mGroup != null) {
+        if (mGroup != null) {
             mGroup.setPosition(mBinding.channel.getSelectedPosition());
             setChannel(item.group(mGroup));
             hideUI();
@@ -828,7 +852,9 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (mChannel == null || !mChannel.getTvgId().equals(epg.getKey())) return;
         EpgData data = epg.getEpgData();
         boolean hasTitle = !data.getTitle().isEmpty();
-        mEpgDataAdapter.addAll(epg.getList());
+        if (mEpgChannel == null || mEpgChannel.equals(mChannel)) {
+            mEpgDataAdapter.addAll(epg.getList());
+        }
         if (hasTitle) mBinding.widget.title.setText(getString(R.string.detail_title, mChannel.getShow(), data.getTitle()));
         mBinding.widget.name.setMaxEms(hasTitle ? 12 : 48);
         mBinding.widget.play.setText(data.format());
