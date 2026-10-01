@@ -1640,4 +1640,5 @@
     <string name="live_epg_empty">Enter an EPG URL or select a source below</string>
     <string name="push_info">Scan QR Code or enter the URL in browser\n<xliff:g name="name">%s</xliff:g></string>
     <string name="live_program">Program</string>
+    <string name="live_program_current">Live</string>
 </resources>
