@@ -69,13 +69,24 @@ public class WebViewPlayer {
             FastLoading();
             """;
 
-    // onPageFinished AutoFullscreen 自动点击全屏
+    // onPageFinished AutoFullscreen 自动点击全屏，并强制 video 适配视口尺寸
+    // 修复：央视播放器基于桌面UA会给video设固定大尺寸，导致手机端画面溢出屏幕
     private static final String AUTO_FULLSCREEN_JS = """
+            function fitVideo(){
+                var v = document.querySelector('video');
+                if(!v) return;
+                v.volume = 1;
+                v.style.cssText = 'position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important;z-index:2147483647!important;';
+                try { v.play(); } catch(e) {}
+            }
             function AutoFullscreen(){
                 var fullscreenBtn = document.querySelector('#player_pagefullscreen_yes_player')||document.querySelector('.videoFull');
                 if(fullscreenBtn!=null){
                     fullscreenBtn.click();
-                    document.querySelector('video').volume=1;
+                    // 点击全屏后延时重施 CSS，对抗播放器自身样式覆盖
+                    setTimeout(fitVideo, 100);
+                    setTimeout(fitVideo, 500);
+                    setTimeout(fitVideo, 1500);
                 }else{
                     setTimeout(()=>{ AutoFullscreen();},16);
                 }
