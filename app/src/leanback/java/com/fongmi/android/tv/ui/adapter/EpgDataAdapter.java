@@ -61,9 +61,7 @@ public class EpgDataAdapter extends RecyclerView.Adapter<EpgDataAdapter.ViewHold
         holder.binding.getRoot().setSelected(item.isSelected());
 
         // 新增：判断当前节目是否直播中
-        long now = System.currentTimeMillis();
-        boolean isLiveNow = now >= item.getStart() && now < item.getEnd();
-        if (isLiveNow) {
+        if (item.isInRange()) {
             holder.binding.tvLiveTag.setVisibility(View.VISIBLE);
             holder.binding.tvLiveTag.setText(com.fongmi.android.tv.R.string.live_program_current);
         } else {
