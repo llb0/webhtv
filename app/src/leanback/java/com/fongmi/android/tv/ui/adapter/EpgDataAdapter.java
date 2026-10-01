@@ -59,7 +59,6 @@ public class EpgDataAdapter extends RecyclerView.Adapter<EpgDataAdapter.ViewHold
         holder.binding.time.setText(item.getTime());
         holder.binding.title.setText(item.getTitle());
         holder.binding.getRoot().setSelected(item.isSelected());
-        holder.binding.getRoot().setLeftListener(mListener::hideEpg);
         holder.binding.getRoot().setOnClickListener(v -> {
             if (!item.isFuture()) mListener.onItemClick(item);
         });
