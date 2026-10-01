@@ -8,7 +8,6 @@
     android:focusable="true"
     android:focusableInTouchMode="true"
     android:gravity="center_vertical"
-    android:nextFocusRight="@id/program"
     android:orientation="horizontal">
 
     <com.google.android.material.textview.MaterialTextView
@@ -58,22 +57,5 @@
             tools:text="朝闻天下" />
  
     </androidx.appcompat.widget.LinearLayoutCompat>
- 
-    <com.google.android.material.textview.MaterialTextView
-        android:id="@+id/program"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:background="@drawable/selector_live"
-        android:focusable="true"
-        android:focusableInTouchMode="true"
-        android:gravity="center"
-        android:includeFontPadding="false"
-        android:nextFocusLeft="@id/channel_item"
-        android:paddingStart="10dp"
-        android:paddingEnd="10dp"
-        android:text="@string/live_program"
-        android:textColor="@color/text"
-        android:textSize="14sp" />
- 
+  
 </com.fongmi.android.tv.ui.custom.CustomLeftRightLayout>
