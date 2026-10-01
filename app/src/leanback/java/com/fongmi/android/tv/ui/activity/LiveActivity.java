@@ -531,7 +531,12 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         setPosition();
         setUITimer();
         hideEpg();
-        mBinding.channel.post(View::requestFocus);
+        mBinding.channel.post(new Runnable() {
+            @Override
+            public void run() {
+                mBinding.channel.requestFocus();
+            }
+        });
     }
 
     private final PlaybackService.NavigationCallback mNavigationCallback = new PlaybackService.NavigationCallback() {
