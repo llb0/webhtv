@@ -34,4 +34,7 @@
     <string name="timer_60">1 小時</string>
     <string name="timer_delay">延長 5 分鐘</string>
     <string name="timer_cancel">取消定時器</string>
+ 
+    <!-- Live Program -->
+    <string name="live_program_vertical">節\n目\n單</string>
 </resources>
