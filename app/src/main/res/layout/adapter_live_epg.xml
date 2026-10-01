@@ -6,7 +6,7 @@
     android:layout_height="46dp"
     android:layout_marginBottom="8dp"
     android:background="@drawable/selector_control_sheet_button"
-    android:descendantFocusability="afterDescendants"
+    android:descendantFocusability="beforeDescendants"
     android:gravity="center_vertical"
     android:focusable="true"
     android:focusableInTouchMode="false"
