@@ -673,14 +673,30 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (mChannelAdapter == null || position < 0 || position >= mChannelAdapter.getItemCount()) return null;
         return mChannelAdapter.get(position);
     }
- 
+
     public void showEpg(Channel item) {
         if (item == null || item.getData(mViewModel.getZoneId()).getList().isEmpty()) return;
         mEpgChannel = item;
         mEpgDataAdapter.addAll(item.getData(mViewModel.getZoneId()).getList());
-        int selectedPos = item.getData(mViewModel.getZoneId()).getSelected();
+    
+        int selectedPos;
+        if (item.getTvgId().equals(mChannel.getTvgId())) {
+            selectedPos = item.getData(mViewModel.getZoneId()).getSelected();
+        } else {
+            selectedPos = 0;
+            List<EpgData> epgList = item.getData(mViewModel.getZoneId()).getList();
+            for (int i = 0; i < epgList.size(); i++) {
+                EpgData epgData = epgList.get(i);
+                if (epgData.isInRange()) {
+                    selectedPos = i;
+                    break;
+                }
+            }
+        }
+    
+        int finalPos = selectedPos;
         mBinding.epgData.post(() -> {
-            mBinding.epgData.setSelectedPosition(selectedPos);
+            mBinding.epgData.setSelectedPosition(finalPos);
         });
         mBinding.epgData.setVisibility(View.VISIBLE);
     }
