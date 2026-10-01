@@ -499,7 +499,11 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         int logo = ResUtil.dp2px(56);
         int padding = ResUtil.dp2px(60);
         if (group.isKeep()) group.setWidth(0);
-        if (group.getWidth() == 0) for (Channel item : group.getChannel()) group.setWidth(Math.max(group.getWidth(), (item.getLogo().isEmpty() ? 0 : logo) + ResUtil.getTextWidth(item.getNumber() + item.getName(), 14)));
+        if (group.getWidth() == 0) for (Channel item : group.getChannel()) {
+            int nameWidth = (item.getLogo().isEmpty() ? 0 : logo) + ResUtil.getTextWidth(item.getNumber() + item.getName(), 14);
+            int epgWidth = ResUtil.getTextWidth(item.getData().getCurrent().getTitle(), 12);
+            group.setWidth(Math.max(group.getWidth(), Math.max(nameWidth, epgWidth)));
+        }
         int width = group.getWidth() == 0 ? 0 : Math.min(group.getWidth() + padding, ResUtil.getScreenWidth() / 2);
         setWidth(mBinding.channel, width);
     }
