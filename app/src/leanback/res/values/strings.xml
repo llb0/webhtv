@@ -24,7 +24,6 @@
 
     <!-- Push -->
     <string name="push_clip">Push clipboard content</string>
-    <string name="push_info">Scan QR Code or enter the URL in browser\n<xliff:g name="name">%s</xliff:g></string>
 
     <string name="device_select">Select devices</string>
     <string name="device_offline">Device is offline</string>
@@ -40,4 +39,7 @@
     <string name="setting_site_delete_title">Delete file site</string>
     <string name="setting_site_delete_message">Delete %1$s and its source file? This cannot be undone.</string>
     <string name="setting_site_delete_done">Deleted %1$s</string>
+ 
+    <!-- Live Program -->
+    <string name="live_program_vertical">E\nP\nG</string>
 </resources>

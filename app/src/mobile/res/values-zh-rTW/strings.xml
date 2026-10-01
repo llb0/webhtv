@@ -98,7 +98,6 @@
     <string name="live_epg_empty">請輸入EPG地址，或直接選擇下方來源</string>
     <string name="live_program_title">節目預告</string>
     <string name="live_program_empty">暫無節目預告</string>
-    <string name="live_program_current">直播中</string>
     <string name="dialog_clear">清空</string>
 
     <!-- Dialog -->

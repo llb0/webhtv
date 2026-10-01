@@ -24,7 +24,6 @@
 
     <!-- Push -->
     <string name="push_clip">推送剪贴板内容</string>
-    <string name="push_info">使用手机扫描二维码，或于浏览器访问地址\n<xliff:g name="name">%s</xliff:g></string>
 
     <string name="device_select">选择设备</string>
     <string name="device_offline">设备已离线</string>
@@ -35,4 +34,7 @@
     <string name="timer_60">1 小时</string>
     <string name="timer_delay">延长 5 分钟</string>
     <string name="timer_cancel">取消定时器</string>
+ 
+    <!-- Live Program -->
+    <string name="live_program_vertical">节\n目\n单</string>
 </resources>

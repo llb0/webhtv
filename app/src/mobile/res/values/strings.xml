@@ -98,7 +98,6 @@
     <string name="live_epg_empty">Enter an EPG URL or select a source below</string>
     <string name="live_program_title">Program guide</string>
     <string name="live_program_empty">No program guide</string>
-    <string name="live_program_current">Live</string>
     <string name="dialog_clear">Clear</string>
 
     <!-- Dialog -->
