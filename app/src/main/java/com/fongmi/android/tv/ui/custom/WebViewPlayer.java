@@ -31,7 +31,8 @@ import com.github.catvod.crawler.SpiderDebug;
  * <p>Usage: call {@link #attach(Activity, ViewGroup, String)} to overlay a
  * WebView on top of the video container, and {@link #detach()} when the channel
  * changes or the activity is destroyed.</p>
- * <p>内置双WebView轮换，onPageStarted清理JS、onPageFinished AutoFullscreen、硬编码延时；系统WebView，无X5</p>
+ * <p>内置双WebView轮换，onPageStarted清理JS、onPageFinished触发切换+注入全屏/静音脚本、
+ * 旧WebView延时销毁；系统WebView，无X5</p>
  */
 public class WebViewPlayer {
 
@@ -98,9 +99,96 @@ public class WebViewPlayer {
             + "});"
             + "})()";
 
-    // 硬编码延时：央视频500ms，其他1000ms
-    private static final int DELAY_CCTV = 500;
-    private static final int DELAY_OTHER = 1000;
+    // 江苏频道(live.jstv.com)取消静音脚本：轮询video元素、强制unmute+volume=1、监听volumechange防反复静音
+    private static final String UNMUTE_VIDEO_JS = """
+            var videoEl = null;
+            function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+            function setscale(scaletype) {
+                if (!videoEl) return;
+                let objectFitValue = 'contain', aspectratioValue = 'auto', widthValue = '100%', heightValue = '100%';
+                switch (scaletype) {
+                    case 0: objectFitValue = 'contain'; aspectratioValue = 'auto'; widthValue = '100%'; break;
+                    case 1: objectFitValue = 'contain'; aspectratioValue = '16/9'; widthValue = '100%'; break;
+                    case 2: aspectratioValue = '4/3'; objectFitValue = 'fill'; widthValue = 'auto'; break;
+                    case 3: objectFitValue = 'fill'; aspectratioValue = 'none'; widthValue = '100%'; break;
+                    case 4: objectFitValue = 'contain'; aspectratioValue = 'auto'; widthValue = '100%'; break;
+                    case 5: objectFitValue = 'cover'; aspectratioValue = 'none'; widthValue = '100%'; break;
+                    case 6:
+                        objectFitValue = 'fill'; aspectratioValue = 'auto'; widthValue = '100%';
+                        const screenWidth = window.innerWidth, screenHeight = window.innerHeight;
+                        let videoHeight = screenWidth / 2.35;
+                        if (videoHeight > screenHeight) videoHeight = screenHeight;
+                        heightValue = (videoHeight / screenHeight) * 100 + '%';
+                        break;
+                }
+                videoEl.style.cssText = 'width: ' + widthValue + ' !important; height: ' + heightValue + ' !important; object-fit: ' + objectFitValue + ' !important; aspect-ratio: ' + aspectratioValue + ' !important; position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important;';
+            }
+            function play() { if (videoEl && videoEl.paused) videoEl.play().catch(e => console.warn('play failed:', e)); }
+            function pause() { if (videoEl && !videoEl.paused) videoEl.pause(); }
+            function setposition(position) { if (videoEl) videoEl.currentTime = position; }
+            function setspeed(speed) { if (videoEl) videoEl.playbackRate = speed; }
+            async function ensureVideoVolume() {
+                if (!videoEl) return;
+                const maxRetries = 5;
+                let retryCount = 0;
+                while (retryCount < maxRetries) {
+                    try {
+                        videoEl.muted = false;
+                        videoEl.volume = 1;
+                        if (videoEl.paused) await videoEl.play().catch(() => {});
+                        if (!videoEl.muted && videoEl.volume === 1) { console.log('volume set ok'); break; }
+                    } catch (e) { console.warn('volume set retry:', e); }
+                    retryCount++;
+                    await delay(200);
+                }
+                if (retryCount >= maxRetries) console.error('volume set failed after retries');
+            }
+            (async function() {
+                while (true) {
+                    videoEl = document.querySelector('video');
+                    if (videoEl && videoEl.readyState >= 1) break;
+                    await delay(50);
+                }
+                document.body.style.cssText = 'width: 100vw; height: 100vh; margin: 0; min-width: 0; background: #000000; overflow: hidden;';
+                document.documentElement.style.overflow = 'hidden';
+                let fullscreenContainer = document.createElement('div');
+                fullscreenContainer.style.cssText = 'position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; z-index: 999999 !important; background: black !important; overflow: hidden !important;';
+                document.body.appendChild(fullscreenContainer);
+                if (videoEl.parentNode !== fullscreenContainer) fullscreenContainer.appendChild(videoEl);
+                videoEl.controls = false;
+                videoEl.removeAttribute('controls');
+                if (videoEl.readyState < 1) {
+                    await new Promise(resolve => { videoEl.addEventListener('loadedmetadata', resolve, { once: true }); });
+                }
+                await ensureVideoVolume();
+                setTimeout(async () => {
+                    if (videoEl) {
+                        await ensureVideoVolume();
+                        if (videoEl.paused) videoEl.play().catch(e => console.warn('play failed:', e));
+                    }
+                }, 500);
+                videoEl.addEventListener('volumechange', () => {
+                    if (videoEl.muted || videoEl.volume === 0) ensureVideoVolume();
+                }, { passive: true });
+                videoEl.addEventListener('play', () => { ensureVideoVolume(); }, { passive: true });
+                if (typeof ku9 !== 'undefined' && ku9.getscale) setscale(ku9.getscale());
+                if (typeof ku9 !== 'undefined' && ku9.setduration) {
+                    if (videoEl.duration > 0) ku9.setduration(videoEl.duration);
+                    else videoEl.addEventListener('loadedmetadata', () => { if (videoEl.duration > 0) ku9.setduration(videoEl.duration); });
+                }
+                if (typeof ku9 !== 'undefined' && ku9.setvideo) {
+                    if (videoEl.videoWidth && videoEl.videoHeight) ku9.setvideo(videoEl.videoWidth, videoEl.videoHeight);
+                    else videoEl.addEventListener('loadedmetadata', () => { ku9.setvideo(videoEl.videoWidth, videoEl.videoHeight); });
+                }
+                if (typeof ku9 !== 'undefined' && ku9.setposition) {
+                    videoEl.addEventListener('timeupdate', () => { ku9.setposition(videoEl.currentTime); });
+                }
+                videoEl.addEventListener('resize', () => {
+                    if (typeof ku9 !== 'undefined' && ku9.setvideo) ku9.setvideo(videoEl.videoWidth, videoEl.videoHeight);
+                    if (typeof ku9 !== 'undefined' && ku9.getscale) setscale(ku9.getscale());
+                });
+            })();
+            """;
 
     private WebView activeWebView;
     private WebView idleWebView;
@@ -155,24 +243,36 @@ public class WebViewPlayer {
             idleWebView.onResume();
             idleWebView.loadUrl(url);
 
-            // 判断是否央视频地址，使用参考版对应硬编码延时
-            int delay = url.contains("tv.cctv.com") ? DELAY_CCTV : DELAY_OTHER;
+            // 兜底超时：若 onPageFinished 迟迟未触发，5s 后强制切换，避免卡死
             mainHandler.postDelayed(() -> {
-                if (!isChanging || idleWebView == null || activeWebView == null) {
-                    isChanging = false;
-                    return;
+                if (isChanging && idleWebView != null) {
+                    SpiderDebug.log(TAG, "preload timeout fallback, force swap");
+                    swapWebView();
                 }
-                SpiderDebug.log(TAG, "preload delay(%d) reached, swap webview", delay);
-                WebView oldWeb = activeWebView;
-                activeWebView = idleWebView;
-                idleWebView = null;
-
-                activeWebView.setVisibility(View.VISIBLE);
-                oldWeb.setVisibility(View.GONE);
-                destroyWebView(oldWeb);
-                isChanging = false;
-            }, delay);
+            }, 5000);
         }
+    }
+ 
+    /**
+     * 由 onPageFinished 触发：新页面加载完成后再显示新 WebView，旧 WebView 延时销毁。
+     * 这样新内容已就绪才切走旧画面，避免白屏/闪烁，旧 WebView 保留一段时间做平滑过渡。
+     */
+    private void swapWebView() {
+        if (!isChanging || idleWebView == null || activeWebView == null) {
+            isChanging = false;
+            return;
+        }
+        SpiderDebug.log(TAG, "swap webview: show new, schedule old destroy");
+        WebView oldWeb = activeWebView;
+        activeWebView = idleWebView;
+        idleWebView = null;
+ 
+        activeWebView.setVisibility(View.VISIBLE);
+        oldWeb.setVisibility(View.GONE);
+ 
+        // 旧 WebView 延时销毁：给新 WebView 留出首帧渲染时间，避免切换瞬间空白
+        mainHandler.postDelayed(() -> destroyWebView(oldWeb), 1500);
+        isChanging = false;
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -219,9 +319,15 @@ public class WebViewPlayer {
                 if ("about:blank".equals(url)) return;
                 if (url.contains("tv.cctv.com") || url.contains("yangshipin.cn")) {
                     view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
+                } else if (url.contains("live.jstv.com")) {
+                    view.evaluateJavascript(UNMUTE_VIDEO_JS, null);
                 } else {
                     view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
-                    if (url.contains("miguvideo.com")) webView.postDelayed(() -> simulateClick(webView), 3000);
+                    if (url.contains("miguvideo.com")) view.postDelayed(() -> simulateClick(view), 3000);
+                }
+                // 若是后台预加载的 idleWebView，页面就绪后执行切换
+                if (isChanging && view == idleWebView) {
+                    mainHandler.postDelayed(() -> swapWebView(), 300);
                 }
                 SpiderDebug.log(TAG, "onPageFinished %s", url);
             }
