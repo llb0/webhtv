@@ -1,8 +1,10 @@
 package com.fongmi.android.tv.ui.adapter;
 
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -74,24 +76,58 @@ public class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHold
         holder.binding.getRoot().setSelected(item.isSelected());
         holder.binding.getRoot().setOnClickListener(v -> mListener.onItemClick(item));
         holder.binding.getRoot().setOnLongClickListener(v -> mListener.onLongClick(item));
+
+        // ========== 新增焦点监听，跑马灯逻辑 ==========
+        holder.binding.getRoot().setOnFocusChangeListener((v, hasFocus) -> {
+            TextView tvName = holder.binding.name;
+            TextView tvEpg = holder.binding.epg;
+            if (hasFocus) {
+                // 用post等待布局绘制完成，避免getEllipsisCount测量不准
+                tvName.post(() -> {
+                    if (tvName.getLayout() != null && tvName.getLayout().getEllipsisCount(0) > 0) {
+                        tvName.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+                        tvName.setSelected(true);
+                    } else {
+                        tvName.setEllipsize(TextUtils.TruncateAt.END);
+                        tvName.setSelected(false);
+                    }
+                });
+                tvEpg.post(() -> {
+                    if (tvEpg.getLayout() != null && tvEpg.getLayout().getEllipsisCount(0) > 0) {
+                        tvEpg.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+                        tvEpg.setSelected(true);
+                    } else {
+                        tvEpg.setEllipsize(TextUtils.TruncateAt.END);
+                        tvEpg.setSelected(false);
+                    }
+                });
+            } else {
+                // 失去焦点，关闭跑马灯，恢复末尾省略号
+                tvName.setEllipsize(TextUtils.TruncateAt.END);
+                tvName.setSelected(false);
+                tvEpg.setEllipsize(TextUtils.TruncateAt.END);
+                tvEpg.setSelected(false);
+            }
+        });
     }
 
     @Override
     public void onViewRecycled(@NonNull ViewHolder holder) {
+        // 回收时强制关闭跑马灯，防止复用错乱
+        holder.binding.name.setEllipsize(TextUtils.TruncateAt.END);
+        holder.binding.name.setSelected(false);
+        holder.binding.epg.setEllipsize(TextUtils.TruncateAt.END);
+        holder.binding.epg.setSelected(false);
         Glide.with(holder.binding.logo).clear(holder.binding.logo);
     }
 
     public interface OnClickListener {
-
         void onItemClick(Channel item);
-
         boolean onLongClick(Channel item);
     }
 
     public static class ViewHolder extends RecyclerView.ViewHolder {
-
         private final AdapterChannelBinding binding;
-
         ViewHolder(@NonNull AdapterChannelBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
