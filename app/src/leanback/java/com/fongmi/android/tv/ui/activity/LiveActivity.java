@@ -318,8 +318,13 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private Group setWidth(Group group) {
         int logo = ResUtil.dp2px(60);
         int padding = ResUtil.dp2px(64);
+        int program = ResUtil.dp2px(70);
         if (group.isKeep()) group.setWidth(0);
-        if (group.getWidth() == 0) for (Channel item : group.getChannel()) group.setWidth(Math.max(group.getWidth(), (item.getLogo().isEmpty() ? 0 : logo) + ResUtil.getTextWidth(item.getNumber() + item.getName(), 16)));
+        if (group.getWidth() == 0) for (Channel item : group.getChannel()) {
+            int nameWidth = (item.getLogo().isEmpty() ? 0 : logo) + ResUtil.getTextWidth(item.getNumber() + item.getName(), 16);
+            int epgWidth = ResUtil.getTextWidth(item.getData().getCurrent().getTitle(), 13);
+            group.setWidth(Math.max(group.getWidth(), Math.max(nameWidth, epgWidth) + program));
+        }
         int width = group.getWidth() == 0 ? 0 : Math.min(group.getWidth() + padding, ResUtil.getScreenWidth() / 2);
         setWidth(mBinding.channel, width);
         return group;
