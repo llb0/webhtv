@@ -108,6 +108,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private Clock mClock;
     private View mFocus2;
     private boolean playbackCatchup;
+    private boolean mEpgFirstOpen;
     private int count;
 
     public static void start(Context context) {
@@ -643,8 +644,15 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private void onEpgFocusChange() {
         mBinding.program.post(() -> {
             boolean focusEpg = mBinding.program.hasFocus() || mBinding.epgData.hasFocus();
-            if (focusEpg) showEpg(getFocusedChannel());
-            else hideEpg();
+            if (focusEpg) {
+                if (!mEpgFirstOpen) {
+                    showEpg(getFocusedChannel());
+                    mEpgFirstOpen = true;
+                }
+            } else {
+                hideEpg();
+                mEpgFirstOpen = false;
+            }
         });
     }
  
@@ -658,7 +666,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (item == null || item.getData(mViewModel.getZoneId()).getList().isEmpty()) return;
         mEpgChannel = item;
         mEpgDataAdapter.addAll(item.getData(mViewModel.getZoneId()).getList());
-        mBinding.epgData.setSelectedPosition(item.getData(mViewModel.getZoneId()).getSelected());
+        int selectedPos = item.getData(mViewModel.getZoneId()).getSelected();
+        mBinding.epgData.post(() -> {
+            mBinding.epgData.setSelectedPosition(selectedPos);
+        });
         mBinding.epgData.setVisibility(View.VISIBLE);
     }
 
