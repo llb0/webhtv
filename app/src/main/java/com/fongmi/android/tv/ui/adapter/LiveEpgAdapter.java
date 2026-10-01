@@ -64,11 +64,9 @@ public class LiveEpgAdapter extends RecyclerView.Adapter<LiveEpgAdapter.ViewHold
         boolean current = item.equals(LiveEpgSetting.getUrl());
         holder.binding.text.setText(item.isEmpty() ? ResUtil.getString(R.string.live_epg_default) : item);
         holder.binding.getRoot().setSelected(current);
-        holder.binding.root.setSelected(current);
         holder.binding.edit.setVisibility(editable ? View.VISIBLE : View.GONE);
         holder.binding.delete.setVisibility(editable ? View.VISIBLE : View.GONE);
         holder.binding.getRoot().setOnClickListener(v -> listener.onEpgClick(item));
-        holder.binding.root.setOnClickListener(v -> listener.onEpgClick(item));
         holder.binding.edit.setOnClickListener(v -> listener.onEpgEdit(item));
         holder.binding.delete.setOnClickListener(v -> listener.onEpgDelete(item));
     }
