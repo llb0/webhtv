@@ -1616,4 +1616,5 @@
     <string name="live_epg_empty">請輸入EPG地址，或直接選擇下方來源</string>
     <string name="push_info">使用手機掃描 QR Code，或於瀏覽器輸入網址\n<xliff:g name="name">%s</xliff:g></string>
     <string name="live_program">節目單</string>
+    <string name="live_program_current">直播中</string>
 </resources>
