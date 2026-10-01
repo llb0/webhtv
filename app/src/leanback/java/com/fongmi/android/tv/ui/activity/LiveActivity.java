@@ -200,6 +200,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mBinding.group.setListener(this);
         mBinding.channel.setListener(this);
         mBinding.epgData.setListener(this);
+        mBinding.program.setOnClickListener(view -> showEpg(mChannel));
         mBinding.control.action.text.setOnClickListener(this::onTrack);
         mBinding.control.action.audio.setOnClickListener(this::onTrack);
         mBinding.control.action.video.setOnClickListener(this::onTrack);
@@ -318,12 +319,11 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private Group setWidth(Group group) {
         int logo = ResUtil.dp2px(60);
         int padding = ResUtil.dp2px(64);
-        int program = ResUtil.dp2px(70);
         if (group.isKeep()) group.setWidth(0);
         if (group.getWidth() == 0) for (Channel item : group.getChannel()) {
             int nameWidth = (item.getLogo().isEmpty() ? 0 : logo) + ResUtil.getTextWidth(item.getNumber() + item.getName(), 16);
             int epgWidth = ResUtil.getTextWidth(item.getData().getCurrent().getTitle(), 13);
-            group.setWidth(Math.max(group.getWidth(), Math.max(nameWidth, epgWidth) + program));
+            group.setWidth(Math.max(group.getWidth(), Math.max(nameWidth, epgWidth)));
         }
         int width = group.getWidth() == 0 ? 0 : Math.min(group.getWidth() + padding, ResUtil.getScreenWidth() / 2);
         setWidth(mBinding.channel, width);
@@ -619,7 +619,6 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         applyResizeMode(LiveSetting.getScale());
     }
 
-    @Override
     public void showEpg(Channel item) {
         if (mChannel == null || mChannel.getData(mViewModel.getZoneId()).getList().isEmpty() || mEpgDataAdapter.getItemCount() == 0 || !mChannel.equals(item) || !mChannel.getGroup().equals(mGroup)) return;
         mBinding.epgData.setSelectedPosition(mChannel.getData(mViewModel.getZoneId()).getSelected());
