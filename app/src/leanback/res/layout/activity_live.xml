@@ -117,10 +117,8 @@
  
         <com.fongmi.android.tv.ui.custom.CustomLiveListView
             android:id="@+id/epgData"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="match_parent"
-            android:minWidth="200dp"
-            android:maxWidth="340dp"
             android:clipChildren="false"
             android:clipToPadding="false"
             android:nextFocusLeft="@id/program"
