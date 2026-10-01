@@ -350,22 +350,24 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     private void setWidth(View view, int width) {
         view.post(() -> {
-             ViewGroup.LayoutParams params = view.getLayoutParams();
-             int minW = 0, maxW = 0;
-             if (view == mBinding.channel) {
-                 minW = ResUtil.dp2px(120);
-                 maxW = ResUtil.dp2px(260);
-             } else if (view == mBinding.epgData) {
-                 minW = ResUtil.dp2px(200);
-                 maxW = ResUtil.dp2px(340);
-             } else if (view == mBinding.group) {
-                 minW = ResUtil.dp2px(100);
-                 maxW = ResUtil.dp2px(220);
-             }
-             int finalWidth = Math.max(minW, Math.min(width, maxW));
-             if (params.width == finalWidth) return;
-             params.width = finalWidth;
-             view.setLayoutParams(params);
+            ViewGroup.LayoutParams params = view.getLayoutParams();
+            int minW = 0, maxW = 0;
+            if (view == mBinding.channel) {
+                minW = ResUtil.dp2px(120);
+                maxW = ResUtil.dp2px(260);
+            } else if (view == mBinding.group) {
+                minW = ResUtil.dp2px(100);
+                maxW = ResUtil.dp2px(220);
+            }
+            int finalWidth;
+            if (minW == 0 && maxW == 0) {
+                finalWidth = width;
+            } else {
+                finalWidth = Math.max(minW, Math.min(width, maxW));
+            }
+            if (params.width == finalWidth) return;
+            params.width = finalWidth;
+            view.setLayoutParams(params);
         });
     }
 
