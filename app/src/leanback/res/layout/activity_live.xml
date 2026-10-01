@@ -79,16 +79,6 @@
             tools:itemCount="5"
             tools:listitem="@layout/adapter_channel" />
 
-        <com.fongmi.android.tv.ui.custom.CustomLiveListView
-            android:id="@+id/epgData"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:clipChildren="false"
-            android:clipToPadding="false"
-            android:padding="12dp"
-            tools:itemCount="5"
-            tools:listitem="@layout/adapter_epg_data" />
-
         <androidx.appcompat.widget.LinearLayoutCompat
             android:id="@+id/program"
             android:layout_width="44dp"
@@ -98,7 +88,10 @@
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:gravity="center"
-            android:orientation="vertical">
+            android:nextFocusLeft="@id/channel"
+            android:nextFocusRight="@id/epgData"
+            android:orientation="vertical"
+            android:visibility="gone">
  
             <com.google.android.material.textview.MaterialTextView
                 android:layout_width="wrap_content"
@@ -117,6 +110,18 @@
                 android:textSize="18sp" />
  
         </androidx.appcompat.widget.LinearLayoutCompat>
+ 
+        <com.fongmi.android.tv.ui.custom.CustomLiveListView
+            android:id="@+id/epgData"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:nextFocusLeft="@id/program"
+            android:padding="12dp"
+            android:visibility="gone"
+            tools:itemCount="5"
+            tools:listitem="@layout/adapter_epg_data" />
  
     </androidx.appcompat.widget.LinearLayoutCompat>
 </FrameLayout>
