@@ -1632,4 +1632,5 @@
     <string name="live_epg_empty">请输入EPG地址，或直接选择下方来源</string>
     <string name="push_info">使用手机扫描二维码，或于浏览器访问地址\n<xliff:g name="name">%s</xliff:g></string>
     <string name="live_program">节目单</string>
+    <string name="live_program_current">直播中</string>
 </resources>
