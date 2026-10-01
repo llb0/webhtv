@@ -30,16 +30,17 @@
         android:visibility="gone" />
 
     <androidx.appcompat.widget.LinearLayoutCompat
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_weight="1"
         android:orientation="vertical">
  
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/name"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:duplicateParentState="true"
-            android:ellipsize="marquee"
+            android:ellipsize="end"
             android:singleLine="true"
             android:textColor="@color/text"
             android:textSize="16sp"
@@ -47,7 +48,7 @@
  
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/epg"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:duplicateParentState="true"
             android:ellipsize="end"
@@ -67,11 +68,10 @@
         android:focusable="true"
         android:focusableInTouchMode="true"
         android:gravity="center"
+        android:includeFontPadding="false"
         android:nextFocusLeft="@id/channel_item"
         android:paddingStart="10dp"
-        android:paddingTop="6dp"
         android:paddingEnd="10dp"
-        android:paddingBottom="6dp"
         android:text="@string/live_program"
         android:textColor="@color/text"
         android:textSize="14sp" />
