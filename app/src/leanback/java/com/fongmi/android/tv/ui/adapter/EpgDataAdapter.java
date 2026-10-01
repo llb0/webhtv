@@ -59,22 +59,29 @@ public class EpgDataAdapter extends RecyclerView.Adapter<EpgDataAdapter.ViewHold
         holder.binding.time.setText(item.getTime());
         holder.binding.title.setText(item.getTitle());
         holder.binding.getRoot().setSelected(item.isSelected());
+
+        // 新增：判断当前节目是否直播中
+        long now = System.currentTimeMillis();
+        boolean isLiveNow = now >= item.getStart() && now < item.getEnd();
+        if (isLiveNow) {
+            holder.binding.tvLiveTag.setVisibility(View.VISIBLE);
+            holder.binding.tvLiveTag.setText(com.fongmi.android.tv.R.string.live_program_current);
+        } else {
+            holder.binding.tvLiveTag.setVisibility(View.GONE);
+        }
+
         holder.binding.getRoot().setOnClickListener(v -> {
             if (!item.isFuture()) mListener.onItemClick(item);
         });
     }
 
     public interface OnClickListener {
-
         void hideEpg();
-
         void onItemClick(EpgData item);
     }
 
     public static class ViewHolder extends RecyclerView.ViewHolder {
-
         private final AdapterEpgDataBinding binding;
-
         ViewHolder(@NonNull AdapterEpgDataBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
