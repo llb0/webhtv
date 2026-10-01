@@ -544,7 +544,6 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (isVisible(mBinding.recycler) || mGroupAdapter.getItemCount() == 0) return;
         mBinding.recycler.setVisibility(View.VISIBLE);
         setPosition();
-        setUITimer();
         hideEpg();
         mBinding.channel.post(new Runnable() {
             @Override
@@ -701,12 +700,14 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
             mBinding.epgData.setSelectedPosition(finalPos);
         });
         mBinding.epgData.setVisibility(View.VISIBLE);
+        App.removeCallbacks(mR4);
     }
 
     @Override
     public void hideEpg() {
         mEpgChannel = null;
         mBinding.epgData.setVisibility(View.GONE);
+        setUITimer();
     }
 
     private void showProgress() {
@@ -789,7 +790,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void setR3Callback() {
-        App.post(mR3, Constant.INTERVAL_HIDE);
+        App.post(mR3, Constant.INTERVAL_HIDE + 3 * 1000L);
     }
 
     private void onToggle() {
