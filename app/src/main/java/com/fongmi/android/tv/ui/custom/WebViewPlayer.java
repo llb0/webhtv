@@ -71,6 +71,7 @@ public class WebViewPlayer {
 
     // onPageFinished AutoFullscreen 自动点击全屏，并强制 video 适配视口尺寸
     // 修复：央视播放器基于桌面UA会给video设固定大尺寸，导致手机端画面溢出屏幕
+    // 修复：旋转屏幕后重新适配，监听 resize/orientationchange
     private static final String AUTO_FULLSCREEN_JS = """
             function fitVideo(){
                 var v = document.querySelector('video');
@@ -87,6 +88,9 @@ public class WebViewPlayer {
                     setTimeout(fitVideo, 100);
                     setTimeout(fitVideo, 500);
                     setTimeout(fitVideo, 1500);
+                    // 旋转屏幕后重新适配
+                    window.addEventListener('resize', fitVideo);
+                    window.addEventListener('orientationchange', () => setTimeout(fitVideo, 300));
                 }else{
                     setTimeout(()=>{ AutoFullscreen();},16);
                 }
@@ -168,6 +172,13 @@ public class WebViewPlayer {
                 if (videoEl.parentNode !== fullscreenContainer) fullscreenContainer.appendChild(videoEl);
                 videoEl.controls = false;
                 videoEl.removeAttribute('controls');
+                // 强制 video 适配容器，防止原始尺寸溢出屏幕（含旋转后）
+                function fitVideo(){
+                    videoEl.style.cssText = 'width:100%!important;height:100%!important;object-fit:contain!important;max-width:100%!important;max-height:100%!important;';
+                }
+                fitVideo();
+                window.addEventListener('resize', fitVideo);
+                window.addEventListener('orientationchange', () => setTimeout(fitVideo, 300));
                 if (videoEl.readyState < 1) {
                     await new Promise(resolve => { videoEl.addEventListener('loadedmetadata', resolve, { once: true }); });
                 }
