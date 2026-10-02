@@ -70,14 +70,9 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
     }
 
     private void applyBrightness() {
-        float brightness;
-        if (sessionBright >= 0) {
-            brightness = sessionBright;
-        } else {
-            brightness = Util.getBrightness(activity);
-        }
+        if (sessionBright < 0) return;
         WindowManager.LayoutParams attributes = activity.getWindow().getAttributes();
-        attributes.screenBrightness = brightness;
+        attributes.screenBrightness = sessionBright;
         activity.getWindow().setAttributes(attributes);
     }
 
