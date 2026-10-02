@@ -31,8 +31,7 @@ import com.github.catvod.crawler.SpiderDebug;
  * <p>Usage: call {@link #attach(Activity, ViewGroup, String)} to overlay a
  * WebView on top of the video container, and {@link #detach()} when the channel
  * changes or the activity is destroyed.</p>
- * <p>内置双WebView轮换，onPageStarted清理JS、onPageFinished触发切换+注入全屏/静音脚本、
- * 旧WebView延时销毁；系统WebView，无X5</p>
+ * <p>单WebView版本，onPageStarted清理JS、注入全屏/静音脚本；系统WebView，无X5</p>
  */
 public class WebViewPlayer {
 
@@ -167,7 +166,6 @@ public class WebViewPlayer {
             """;
 
     private WebView activeWebView;
-    private WebView idleWebView;
 
     private ViewGroup container;
     private View customView;
@@ -175,7 +173,6 @@ public class WebViewPlayer {
     private Activity activity;
     private View.OnTouchListener touchListener;
 
-    private boolean isChanging = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     public void attach(Activity activity, ViewGroup container, String url) {
@@ -185,7 +182,7 @@ public class WebViewPlayer {
     @SuppressLint("SetJavaScriptEnabled")
     public void attach(Activity activity, ViewGroup container, String url, View.OnTouchListener touchListener) {
         if (activeWebView == null) {
-            // 首次加载，直接创建active
+            // 首次加载，新建WebView
             detach();
             this.activity = activity;
             this.container = container;
@@ -197,58 +194,12 @@ public class WebViewPlayer {
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             container.addView(activeWebView, lp);
-
-            activeWebView.onResume();
-            activeWebView.loadUrl(url);
-            SpiderDebug.log(TAG, "first load: %s", url);
         } else {
-            if (isChanging || activity == null || container == null) return;
-            isChanging = true;
-            SpiderDebug.log(TAG, "preload next url: %s", url);
-            if (idleWebView != null) {
-                destroyWebView(idleWebView);
-                idleWebView = null;
-            }
-            idleWebView = createWebViewInstance(activity);
-            if (touchListener != null) idleWebView.setOnTouchListener(touchListener);
-
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-            idleWebView.setVisibility(View.GONE);
-            container.addView(idleWebView, lp);
-            idleWebView.onResume();
-            idleWebView.loadUrl(url);
-
-            // 兜底超时：若 onPageFinished 迟迟未触发，5s 后强制切换，避免卡死
-            mainHandler.postDelayed(() -> {
-                if (isChanging && idleWebView != null) {
-                    SpiderDebug.log(TAG, "preload timeout fallback, force swap");
-                    swapWebView();
-                }
-            }, 5000);
+            // 切台：复用当前webview直接加载新链接
+            SpiderDebug.log(TAG, "switch url: %s", url);
         }
-    }
- 
-    /**
-     * 由 onPageFinished 触发：新页面加载完成后再显示新 WebView，旧 WebView 延时销毁。
-     * 这样新内容已就绪才切走旧画面，避免白屏/闪烁，旧 WebView 保留一段时间做平滑过渡。
-     */
-    private void swapWebView() {
-        if (!isChanging || idleWebView == null || activeWebView == null) {
-            isChanging = false;
-            return;
-        }
-        SpiderDebug.log(TAG, "swap webview: show new, schedule old destroy");
-        WebView oldWeb = activeWebView;
-        activeWebView = idleWebView;
-        idleWebView = null;
- 
-        activeWebView.setVisibility(View.VISIBLE);
-        oldWeb.setVisibility(View.GONE);
- 
-        // 旧 WebView 延时销毁：给新 WebView 留出首帧渲染时间，避免切换瞬间空白
-        mainHandler.postDelayed(() -> destroyWebView(oldWeb), 1500);
-        isChanging = false;
+        activeWebView.onResume();
+        activeWebView.loadUrl(url);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -294,10 +245,6 @@ public class WebViewPlayer {
                 super.onPageFinished(view, url);
                 if ("about:blank".equals(url)) return;
                 view.evaluateJavascript(UNMUTE_VIDEO_JS, null);
-                // 若是后台预加载的 idleWebView，页面就绪后执行切换
-                if (isChanging && view == idleWebView) {
-                    mainHandler.postDelayed(() -> swapWebView(), 300);
-                }
                 SpiderDebug.log(TAG, "onPageFinished %s", url);
             }
 
@@ -414,17 +361,10 @@ public class WebViewPlayer {
             }
         }
         destroyWebView(activeWebView);
-        destroyWebView(idleWebView);
 
         activeWebView = null;
-        idleWebView = null;
         container = null;
         activity = null;
         touchListener = null;
-        isChanging = false;
-    }
-
-    public boolean isChanging() {
-        return isChanging;
     }
 }
