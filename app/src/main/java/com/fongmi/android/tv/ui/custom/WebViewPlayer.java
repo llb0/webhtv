@@ -178,6 +178,13 @@ public class WebViewPlayer {
     private Activity activity;
     private View.OnTouchListener touchListener;
 
+    //==== 新增：双全屏承载容器 + 离屏预加载容器 ====
+    private FrameLayout fullContainerA;
+    private FrameLayout fullContainerB;
+    private FrameLayout offscreenContainer;
+    //标记当前active绑定哪个全屏容器
+    private boolean activeUseA = true;
+
     private boolean isChanging = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -194,7 +201,11 @@ public class WebViewPlayer {
             this.container = container;
             this.touchListener = touchListener;
 
-            activeWebView = createWebViewInstance(activity);
+            //初始化双全屏容器 + 离屏容器，一次性创建加到DecorView
+            initDualFullContainers();
+            initOffscreenContainer();
+
+            activeWebView = createWebViewInstance(activity, true);
             if (touchListener != null) activeWebView.setOnTouchListener(touchListener);
 
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
@@ -212,13 +223,13 @@ public class WebViewPlayer {
                 destroyWebView(idleWebView);
                 idleWebView = null;
             }
-            idleWebView = createWebViewInstance(activity);
+            idleWebView = createWebViewInstance(activity, false);
             if (touchListener != null) idleWebView.setOnTouchListener(touchListener);
 
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-            idleWebView.setVisibility(View.GONE);
-            container.addView(idleWebView, 0, lp);
+            //【核心改动】idle不再加入主container，放到1x1离屏容器
+            FrameLayout.LayoutParams offLp = new FrameLayout.LayoutParams(1,1);
+            offscreenContainer.addView(idleWebView, offLp);
+            idleWebView.setVisibility(View.VISIBLE);
             idleWebView.onResume();
             idleWebView.loadUrl(url);
 
@@ -230,6 +241,30 @@ public class WebViewPlayer {
                 }
             }, 5000);
         }
+    }
+
+    //初始化A/B两套全屏容器，挂载DecorView
+    private void initDualFullContainers() {
+        FrameLayout decor = (FrameLayout) activity.getWindow().getDecorView();
+        fullContainerA = new FrameLayout(activity);
+        fullContainerA.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        decor.addView(fullContainerA);
+
+        fullContainerB = new FrameLayout(activity);
+        fullContainerB.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        decor.addView(fullContainerB);
+
+        fullContainerB.setVisibility(View.GONE);
+        activeUseA = true;
+    }
+
+    //初始化1x1 INVISIBLE离屏容器，预加载idle专用
+    private void initOffscreenContainer() {
+        offscreenContainer = new FrameLayout(activity);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(1,1);
+        offscreenContainer.setLayoutParams(lp);
+        offscreenContainer.setVisibility(View.INVISIBLE);
+        ((FrameLayout) activity.getWindow().getDecorView()).addView(offscreenContainer);
     }
 
     /**
@@ -246,7 +281,25 @@ public class WebViewPlayer {
         activeWebView = idleWebView;
         idleWebView = null;
 
+        //1. idle从离屏容器剥离，加入主container
+        if(offscreenContainer != null && offscreenContainer.indexOfChild(activeWebView) >=0){
+            offscreenContainer.removeView(activeWebView);
+        }
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        container.addView(activeWebView, 0, lp);
         activeWebView.setVisibility(View.VISIBLE);
+
+        //2. 切换全屏A/B容器显隐
+        if(activeUseA){
+            fullContainerA.setVisibility(View.GONE);
+            fullContainerB.setVisibility(View.VISIBLE);
+        }else{
+            fullContainerB.setVisibility(View.GONE);
+            fullContainerA.setVisibility(View.VISIBLE);
+        }
+        activeUseA = !activeUseA;
+
         oldWeb.setVisibility(View.GONE);
 
         // 旧 WebView 延时销毁：给新 WebView 留出首帧渲染时间，避免切换瞬间空白
@@ -255,7 +308,7 @@ public class WebViewPlayer {
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
-    private WebView createWebViewInstance(Activity ctx) {
+    private WebView createWebViewInstance(Activity ctx, boolean isActive) {
         WebView webView = new WebView(ctx);
         webView.setBackgroundColor(0xFF000000);
         webView.setFocusable(false);
@@ -313,6 +366,7 @@ public class WebViewPlayer {
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
+            private final boolean webIsActive = isActive;
             @Override
             public boolean onConsoleMessage(ConsoleMessage cm) {
                 SpiderDebug.log(TAG, "console: %s", cm == null ? "" : cm.message());
@@ -327,8 +381,14 @@ public class WebViewPlayer {
                 }
                 customView = view;
                 customViewCallback = callback;
-                FrameLayout decor = (FrameLayout) activity.getWindow().getDecorView();
-                decor.addView(customView, new FrameLayout.LayoutParams(
+                //根据当前web实例，选择A/B全屏容器
+                FrameLayout targetFullContainer;
+                if(webIsActive){
+                    targetFullContainer = activeUseA ? fullContainerA : fullContainerB;
+                }else{
+                    targetFullContainer = activeUseA ? fullContainerB : fullContainerA;
+                }
+                targetFullContainer.addView(customView, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                 if (webView != null) webView.setVisibility(View.GONE);
             }
@@ -336,8 +396,9 @@ public class WebViewPlayer {
             @Override
             public void onHideCustomView() {
                 if (customView == null) return;
-                FrameLayout decor = (FrameLayout) activity.getWindow().getDecorView();
-                decor.removeView(customView);
+                if(customView.getParent() != null){
+                    ((ViewGroup)customView.getParent()).removeView(customView);
+                }
                 customView = null;
                 if (customViewCallback != null) customViewCallback.onCustomViewHidden();
                 customViewCallback = null;
@@ -399,6 +460,10 @@ public class WebViewPlayer {
             wv.onPause();
             wv.removeAllViews();
             if (container != null) container.removeView(wv);
+            //额外兜底：如果wv在离屏容器，也移除
+            if(offscreenContainer != null && offscreenContainer.indexOfChild(wv)>=0){
+                offscreenContainer.removeView(wv);
+            }
             wv.destroy();
         } catch (Throwable ignored) {}
     }
@@ -421,8 +486,9 @@ public class WebViewPlayer {
 
     public void detach() {
         if (customView != null) {
-            FrameLayout decor = activity != null ? (FrameLayout) activity.getWindow().getDecorView() : null;
-            if (decor != null) decor.removeView(customView);
+            if(customView.getParent() != null){
+                ((ViewGroup)customView.getParent()).removeView(customView);
+            }
             customView = null;
             if (customViewCallback != null) {
                 customViewCallback.onCustomViewHidden();
@@ -432,11 +498,26 @@ public class WebViewPlayer {
         destroyWebView(activeWebView);
         destroyWebView(idleWebView);
 
+        //清理双全屏容器
+        if(fullContainerA != null && fullContainerA.getParent() != null){
+            ((ViewGroup)fullContainerA.getParent()).removeView(fullContainerA);
+        }
+        if(fullContainerB != null && fullContainerB.getParent() != null){
+            ((ViewGroup)fullContainerB.getParent()).removeView(fullContainerB);
+        }
+        //清理离屏容器
+        if(offscreenContainer != null && offscreenContainer.getParent() != null){
+            ((ViewGroup)offscreenContainer.getParent()).removeView(offscreenContainer);
+        }
+
         activeWebView = null;
         idleWebView = null;
         container = null;
         activity = null;
         touchListener = null;
+        fullContainerA = null;
+        fullContainerB = null;
+        offscreenContainer = null;
         isChanging = false;
     }
 
