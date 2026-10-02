@@ -343,14 +343,14 @@ public class WebViewPlayer {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if ("about:blank".equals(url)) return;
-                if (url.contains("miguvideo.com")) {
-                    view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
-                    view.postDelayed(() -> simulateClick(view), 3000);
-                } else if (url.contains("live.jstv.com")) {
-                    view.evaluateJavascript(UNMUTE_VIDEO_JS, null);
-                } else {
-                    view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
-                }
+                // if (url.contains("miguvideo.com")) {
+                    // view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
+                    // view.postDelayed(() -> simulateClick(view), 3000);
+                // } else if (url.contains("live.jstv.com")) {
+                    // view.evaluateJavascript(UNMUTE_VIDEO_JS, null);
+                // } else {
+                     view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
+                // }
                 // 若是后台预加载的 idleWebView，页面就绪后执行切换
                 if (isChanging && view == idleWebView) {
                     mainHandler.postDelayed(() -> swapWebView(), 300);
