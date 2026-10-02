@@ -90,7 +90,11 @@ public class WebViewPlayer {
                     setTimeout(fitVideo, 1500);
                     // 旋转屏幕后重新适配
                     window.addEventListener('resize', fitVideo);
-                    window.addEventListener('orientationchange', () => setTimeout(fitVideo, 300));
+                    window.addEventListener('orientationchange', () => {
+                        setTimeout(fitVideo, 100);
+                        setTimeout(fitVideo, 500);
+                        setTimeout(fitVideo, 1500);
+                    });
                 }else{
                     setTimeout(()=>{ AutoFullscreen();},16);
                 }
@@ -136,7 +140,7 @@ public class WebViewPlayer {
                         heightValue = (videoHeight / screenHeight) * 100 + '%';
                         break;
                 }
-                videoEl.style.cssText = 'width: ' + widthValue + ' !important; height: ' + heightValue + ' !important; object-fit: ' + objectFitValue + ' !important; aspect-ratio: ' + aspectratioValue + ' !important; position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important;';
+                videoEl.style.cssText = 'width: ' + widthValue + ' !important; height: ' + heightValue + ' !important; object-fit: ' + objectFitValue + ' !important; aspect-ratio: ' + aspectratioValue + ' !important; position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; outline: none !important;';
             }
             function play() { if (videoEl && videoEl.paused) videoEl.play().catch(e => console.warn('play failed:', e)); }
             function pause() { if (videoEl && !videoEl.paused) videoEl.pause(); }
@@ -174,7 +178,7 @@ public class WebViewPlayer {
                 videoEl.removeAttribute('controls');
                 // 强制 video 适配容器，防止原始尺寸溢出屏幕（含旋转后）
                 function fitVideo(){
-                    videoEl.style.cssText = 'width:100%!important;height:100%!important;object-fit:contain!important;max-width:100%!important;max-height:100%!important;';
+                    videoEl.style.cssText = 'width:100%!important;height:100%!important;object-fit:contain!important;max-width:100%!important;max-height:100%!important;outline:none!important;border:none!important;';
                 }
                 fitVideo();
                 window.addEventListener('resize', fitVideo);
@@ -339,13 +343,13 @@ public class WebViewPlayer {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if ("about:blank".equals(url)) return;
-                if (url.contains("tv.cctv.com") || url.contains("yangshipin.cn")) {
-                    view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
+                if (url.contains("miguvideo.com")) {
+                    view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
+                    if (url.contains("miguvideo.com")) view.postDelayed(() -> simulateClick(view), 3000);
                 } else if (url.contains("live.jstv.com")) {
                     view.evaluateJavascript(UNMUTE_VIDEO_JS, null);
                 } else {
-                    view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
-                    if (url.contains("miguvideo.com")) view.postDelayed(() -> simulateClick(view), 3000);
+                    view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
                 }
                 // 若是后台预加载的 idleWebView，页面就绪后执行切换
                 if (isChanging && view == idleWebView) {
