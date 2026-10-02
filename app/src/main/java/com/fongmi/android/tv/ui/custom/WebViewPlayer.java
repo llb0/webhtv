@@ -345,7 +345,7 @@ public class WebViewPlayer {
                 if ("about:blank".equals(url)) return;
                 if (url.contains("miguvideo.com")) {
                     view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
-                    if (url.contains("miguvideo.com")) view.postDelayed(() -> simulateClick(view), 3000);
+                    view.postDelayed(() -> simulateClick(view), 3000);
                 } else if (url.contains("live.jstv.com")) {
                     view.evaluateJavascript(UNMUTE_VIDEO_JS, null);
                 } else {
