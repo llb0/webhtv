@@ -1248,7 +1248,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         hideProgress();
         View.OnTouchListener webTouchListener = (v, e) -> {
             mKeyDown.onTouchEvent(e);
-            return false;
+            return true;
         };
         mWebViewPlayer.attach(this, mBinding.video, url, webTouchListener);
         bringOverlaysToFront();
