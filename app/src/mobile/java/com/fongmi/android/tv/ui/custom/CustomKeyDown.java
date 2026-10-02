@@ -20,6 +20,8 @@ import com.fongmi.android.tv.utils.Util;
 public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener implements ScaleGestureDetector.OnScaleGestureListener {
 
     private static final int DISTANCE = 100;
+    // 静态变量，进程内共享，App关闭就失效，不写Pref
+    private static float sessionBright = -1f;
 
     private final ScaleGestureDetector scaleDetector;
     private final GestureDetector detector;
@@ -62,15 +64,18 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
         if (action == MotionEvent.ACTION_DOWN) multiTouch = false;
         if (action == MotionEvent.ACTION_POINTER_DOWN) multiTouch = true;
         if (action == MotionEvent.ACTION_UP) listener.onTouchEnd();
-        if (changeBright && action == MotionEvent.ACTION_UP) PlayerSetting.putBrightness(currentBright);
         if (changeSpeed && action == MotionEvent.ACTION_UP) listener.onSpeedEnd();
         if (changeTime && action == MotionEvent.ACTION_UP) listener.onSeekEnd(time);
         return e.getPointerCount() == 2 ? scaleDetector.onTouchEvent(e) : detector.onTouchEvent(e);
     }
 
     private void applyBrightness() {
-        float brightness = PlayerSetting.getBrightness();
-        if (brightness < 0) return;
+        float brightness;
+        if (sessionBright >= 0) {
+            brightness = sessionBright;
+        } else {
+            brightness = Util.getBrightness(activity);
+        }
         WindowManager.LayoutParams attributes = activity.getWindow().getAttributes();
         attributes.screenBrightness = brightness;
         activity.getWindow().setAttributes(attributes);
@@ -199,6 +204,7 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
         attributes.screenBrightness = brightness;
         activity.getWindow().setAttributes(attributes);
         currentBright = brightness;
+        sessionBright = brightness;
         listener.onBright((int) (brightness * 100));
     }
 
