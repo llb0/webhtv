@@ -9,6 +9,7 @@ import android.os.Looper;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.JavascriptInterface;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
@@ -31,7 +32,7 @@ import com.github.catvod.crawler.SpiderDebug;
  * <p>Usage: call {@link #attach(Activity, ViewGroup, String)} to overlay a
  * WebView on top of the video container, and {@link #detach()} when the channel
  * changes or the activity is destroyed.</p>
- * <p>内置双WebView轮换，onPageStarted清理JS、onPageFinished触发切换+注入全屏/静音脚本、
+ * <p>内置双WebView轮换，onPageStarted清理JS、JS回调视频就绪再触发切换+注入全屏/静音脚本、
  * 旧WebView延时销毁；系统WebView，无X5</p>
  */
 public class WebViewPlayer {
@@ -68,7 +69,7 @@ public class WebViewPlayer {
             }
             FastLoading();
             """;
-    // 全屏、自动播放、取消静音
+    // 全屏、自动播放、取消静音，视频ready后调用androidBridge通知Java切换
     private static final String UNMUTE_VIDEO_JS = """
             var videoEl = null;
             function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
@@ -118,6 +119,8 @@ public class WebViewPlayer {
                     if (videoEl && videoEl.readyState >= 1) break;
                     await delay(50);
                 }
+                // 视频元数据就绪，通知Java执行切换
+                androidBridge.onVideoReady();
                 document.body.style.cssText = 'width: 100vw; height: 100vh; margin: 0; min-width: 0; background: #000000; overflow: hidden;';
                 document.documentElement.style.overflow = 'hidden';
                 let fullscreenContainer = document.createElement('div');
@@ -215,11 +218,11 @@ public class WebViewPlayer {
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             idleWebView.setVisibility(View.GONE);
-            container.addView(idleWebView, lp);
+            container.addView(idleWebView, 0, lp);
             idleWebView.onResume();
             idleWebView.loadUrl(url);
 
-            // 兜底超时：若 onPageFinished 迟迟未触发，5s 后强制切换，避免卡死
+            // 兜底超时：若JS迟迟不回调视频就绪，5s后强制切换，避免卡死
             mainHandler.postDelayed(() -> {
                 if (isChanging && idleWebView != null) {
                     SpiderDebug.log(TAG, "preload timeout fallback, force swap");
@@ -228,10 +231,10 @@ public class WebViewPlayer {
             }, 5000);
         }
     }
- 
+
     /**
-     * 由 onPageFinished 触发：新页面加载完成后再显示新 WebView，旧 WebView 延时销毁。
-     * 这样新内容已就绪才切走旧画面，避免白屏/闪烁，旧 WebView 保留一段时间做平滑过渡。
+     * JS回调视频就绪后执行：新页面视频元数据就绪才显示新 WebView，旧 WebView 延时销毁。
+     * 这样新视频画面就绪才切走旧画面，避免看到网页封面/UI，旧WebView保留一段时间做平滑过渡。
      */
     private void swapWebView() {
         if (!isChanging || idleWebView == null || activeWebView == null) {
@@ -242,16 +245,16 @@ public class WebViewPlayer {
         WebView oldWeb = activeWebView;
         activeWebView = idleWebView;
         idleWebView = null;
- 
+
         activeWebView.setVisibility(View.VISIBLE);
         oldWeb.setVisibility(View.GONE);
- 
+
         // 旧 WebView 延时销毁：给新 WebView 留出首帧渲染时间，避免切换瞬间空白
         mainHandler.postDelayed(() -> destroyWebView(oldWeb), 1500);
         isChanging = false;
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     private WebView createWebViewInstance(Activity ctx) {
         WebView webView = new WebView(ctx);
         webView.setBackgroundColor(0xFF000000);
@@ -277,6 +280,9 @@ public class WebViewPlayer {
         s.setLoadsImagesAutomatically(false);
         s.setBlockNetworkImage(true);
 
+        //注入JS桥
+        webView.addJavascriptInterface(new JsBridge(), "androidBridge");
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
@@ -294,10 +300,7 @@ public class WebViewPlayer {
                 super.onPageFinished(view, url);
                 if ("about:blank".equals(url)) return;
                 view.evaluateJavascript(UNMUTE_VIDEO_JS, null);
-                // 若是后台预加载的 idleWebView，页面就绪后执行切换
-                if (isChanging && view == idleWebView) {
-                    mainHandler.postDelayed(() -> swapWebView(), 300);
-                }
+                //移除原来这里的swap延时！不再onPageFinished触发切换
                 SpiderDebug.log(TAG, "onPageFinished %s", url);
             }
 
@@ -347,6 +350,19 @@ public class WebViewPlayer {
             }
         });
         return webView;
+    }
+
+    //JS桥，视频就绪回调
+    private class JsBridge {
+        @JavascriptInterface
+        public void onVideoReady() {
+            mainHandler.post(() -> {
+                if (isChanging && idleWebView != null) {
+                    SpiderDebug.log(TAG, "JS notify video ready, start swap");
+                    swapWebView();
+                }
+            });
+        }
     }
 
     private void simulateClick(WebView webView) {
