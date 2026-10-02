@@ -68,57 +68,7 @@ public class WebViewPlayer {
             }
             FastLoading();
             """;
-
-    // onPageFinished AutoFullscreen 自动点击全屏，并强制 video 适配视口尺寸
-    // 修复：央视播放器基于桌面UA会给video设固定大尺寸，导致手机端画面溢出屏幕
-    // 修复：旋转屏幕后重新适配，监听 resize/orientationchange
-    private static final String AUTO_FULLSCREEN_JS = """
-            function fitVideo(){
-                var v = document.querySelector('video');
-                if(!v) return;
-                v.volume = 1;
-                v.style.cssText = 'position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important;z-index:2147483647!important;';
-                try { v.play(); } catch(e) {}
-            }
-            function AutoFullscreen(){
-                var fullscreenBtn = document.querySelector('#player_pagefullscreen_yes_player')||document.querySelector('.videoFull');
-                if(fullscreenBtn!=null){
-                    fullscreenBtn.click();
-                    // 点击全屏后延时重施 CSS，对抗播放器自身样式覆盖
-                    setTimeout(fitVideo, 100);
-                    setTimeout(fitVideo, 500);
-                    setTimeout(fitVideo, 1500);
-                    // 旋转屏幕后重新适配
-                    window.addEventListener('resize', fitVideo);
-                    window.addEventListener('orientationchange', () => {
-                        setTimeout(fitVideo, 100);
-                        setTimeout(fitVideo, 500);
-                        setTimeout(fitVideo, 1500);
-                    });
-                }else{
-                    setTimeout(()=>{ AutoFullscreen();},16);
-                }
-            }
-            AutoFullscreen();
-            """;
-
-    private static final String FULLSCREEN_VIDEO_JS = "(function(){"
-            + "function f(v){if(!v||v._wvfs)return;v._wvfs=1;"
-            + "v.style.cssText='position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;"
-            + "max-width:100%!important;max-height:100%!important;object-fit:contain!important;z-index:2147483647!important;';"
-            + "try{v.setAttribute('playsinline','');v.play()}catch(e){}"
-            + "var r=v.requestFullscreen||v.webkitRequestFullscreen||v.webkitEnterFullscreen||v.msRequestFullscreen;"
-            + "if(r){try{r.call(v)}catch(e){}}"
-            + "}"
-            + "function s(){var a=document.querySelectorAll('video');for(var i=0;i<a.length;i++)f(a[i]);return a.length>0}"
-            + "if(!s()){var n=0,t=setInterval(function(){if(s()||++n>40)clearInterval(t)},300)}"
-            + "document.addEventListener('DOMNodeInserted',function(e){"
-            + "if(e.target&&e.target.tagName==='VIDEO')f(e.target);"
-            + "else if(e.target&&e.target.querySelectorAll){var a=e.target.querySelectorAll('video');for(var i=0;i<a.length;i++)f(a[i])}"
-            + "});"
-            + "})()";
-
-    // 江苏频道(live.jstv.com)取消静音脚本：轮询video元素、强制unmute+volume=1、监听volumechange防反复静音
+    // 全屏、自动播放、取消静音
     private static final String UNMUTE_VIDEO_JS = """
             var videoEl = null;
             function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
@@ -343,14 +293,7 @@ public class WebViewPlayer {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if ("about:blank".equals(url)) return;
-                // if (url.contains("miguvideo.com")) {
-                    // view.evaluateJavascript(FULLSCREEN_VIDEO_JS, null);
-                    // view.postDelayed(() -> simulateClick(view), 3000);
-                // } else if (url.contains("live.jstv.com")) {
-                     view.evaluateJavascript(UNMUTE_VIDEO_JS, null);
-                // } else {
-                    // view.evaluateJavascript(AUTO_FULLSCREEN_JS, null);
-                // }
+                view.evaluateJavascript(UNMUTE_VIDEO_JS, null);
                 // 若是后台预加载的 idleWebView，页面就绪后执行切换
                 if (isChanging && view == idleWebView) {
                     mainHandler.postDelayed(() -> swapWebView(), 300);
