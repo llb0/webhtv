@@ -215,7 +215,7 @@ public class WebViewPlayer {
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             idleWebView.setVisibility(View.GONE);
-            container.addView(idleWebView, lp);
+            container.addView(idleWebView, 0, lp);
             idleWebView.onResume();
             idleWebView.loadUrl(url);
 
