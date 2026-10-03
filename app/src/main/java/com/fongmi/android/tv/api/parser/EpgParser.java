@@ -94,8 +94,18 @@ public class EpgParser {
                 if (cacheFile == null || !cacheFile.exists()) continue;
                 String content = readCacheContent(cacheFile, url);
                 if (content.isEmpty()) continue;
-                // 直接写原始内容，不重新序列化（保证 XML 结构与源完全一致，避免解析错位）
-                writeFile(Path.epg(MERGED_FILE_NAME), content.getBytes(StandardCharsets.UTF_8));
+                // 原子写入，先写临时文件
+                File tempFile = Path.epg(MERGED_FILE_NAME + ".tmp");
+                writeFile(tempFile, content.getBytes(StandardCharsets.UTF_8));
+                File mergedFile = Path.epg(MERGED_FILE_NAME);
+                if(tempFile.exists() && tempFile.length()>0){
+                    if(mergedFile.exists()) mergedFile.delete();
+                    tempFile.renameTo(mergedFile);
+                }else{
+                    SpiderDebug.log(TAG, "首次初始化临时文件写入失败");
+                    if(tempFile.exists()) tempFile.delete();
+                    continue;
+                }
                 // 记录该源已合并；lastMergeRun 保持0，让 start() 立即触发后台合并其余源
                 MergeMeta.SourceItem item = new MergeMeta.SourceItem();
                 item.fileMd5 = Util.md5(cacheFile);
@@ -168,6 +178,7 @@ public class EpgParser {
         if (needMerge) {
             meta.lastMergeRun = System.currentTimeMillis();
             saveMergeMeta(meta);
+            SpiderDebug.log(TAG, "Epg后台更新完毕。");
         }
     }
 
@@ -205,7 +216,17 @@ public class EpgParser {
             SpiderDebug.log(TAG, "合并结果为空，不覆盖已有Epg总表");
             return;
         }
-        writeTvToFile(mergedTv, new ArrayList<>(channelMap.values()), finalProgs, mergedFile);
+        File tempFile = Path.epg(MERGED_FILE_NAME + ".tmp");
+        writeTvToFile(mergedTv, new ArrayList<>(channelMap.values()), finalProgs, tempFile);
+        if(tempFile.exists() && tempFile.length() > 0){
+            if(mergedFile.exists()) mergedFile.delete();
+            tempFile.renameTo(mergedFile);
+            SpiderDebug.log(TAG, "增量合并完成，已替换总表");
+        }else{
+            SpiderDebug.log(TAG, "增量合并临时文件无效，不替换总表");
+            if(tempFile.exists()) tempFile.delete();
+            return;
+        }
     }
 
     /** 反射设置 Tv 的 channel/programme 字段，用 SimpleFramework 写出（保证 XML 结构与源一致） */
@@ -261,8 +282,15 @@ public class EpgParser {
     private static void saveMergeMeta(MergeMeta meta) {
         try {
             File metaFile = Path.epg(MERGED_META_NAME);
+            File tempFile = Path.epg(MERGED_META_NAME + ".tmp");
             String json = GSON.toJson(meta);
-            writeFile(metaFile, json.getBytes(StandardCharsets.UTF_8));
+            writeFile(tempFile, json.getBytes(StandardCharsets.UTF_8));
+            if(tempFile.exists() && tempFile.length()>0){
+                if(metaFile.exists()) metaFile.delete();
+                tempFile.renameTo(metaFile);
+            }else{
+                if(tempFile.exists()) tempFile.delete();
+            }
         } catch (Exception e) {
             SpiderDebug.log(TAG, "保存meta失败："+e.toString());
         }
