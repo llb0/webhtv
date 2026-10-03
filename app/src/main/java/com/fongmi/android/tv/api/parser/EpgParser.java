@@ -41,7 +41,7 @@ import okhttp3.Response;
 
 public class EpgParser {
 
-    private static final String TAG = EpgParser.class.getSimpleName();
+    private static final String TAG = "EpgParser";
     public static final long UPDATE_INTERVAL_MS = TimeUnit.HOURS.toMillis(6);
     public static final int KEEP_DAYS = 7;
     public static final String MERGED_FILE_NAME = "merged_epg.xml";
@@ -74,7 +74,7 @@ public class EpgParser {
                         try {
                             syncEpgSources(live);
                         } catch (Exception e) {
-                            SpiderDebug.log(TAG, "后台合并Epg总表错误:" + e.getMessage());
+                            SpiderDebug.log(TAG, "后台合并Epg总表错误", e);
                         }
                     }
                 }).start();
@@ -91,7 +91,7 @@ public class EpgParser {
             try {
                 File cacheFile = ensureCache(url);
                 if (cacheFile == null || !cacheFile.exists()) continue;
-                String content = readCacheContent(cacheFile);
+                String content = readCacheContent(cacheFile, url);
                 if (content.isEmpty()) continue;
                 // 直接写原始内容，不重新序列化（保证 XML 结构与源完全一致，避免解析错位）
                 writeFile(Path.epg(MERGED_FILE_NAME), content.getBytes(StandardCharsets.UTF_8));
@@ -104,7 +104,7 @@ public class EpgParser {
                 SpiderDebug.log(TAG, "首次使用，加载第一个可用Epg源, source=" + url);
                 return;
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "首次使用时加载第一个可用Epg源错误 url=" + url + " err:" + e.getMessage());
+                SpiderDebug.log(TAG, "首次使用时加载第一个可用Epg源错误 url=" + url, e);
             }
         }
     }
@@ -114,22 +114,20 @@ public class EpgParser {
         File mergedFile = Path.epg(MERGED_FILE_NAME);
         if (!mergedFile.exists()) return;
         try {
-            String content = readCacheContent(mergedFile);
+            String content = readCacheContent(mergedFile, "Epg总表");
             if (content.isEmpty()) {
                 SpiderDebug.log(TAG, "Epg总表为空！");
                 return;
             }
             Tv tv = parseTv(content);
-            SpiderDebug.log(TAG, "总表为空内容：\n"+content);
             if (tv == null) return;
-            SpiderDebug.log(TAG, "未匹配到Tv！");
             Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
             Map<String, List<Tv.Channel>> xmlChannelMap = tv.getChannel().stream()
                     .collect(Collectors.groupingBy(Tv.Channel::getId));
             Map<String, Map<String, Epg>> sourceMap = buildSourceMap(tv, liveChannelMap, xmlChannelMap, zoneId);
             mergeIntoLive(live, sourceMap);
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "加载Epg总表出错:" + e.getMessage());
+            SpiderDebug.log(TAG, "加载Epg总表出错", e);
         }
     }
 
@@ -143,11 +141,11 @@ public class EpgParser {
 
     /** 空闲任务调用：检测全部epg源，下载更新，增量合并到merged_epg.xml */
     public static void syncEpgSources(Live live) {
-        SpiderDebug.log(TAG, "进入Epg后台更新。");
         if (live == null || live.getGroups().isEmpty()) {
             SpiderDebug.log(TAG, "Epg后台更新时Live为空！");
             return;
         }
+        SpiderDebug.log(TAG, "进入Epg后台更新。");
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
         if (urls.isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
@@ -171,7 +169,7 @@ public class EpgParser {
                 meta.sources.put(urlMd5, sourceItem);
                 needMerge = true;
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "后台更新总表出错 url=" + url + " err:" + e.getMessage());
+                SpiderDebug.log(TAG, "后台更新总表出错 url=" + url, e);
             }
         }
         if (needMerge) {
@@ -182,7 +180,7 @@ public class EpgParser {
 
     /** 增量合并：单个更新源 -> 合并进merged_epg.xml，合并完成统一清理7天外节目 */
     private static void incrementalMergeSource(String url, File sourceCacheFile, ZoneId zoneId) throws Exception {
-        String sourceContent = readCacheContent(sourceCacheFile);
+        String sourceContent = readCacheContent(sourceCacheFile, url);
         if (sourceContent.isEmpty()) return;
         Tv sourceTv = parseTv(sourceContent);
         if (sourceTv == null) return;
@@ -190,7 +188,7 @@ public class EpgParser {
         File mergedFile = Path.epg(MERGED_FILE_NAME);
         Tv mergedTv;
         if (mergedFile.exists()) {
-            String mergedContent = readCacheContent(mergedFile);
+            String mergedContent = readCacheContent(mergedFile, "Epg总表");
             mergedTv = mergedContent.isEmpty() ? new Tv() : parseTv(mergedContent);
         } else {
             mergedTv = new Tv();
@@ -257,9 +255,11 @@ public class EpgParser {
         if (metaFile.exists()) {
             try {
                 String json = Path.read(metaFile);
-                meta = GSON.fromJson(json, MergeMeta.class);
+                // 增加TypeToken，告诉Gson完整泛型类型
+                java.lang.reflect.Type type = new com.google.gson.reflect.TypeToken<MergeMeta>(){}.getType();
+                meta = GSON.fromJson(json, type);
             } catch (Exception e) {
-                meta = new MergeMeta();
+                SpiderDebug.log(TAG, "meta文件解析损坏，使用空meta", e);
             }
         }
         return meta;
@@ -271,7 +271,7 @@ public class EpgParser {
             String json = GSON.toJson(meta);
             writeFile(metaFile, json.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "缓存Epg总表出错: " + e.getMessage());
+            SpiderDebug.log(TAG, "保存meta失败", e);
         }
     }
 
@@ -350,7 +350,7 @@ public class EpgParser {
         }
     }
 
-    private static String readCacheContent(File file) throws Exception {
+    private static String readCacheContent(File file, String url) throws Exception {
         byte[] bytes = Path.readToByte(file);
         // 修复gzip魔数判断BUG
         if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0x1F && (bytes[1] & 0xFF) == 0x8B) {
@@ -368,7 +368,7 @@ public class EpgParser {
         if (content.charAt(0) == '\uFEFF') content = content.substring(1);
         String head = content.trim();
         if (head.startsWith("<!DOCTYPE html") || head.startsWith("<html") || head.startsWith("<HTML")) {
-            SpiderDebug.log(TAG, "读取Epg源缓存，发现内容是html，弃用");
+            SpiderDebug.log(TAG, url + "缓存内容是html，弃用");
             return "";
         }
         return content;
@@ -492,7 +492,7 @@ public class EpgParser {
             }
             return epg;
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "获取Epg数据失败 key=" + key + ": " + e.getMessage());
+            SpiderDebug.log(TAG, "获取Epg数据失败 key=" + key, e);
             return new Epg();
         }
     }
