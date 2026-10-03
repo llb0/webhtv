@@ -55,57 +55,50 @@ public class EpgParser {
     public static void start(Live live) {
         if (live == null || live.getGroups().isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
-        // 先触发版本迁移：旧版本（去重逻辑不同、可能已膨胀）的 merged 文件会被删除，避免读取时 OOM
+        // 先触发版本迁移：旧版本的 merged 文件会被删除，避免读取时 OOM
         loadMergeMeta();
         File mergedFile = Path.epg(MERGED_FILE_NAME);
         if (!mergedFile.exists()) {
-            // 首次：同步把第一个有效源直接建为总表，让本次进直播就有数据；后台再做多源增量合并
+            // 首次：同步把第一个有效源直接建为总表（复制原始内容，不重新序列化）
             buildInitialMerged(live, zoneId);
         }
         if (mergedFile.exists()) {
             loadMergedEpg(live, zoneId);
-            // 后台再做增量合并（不阻塞当前页面）
-            new Thread(() -> {
-                synchronized (SYNC_LOCK) {
-                    try {
-                        syncEpgSources(live);
-                    } catch (Exception e) {
-                        Log.w(TAG, "background merge error:" + e.getMessage());
+            // 后台做增量合并（仅距离上次合并超过6小时才跑）
+            MergeMeta meta = loadMergeMeta();
+            long age = System.currentTimeMillis() - meta.lastMergeRun;
+            if (meta.lastMergeRun == 0 || age > UPDATE_INTERVAL_MS) {
+                new Thread(() -> {
+                    synchronized (SYNC_LOCK) {
+                        try {
+                            syncEpgSources(live);
+                        } catch (Exception e) {
+                            Log.w(TAG, "background merge error:" + e.getMessage());
+                        }
                     }
-                }
-            }).start();
+                }).start();
+            }
         }
     }
 
-    /** 首次使用：把第一个有效源直接建为总表（清理7天外），让本次进直播就有数据 */
+    /** 首次使用：直接复制第一个有效源的原始内容为总表，格式与源完全一致 */
     private static void buildInitialMerged(Live live, ZoneId zoneId) {
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
         if (urls.isEmpty()) return;
         MergeMeta meta = loadMergeMeta();
-        LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
         for (String url : urls) {
             try {
                 File cacheFile = ensureCache(url);
                 if (cacheFile == null || !cacheFile.exists()) continue;
                 String content = readCacheContent(cacheFile);
                 if (content.isEmpty()) continue;
-                Tv sourceTv = parseTv(content);
-                if (sourceTv == null) continue;
-                // 清理7天外节目
-                List<Tv.Programme> progs = new ArrayList<>();
-                for (Tv.Programme p : sourceTv.getProgramme()) {
-                    OffsetDateTime start = parseFull(p.getStart(), zoneId);
-                    if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
-                    LocalDate d = start.atZoneSameInstant(zoneId).toLocalDate();
-                    if (d.isBefore(keepFrom)) continue;
-                    progs.add(p);
-                }
-                writeTvToFile(sourceTv, sourceTv.getChannel(), progs, Path.epg(MERGED_FILE_NAME));
-                // 记录该源已合并
+                // 直接写原始内容，不重新序列化（保证 XML 结构与源完全一致，避免解析错位）
+                Path.write(Path.epg(MERGED_FILE_NAME), content.getBytes(StandardCharsets.UTF_8));
+                // 记录该源已合并；lastMergeRun 保持0，让 start() 立即触发后台合并其余源
                 MergeMeta.SourceItem item = new MergeMeta.SourceItem();
                 item.fileMd5 = Util.md5(cacheFile);
                 meta.sources.put(Util.md5(url), item);
-                meta.lastMergeRun = System.currentTimeMillis();
+                meta.lastMergeRun = 0;
                 saveMergeMeta(meta);
                 Log.i(TAG, "buildInitialMerged done, source=" + url);
                 return;
@@ -211,7 +204,11 @@ public class EpgParser {
         collectByDate(mergedTv.getProgramme(), zoneId, keepFrom, seen, finalProgs, true);
         collectByDate(sourceTv.getProgramme(), zoneId, keepFrom, seen, finalProgs, false);
 
-        // 3.用反射设字段 + Persister.write 序列化（与原始源 XML 完全同构，避免手写格式错位）
+        // 3.合并结果为空则不覆盖已有总表（避免合并失败把好数据冲掉）
+        if (finalProgs.isEmpty()) {
+            Log.w(TAG, "incrementalMergeSource: merged programmes empty, skip writing");
+            return;
+        }
         writeTvToFile(mergedTv, new ArrayList<>(channelMap.values()), finalProgs, mergedFile);
     }
 
