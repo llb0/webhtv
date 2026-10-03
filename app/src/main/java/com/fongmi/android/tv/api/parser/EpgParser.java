@@ -143,7 +143,11 @@ public class EpgParser {
 
     /** 空闲任务调用：检测全部epg源，下载更新，增量合并到merged_epg.xml */
     public static void syncEpgSources(Live live) {
-        if (live == null || live.getGroups().isEmpty()) return;
+        SpiderDebug.log(TAG, "进入Epg后台更新。");
+        if (live == null || live.getGroups().isEmpty()) {
+            SpiderDebug.log(TAG, "Epg后台更新时Live为空！");
+            return;
+        }
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
         if (urls.isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
