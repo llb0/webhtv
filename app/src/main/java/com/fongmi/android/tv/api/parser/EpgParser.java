@@ -23,7 +23,6 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -48,9 +47,25 @@ public class EpgParser {
     public static final String MERGED_META_NAME = "merged_meta.json";
     private static final Gson GSON = new Gson();
 
+    /** 全流程共享锁：防止首次合并与定时同步并发写 merged_epg.xml */
+    public static final Object SYNC_LOCK = new Object();
+
     public static void start(Live live) {
         if (live == null || live.getGroups().isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
+        if (!Path.epg(MERGED_FILE_NAME).exists()) {
+            // 首次尚无合并总xml：后台全量合并一次（不阻塞直播页），本次页面暂无数据，下次进入即可读到
+            new Thread(() -> {
+                synchronized (SYNC_LOCK) {
+                    try {
+                        syncEpgSources(live);
+                    } catch (Exception e) {
+                        Log.w(TAG, "first merge error:" + e.getMessage());
+                    }
+                }
+            }).start();
+            return;
+        }
         loadMergedEpg(live, zoneId);
     }
 
@@ -94,7 +109,7 @@ public class EpgParser {
             try {
                 File cacheFile = ensureCache(url);
                 if (cacheFile == null || !cacheFile.exists()) continue;
-                String fileMd5 = Util.md5(Path.readToByte(cacheFile));
+                String fileMd5 = Util.md5(cacheFile);
                 String urlMd5 = Util.md5(url);
                 MergeMeta.SourceItem sourceItem = meta.sources.get(urlMd5);
                 if (sourceItem != null && fileMd5.equals(sourceItem.fileMd5)) {
@@ -135,9 +150,7 @@ public class EpgParser {
                 if (mergedTv == null) mergedTv = new Tv();
             }
         }
-        if (mergedTv.getChannel() == null) mergedTv.setChannel(new ArrayList<>());
-        if (mergedTv.getProgramme() == null) mergedTv.setProgramme(new ArrayList<>());
-
+        // Tv 无 setter，不能通过 Persister.write(Tv) 直接写；改为手动序列化合并结果
         // 1.合并channel，不重复
         Map<String, Tv.Channel> channelMap = new HashMap<>();
         for (Tv.Channel ch : mergedTv.getChannel()) channelMap.putIfAbsent(ch.getId(), ch);
@@ -171,13 +184,41 @@ public class EpgParser {
             }
         }
 
-        mergedTv.setChannel(new ArrayList<>(channelMap.values()));
-        mergedTv.setProgramme(finalProgs);
-
-        // 写回总xml
-        Persister persister = new Persister();
-        String xmlText = persister.write(mergedTv);
+        // 写回总xml（手动序列化，兼容 Tv 无 setter 的约束）
+        String xmlText = toXml(channelMap.values(), finalProgs);
         Path.write(mergedFile, xmlText.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 手动序列化 Tv 的 channel/programme 为 xml 字符串（Tv 无 setter，不能用 Persister.write(Tv)） */
+    private static String toXml(java.util.Collection<Tv.Channel> channels, java.util.Collection<Tv.Programme> programmes) {
+        StringBuilder sb = new StringBuilder(4096);
+        sb.append("<tv>");
+        for (Tv.Channel ch : channels) {
+            sb.append("<channel id=\"").append(escape(ch.getId())).append("\">");
+            String src = ch.getSrc();
+            if (!src.isEmpty()) sb.append("<icon src=\"").append(escape(src)).append("\"/>");
+            for (Tv.DisplayName dn : ch.getDisplayName()) {
+                String text = dn.getText();
+                if (!text.isEmpty()) sb.append("<display-name>").append(escape(text)).append("</display-name>");
+            }
+            sb.append("</channel>");
+        }
+        for (Tv.Programme p : programmes) {
+            sb.append("<programme start=\"").append(escape(p.getStart()))
+                    .append("\" stop=\"").append(escape(p.getStop()))
+                    .append("\" channel=\"").append(escape(p.getChannel())).append("\">");
+            String title = p.getTitle();
+            if (!title.isEmpty()) sb.append("<title>").append(escape(title)).append("</title>");
+            sb.append("</programme>");
+        }
+        sb.append("</tv>");
+        return sb.toString();
+    }
+
+    private static String escape(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\"", "&quot;").replace("'", "&apos;");
     }
 
     private static MergeMeta loadMergeMeta() {
