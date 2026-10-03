@@ -7,12 +7,15 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.os.HandlerCompat;
 
+import com.fongmi.android.tv.api.parser.EpgParser;
 import com.fongmi.android.tv.bean.Config;
+import com.fongmi.android.tv.bean.Live;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.playback.PlaybackRemoteSyncer;
 import com.fongmi.android.tv.player.PlaybackMemoryMonitor;
@@ -34,6 +37,8 @@ import com.google.gson.Gson;
 public class App extends Application implements Application.ActivityLifecycleCallbacks {
 
     private static volatile App instance;
+    private static long lastIdleEpgSync = 0;
+    private static final Object epgSyncLock = new Object();
 
     private final Handler handler;
     private final Gson gson;
@@ -196,6 +201,31 @@ public class App extends Application implements Application.ActivityLifecycleCal
         PlaybackRemoteSyncer.start();
         RemoteAgent.get().start();
         NsdDeviceDiscovery.register();
+
+        // ====== 新增：注册主线程空闲任务，后台静默同步EPG源、增量合并总xml ======
+        android.os.MessageQueue.IdleHandler epgIdleHandler = new android.os.MessageQueue.IdleHandler() {
+            @Override
+            public boolean queueIdle() {
+                long now = System.currentTimeMillis();
+                if (now - lastIdleEpgSync < EpgParser.UPDATE_INTERVAL_MS) {
+                    return false;
+                }
+                new Thread(() -> {
+                    synchronized (epgSyncLock) {
+                        try {
+                            Live live = Config.get().getLive();
+                            EpgParser.syncEpgSources(live);
+                            lastIdleEpgSync = System.currentTimeMillis();
+                        } catch (Exception e) {
+                            Log.e("AppEpgSync", "epg sync error", e);
+                        }
+                    }
+                }).start();
+                return false;
+            }
+        };
+        android.os.Looper.myQueue().addIdleHandler(epgIdleHandler);
+
         SpiderDebug.log("startup", "background services ready cost=%sms", System.currentTimeMillis() - time);
     }
 
