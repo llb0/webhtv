@@ -15,6 +15,7 @@ import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
+import com.alibaba.fastjson2.JSON;
 
 import org.simpleframework.xml.core.Persister;
 
@@ -144,11 +145,15 @@ public class EpgParser {
         Map<String, Tv.Programme> progMap = new HashMap<>();
         for (Tv.Programme p : mergedTv.getProgramme()) {
             OffsetDateTime start = parseFull(p.getStart(), zoneId);
+            // 跳过时间解析失败的无效节目
+            if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
             String key = p.getChannel() + "|" + start.toInstant().toEpochMilli();
             progMap.putIfAbsent(key, p);
         }
         for (Tv.Programme p : sourceTv.getProgramme()) {
             OffsetDateTime start = parseFull(p.getStart(), zoneId);
+            // 跳过时间解析失败的无效节目
+            if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
             String key = p.getChannel() + "|" + start.toInstant().toEpochMilli();
             progMap.putIfAbsent(key, p);
         }
@@ -179,7 +184,7 @@ public class EpgParser {
         if (metaFile.exists()) {
             try {
                 String json = Path.read(metaFile);
-                meta = com.alibaba.fastjson2.JSON.parseObject(json, MergeMeta.class);
+                meta = JSON.parseObject(json, MergeMeta.class);
             } catch (Exception e) {
                 meta = new MergeMeta();
             }
@@ -190,7 +195,7 @@ public class EpgParser {
     private static void saveMergeMeta(MergeMeta meta) {
         try {
             File metaFile = Path.epg(MERGED_META_NAME);
-            String json = com.alibaba.fastjson2.JSON.toJSONString(meta);
+            String json = JSON.toJSONString(meta);
             Path.write(metaFile, json.getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {}
     }
@@ -263,12 +268,18 @@ public class EpgParser {
 
     private static String readCacheContent(File file) throws Exception {
         byte[] bytes = Path.readToByte(file);
-        if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0x1F && (bytes[1] & 0x8B)) {
+        // 修复gzip魔数判断BUG
+        if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0x1F && (bytes[1] & 0xFF) == 0x8B) {
             File xml = Path.epg(file.getName() + ".xml");
             FileUtil.gzipDecompress(file, xml);
             bytes = Path.readToByte(xml);
+            // 新增：解压后校验非空
+            if(bytes == null || bytes.length == 0){
+                return "";
+            }
         }
-        String content = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        if (bytes.length == 0) return "";
+        String content = new String(bytes, StandardCharsets.UTF_8);
         if (content.isEmpty()) return "";
         if (content.charAt(0) == '\uFEFF') content = content.substring(1);
         String head = content.trim();
@@ -301,7 +312,10 @@ public class EpgParser {
             if (target == null) continue;
             String tvgId = target.getTvgId();
             OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
+            // 跳过无效时间节目
+            if(startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
             OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
+            if(endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
             String date = startDate.atZoneSameInstant(zoneId).format(Formatters.DATE);
             result.computeIfAbsent(tvgId, k -> new HashMap<>())
                     .computeIfAbsent(date, d -> Epg.create(tvgId, d))
@@ -363,12 +377,11 @@ public class EpgParser {
 
     private static List<Epg> cleanOldDays(List<Epg> list) {
         if (list == null || list.isEmpty()) return new ArrayList<>();
-        LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
         List<Epg> result = new ArrayList<>();
         for (Epg epg : list) {
             try {
                 LocalDate date = LocalDate.parse(epg.getDate(), Formatters.DATE);
-                if (!date.isBefore(keepFrom)) result.add(epg);
+                if (!date.isBefore(LocalDate.now().minusDays(KEEP_DAYS))) result.add(epg);
             } catch (Exception e) {
                 result.add(epg);
             }
@@ -385,7 +398,14 @@ public class EpgParser {
             String rawDate = tv.getDate();
             String date = rawDate.isEmpty() ? LocalDate.now(zoneId).format(Formatters.DATE) : parseFull(rawDate, zoneId).atZoneSameInstant(zoneId).format(Formatters.DATE);
             Epg epg = Epg.create(key, date);
-            for (Tv.Programme programme : tv.getProgramme()) epg.getList().add(getEpgData(programme, zoneId));
+            for (Tv.Programme programme : tv.getProgramme()){
+                OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
+                OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
+                if(startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC)) || endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))){
+                    continue;
+                }
+                epg.getList().add(getEpgData(programme, zoneId));
+            }
             return epg;
         } catch (Exception e) {
             Log.w(TAG, "getEpg parse failed key=" + key + ": " + e.getMessage());
