@@ -134,7 +134,7 @@ public class EpgParser {
         }
     }
 
-    // 加载合并好的总xml，组装EPG数据（EpgParser只干这件事）
+    // 加载合并好的总xml，组装EPG数据
     private static void loadMergedEpg(Live live, ZoneId zoneId) {
         File mergedFile = getMergedEpgFile();
         if (!mergedFile.exists()) return;
@@ -146,11 +146,46 @@ public class EpgParser {
             }
             Tv tv = parseTv(content);
             if (tv == null) return;
-            Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
+
+            // 构建节目索引，仅遍历一次节目，不做时间解析
+            Map<String, List<Tv.Programme>> progIndex = new HashMap<>();
+            for (Tv.Programme p : tv.getProgramme()) {
+                progIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
+            }
             Map<String, List<Tv.Channel>> xmlChannelMap = tv.getChannel().stream()
                     .collect(Collectors.groupingBy(Tv.Channel::getId));
-            Map<String, Map<String, Epg>> sourceMap = buildSourceMap(tv, liveChannelMap, xmlChannelMap, zoneId);
-            mergeIntoLive(live, sourceMap);
+            Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
+
+            // 遍历Live全部频道
+            for (Group group : live.getGroups()) {
+                for (Channel ch : group.getChannel()) {
+                    // 沿用原来的频道匹配逻辑：tvgId / tvgName / displayName
+                    Channel matchedXmlCh = findTargetChannel(ch.getTvgId(), liveChannelMap, xmlChannelMap);
+                    if (matchedXmlCh == null) continue;
+                    List<Tv.Programme> progList = progIndex.get(matchedXmlCh.getTvgId());
+                    if (progList == null || progList.isEmpty()) continue;
+
+                    // 复用原有getEpg/getEpgData解析逻辑
+                    List<Epg> epgList = new ArrayList<>();
+                    Map<String, Epg> dateGroup = new LinkedHashMap<>();
+                    for (Tv.Programme programme : progList) {
+                        OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
+                        OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
+                        if(startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC)) || endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))){
+                            continue;
+                        }
+                        String dateStr = startDate.atZoneSameInstant(zoneId).format(Formatters.DATE);
+                        Epg epg = dateGroup.get(dateStr);
+                        if (epg == null) {
+                            epg = Epg.create(ch.getTvgId(), dateStr);
+                            dateGroup.put(dateStr, epg);
+                        }
+                        epg.getList().add(getEpgData(programme, zoneId));
+                    }
+                    epgList.addAll(dateGroup.values());
+                    ch.setDataList(cleanOldDays(epgList));
+                }
+            }
         } catch (Exception e) {
             SpiderDebug.log(TAG, "加载Epg总表出错："+e.toString());
         }
@@ -413,36 +448,6 @@ public class EpgParser {
         return new Persister().read(Tv.class, content, false);
     }
 
-    private static Map<String, Map<String, Epg>> buildSourceMap(Tv tv, Map<String, Channel> liveChannelMap,
-                                                                  Map<String, List<Tv.Channel>> xmlChannelMap, ZoneId zoneId) {
-        Map<String, Map<String, Epg>> result = new HashMap<>();
-        Map<String, Channel> channelCache = new HashMap<>();
-        Set<String> channelMiss = new LinkedHashSet<>();
-        for (Tv.Programme programme : tv.getProgramme()) {
-            String xmlChannelId = programme.getChannel();
-            Channel target;
-            if (channelCache.containsKey(xmlChannelId)) target = channelCache.get(xmlChannelId);
-            else if (channelMiss.contains(xmlChannelId)) target = null;
-            else {
-                target = findTargetChannel(xmlChannelId, liveChannelMap, xmlChannelMap);
-                if (target != null) channelCache.put(xmlChannelId, target);
-                else channelMiss.add(xmlChannelId);
-            }
-            if (target == null) continue;
-            String tvgId = target.getTvgId();
-            OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
-            // 跳过无效时间节目
-            if(startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
-            OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
-            if(endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
-            String date = startDate.atZoneSameInstant(zoneId).format(Formatters.DATE);
-            result.computeIfAbsent(tvgId, k -> new HashMap<>())
-                    .computeIfAbsent(date, d -> Epg.create(tvgId, d))
-                    .getList().add(getEpgData(startDate, endDate, zoneId, programme));
-        }
-        return result;
-    }
-
     private static Map<String, Channel> prepareLiveChannels(Live live) {
         Map<String, Channel> map = new HashMap<>();
         for (Group group : live.getGroups()) {
@@ -468,30 +473,6 @@ public class EpgParser {
             }
         }
         return null;
-    }
-
-    private static void mergeIntoLive(Live live, Map<String, Map<String, Epg>> sourceMap) {
-        for (Group group : live.getGroups()) {
-            for (Channel channel : group.getChannel()) {
-                Map<String, Epg> dateMap = findDateMap(channel, sourceMap);
-                if (dateMap == null) continue;
-                List<Epg> existing = new ArrayList<>(channel.getDataList());
-                Set<String> seenDates = new LinkedHashSet<>();
-                for (Epg epg : existing) seenDates.add(epg.getDate());
-                for (Epg incoming : dateMap.values()) {
-                    if (seenDates.add(incoming.getDate())) existing.add(incoming);
-                }
-                channel.setDataList(cleanOldDays(existing));
-            }
-        }
-    }
-
-    private static Map<String, Epg> findDateMap(Channel channel, Map<String, Map<String, Epg>> sourceMap) {
-        Map<String, Epg> map = sourceMap.get(channel.getTvgId());
-        if (map != null) return map;
-        map = sourceMap.get(channel.getTvgName());
-        if (map != null) return map;
-        return sourceMap.get(channel.getName());
     }
 
     private static List<Epg> cleanOldDays(List<Epg> list) {
