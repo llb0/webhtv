@@ -169,7 +169,6 @@ public class App extends Application implements Application.ActivityLifecycleCal
             String cls = element.getClassName();
             if (cls == null) continue;
             // 第三方 jar 中的所有 spider/parser 包类（应用自身不在这两个包下）
-            // 覆盖 merge 混淆类、Init、Proxy、DexNative、Danmaku、AowuShinidie、XxxAmns 等
             if (cls.startsWith("com.github.catvod.spider.")
                     || cls.startsWith("com.github.catvod.parser.")) {
                 return true;
@@ -202,26 +201,26 @@ public class App extends Application implements Application.ActivityLifecycleCal
         RemoteAgent.get().start();
         NsdDeviceDiscovery.register();
 
-        // ====== 新增：注册主线程空闲任务，后台静默同步EPG源、增量合并总xml ======
+        // ====== 修复IdleHandler，常驻循环，6小时间隔执行 ======
         android.os.MessageQueue.IdleHandler epgIdleHandler = new android.os.MessageQueue.IdleHandler() {
             @Override
             public boolean queueIdle() {
                 long now = System.currentTimeMillis();
-                if (now - lastIdleEpgSync < EpgParser.UPDATE_INTERVAL_MS) {
-                    return false;
-                }
-                new Thread(() -> {
-                    synchronized (epgSyncLock) {
-                        try {
-                            Live live = Config.get().getLive();
-                            EpgParser.syncEpgSources(live);
-                            lastIdleEpgSync = System.currentTimeMillis();
-                        } catch (Exception e) {
-                            Log.e("AppEpgSync", "epg sync error", e);
+                if (now - lastIdleEpgSync >= EpgParser.UPDATE_INTERVAL_MS) {
+                    // 主线程提前取出Live，放到子线程，避免子线程读取Config
+                    Live live = Config.get().getLive();
+                    new Thread(() -> {
+                        synchronized (epgSyncLock) {
+                            try {
+                                EpgParser.syncEpgSources(live);
+                                lastIdleEpgSync = System.currentTimeMillis();
+                            } catch (Exception e) {
+                                Log.e("AppEpgSync", "epg sync error", e);
+                            }
                         }
-                    }
-                }).start();
-                return false;
+                    }).start();
+                }
+                return true; // true=保留IdleHandler，下次空闲继续触发
             }
         };
         android.os.Looper.myQueue().addIdleHandler(epgIdleHandler);
