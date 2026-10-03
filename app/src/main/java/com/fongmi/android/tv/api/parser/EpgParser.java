@@ -5,6 +5,7 @@ import com.fongmi.android.tv.bean.Epg;
 import com.fongmi.android.tv.bean.EpgData;
 import com.fongmi.android.tv.bean.Group;
 import com.fongmi.android.tv.bean.Live;
+import com.fongmi.android.tv.bean.MergeMeta;
 import com.fongmi.android.tv.bean.Tv;
 import com.fongmi.android.tv.setting.LiveEpgSetting;
 import com.fongmi.android.tv.utils.FileUtil;
@@ -74,7 +75,7 @@ public class EpgParser {
                         try {
                             syncEpgSources(live);
                         } catch (Exception e) {
-                            SpiderDebug.log(TAG, "后台合并Epg总表错误", e);
+                            SpiderDebug.log(TAG, "后台合并Epg总表错误："+e.toString());
                         }
                     }
                 }).start();
@@ -104,7 +105,7 @@ public class EpgParser {
                 SpiderDebug.log(TAG, "首次使用，加载第一个可用Epg源, source=" + url);
                 return;
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "首次使用时加载第一个可用Epg源错误 url=" + url, e);
+                SpiderDebug.log(TAG, "首次使用时加载第一个可用Epg源错误 url=" + url+"："+e.toString());
             }
         }
     }
@@ -127,15 +128,7 @@ public class EpgParser {
             Map<String, Map<String, Epg>> sourceMap = buildSourceMap(tv, liveChannelMap, xmlChannelMap, zoneId);
             mergeIntoLive(live, sourceMap);
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "加载Epg总表出错", e);
-        }
-    }
-
-    public static class MergeMeta {
-        public long lastMergeRun;
-        public Map<String, SourceItem> sources = new HashMap<>();
-        public static class SourceItem {
-            public String fileMd5;
+            SpiderDebug.log(TAG, "加载Epg总表出错："+e.toString());
         }
     }
 
@@ -169,7 +162,7 @@ public class EpgParser {
                 meta.sources.put(urlMd5, sourceItem);
                 needMerge = true;
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "后台更新总表出错 url=" + url, e);
+                SpiderDebug.log(TAG, "后台更新总表出错 url=" + url+"："+e.toString());
             }
         }
         if (needMerge) {
@@ -259,7 +252,7 @@ public class EpgParser {
                 java.lang.reflect.Type type = new com.google.gson.reflect.TypeToken<MergeMeta>(){}.getType();
                 meta = GSON.fromJson(json, type);
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "meta文件解析损坏，使用空meta", e);
+                SpiderDebug.log(TAG, "meta文件解析损坏，使用空meta："+e.toString());
             }
         }
         return meta;
@@ -271,7 +264,7 @@ public class EpgParser {
             String json = GSON.toJson(meta);
             writeFile(metaFile, json.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "保存meta失败", e);
+            SpiderDebug.log(TAG, "保存meta失败："+e.toString());
         }
     }
 
@@ -492,7 +485,7 @@ public class EpgParser {
             }
             return epg;
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "获取Epg数据失败 key=" + key, e);
+            SpiderDebug.log(TAG, "获取Epg数据失败 key=" + key+"："+e.toString());
             return new Epg();
         }
     }
