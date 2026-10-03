@@ -52,12 +52,26 @@ public class EpgParser {
     /** 全流程共享锁：防止首次合并与定时同步并发写 merged_epg.xml */
     public static final Object SYNC_LOCK = new Object();
 
+    // ========== 新增：合并成品放在 files/epg，不受清缓存影响 ==========
+    private static File getMergedEpgFile() {
+        File dir = new File(Path.files(), "epg");
+        if (!dir.exists()) dir.mkdirs();
+        return new File(dir, MERGED_FILE_NAME);
+    }
+
+    private static File getMergeMetaFile() {
+        File dir = new File(Path.files(), "epg");
+        if (!dir.exists()) dir.mkdirs();
+        return new File(dir, MERGED_META_NAME);
+    }
+    // ==============================================================
+
     public static void start(Live live) {
         if (live == null || live.getGroups().isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
         // 读取 meta
         loadMergeMeta();
-        File mergedFile = Path.epg(MERGED_FILE_NAME);
+        File mergedFile = getMergedEpgFile();
         if (!mergedFile.exists()) {
             // 首次：同步把第一个有效源直接建为总表（复制原始内容，不重新序列化）
             SpiderDebug.log(TAG, "没有Epg总表");
@@ -94,10 +108,10 @@ public class EpgParser {
                 if (cacheFile == null || !cacheFile.exists()) continue;
                 String content = readCacheContent(cacheFile, url);
                 if (content.isEmpty()) continue;
-                // 原子写入，先写临时文件
-                File tempFile = Path.epg(MERGED_FILE_NAME + ".tmp");
+                // 原子写入，先写临时文件（临时文件也放在files目录）
+                File tempFile = new File(getMergedEpgFile().getParent(), MERGED_FILE_NAME + ".tmp");
                 writeFile(tempFile, content.getBytes(StandardCharsets.UTF_8));
-                File mergedFile = Path.epg(MERGED_FILE_NAME);
+                File mergedFile = getMergedEpgFile();
                 if(tempFile.exists() && tempFile.length()>0){
                     if(mergedFile.exists()) mergedFile.delete();
                     tempFile.renameTo(mergedFile);
@@ -122,7 +136,7 @@ public class EpgParser {
 
     // 加载合并好的总xml，组装EPG数据（EpgParser只干这件事）
     private static void loadMergedEpg(Live live, ZoneId zoneId) {
-        File mergedFile = Path.epg(MERGED_FILE_NAME);
+        File mergedFile = getMergedEpgFile();
         if (!mergedFile.exists()) return;
         try {
             String content = readCacheContent(mergedFile, "Epg总表");
@@ -189,7 +203,7 @@ public class EpgParser {
         Tv sourceTv = parseTv(sourceContent);
         if (sourceTv == null) return;
 
-        File mergedFile = Path.epg(MERGED_FILE_NAME);
+        File mergedFile = getMergedEpgFile();
         Tv mergedTv;
         if (mergedFile.exists()) {
             String mergedContent = readCacheContent(mergedFile, "Epg总表");
@@ -216,7 +230,7 @@ public class EpgParser {
             SpiderDebug.log(TAG, "合并结果为空，不覆盖已有Epg总表");
             return;
         }
-        File tempFile = Path.epg(MERGED_FILE_NAME + ".tmp");
+        File tempFile = new File(getMergedEpgFile().getParent(), MERGED_FILE_NAME + ".tmp");
         writeTvToFile(mergedTv, new ArrayList<>(channelMap.values()), finalProgs, tempFile);
         if(tempFile.exists() && tempFile.length() > 0){
             if(mergedFile.exists()) mergedFile.delete();
@@ -264,7 +278,7 @@ public class EpgParser {
     }
 
     private static MergeMeta loadMergeMeta() {
-        File metaFile = Path.epg(MERGED_META_NAME);
+        File metaFile = getMergeMetaFile();
         MergeMeta meta = new MergeMeta();
         if (metaFile.exists()) {
             try {
@@ -281,8 +295,8 @@ public class EpgParser {
 
     private static void saveMergeMeta(MergeMeta meta) {
         try {
-            File metaFile = Path.epg(MERGED_META_NAME);
-            File tempFile = Path.epg(MERGED_META_NAME + ".tmp");
+            File metaFile = getMergeMetaFile();
+            File tempFile = new File(metaFile.getParent(), MERGED_META_NAME + ".tmp");
             String json = GSON.toJson(meta);
             writeFile(tempFile, json.getBytes(StandardCharsets.UTF_8));
             if(tempFile.exists() && tempFile.length()>0){
