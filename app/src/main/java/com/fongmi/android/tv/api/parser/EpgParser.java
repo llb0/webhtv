@@ -57,20 +57,62 @@ public class EpgParser {
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
         // 先触发版本迁移：旧版本（去重逻辑不同、可能已膨胀）的 merged 文件会被删除，避免读取时 OOM
         loadMergeMeta();
-        if (!Path.epg(MERGED_FILE_NAME).exists()) {
-            // 尚无有效合并总xml：后台全量合并一次（不阻塞直播页），本次页面暂无数据，下次进入即可读到
+        File mergedFile = Path.epg(MERGED_FILE_NAME);
+        if (!mergedFile.exists()) {
+            // 首次：同步把第一个有效源直接建为总表，让本次进直播就有数据；后台再做多源增量合并
+            buildInitialMerged(live, zoneId);
+        }
+        if (mergedFile.exists()) {
+            loadMergedEpg(live, zoneId);
+            // 后台再做增量合并（不阻塞当前页面）
             new Thread(() -> {
                 synchronized (SYNC_LOCK) {
                     try {
                         syncEpgSources(live);
                     } catch (Exception e) {
-                        Log.w(TAG, "first merge error:" + e.getMessage());
+                        Log.w(TAG, "background merge error:" + e.getMessage());
                     }
                 }
             }).start();
-            return;
         }
-        loadMergedEpg(live, zoneId);
+    }
+
+    /** 首次使用：把第一个有效源直接建为总表（清理7天外），让本次进直播就有数据 */
+    private static void buildInitialMerged(Live live, ZoneId zoneId) {
+        List<String> urls = LiveEpgSetting.getXmlUrls(live);
+        if (urls.isEmpty()) return;
+        MergeMeta meta = loadMergeMeta();
+        LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
+        for (String url : urls) {
+            try {
+                File cacheFile = ensureCache(url);
+                if (cacheFile == null || !cacheFile.exists()) continue;
+                String content = readCacheContent(cacheFile);
+                if (content.isEmpty()) continue;
+                Tv sourceTv = parseTv(content);
+                if (sourceTv == null) continue;
+                // 清理7天外节目
+                List<Tv.Programme> progs = new ArrayList<>();
+                for (Tv.Programme p : sourceTv.getProgramme()) {
+                    OffsetDateTime start = parseFull(p.getStart(), zoneId);
+                    if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
+                    LocalDate d = start.atZoneSameInstant(zoneId).toLocalDate();
+                    if (d.isBefore(keepFrom)) continue;
+                    progs.add(p);
+                }
+                writeTvToFile(sourceTv, sourceTv.getChannel(), progs, Path.epg(MERGED_FILE_NAME));
+                // 记录该源已合并
+                MergeMeta.SourceItem item = new MergeMeta.SourceItem();
+                item.fileMd5 = Util.md5(cacheFile);
+                meta.sources.put(Util.md5(url), item);
+                meta.lastMergeRun = System.currentTimeMillis();
+                saveMergeMeta(meta);
+                Log.i(TAG, "buildInitialMerged done, source=" + url);
+                return;
+            } catch (Exception e) {
+                Log.w(TAG, "buildInitialMerged url=" + url + " err:" + e.getMessage());
+            }
+        }
     }
 
     // 加载合并好的总xml，组装EPG数据（EpgParser只干这件事）
@@ -140,7 +182,6 @@ public class EpgParser {
         }
     }
 
-    /** 重叠容忍度：同频道相邻节目开始时间相差在该值内视为衔接，不判为重复 */
     /** 增量合并：单个更新源 -> 合并进merged_epg.xml，合并完成统一清理7天外节目 */
     private static void incrementalMergeSource(String url, File sourceCacheFile, ZoneId zoneId) throws Exception {
         String sourceContent = readCacheContent(sourceCacheFile);
@@ -149,13 +190,12 @@ public class EpgParser {
         if (sourceTv == null) return;
 
         File mergedFile = Path.epg(MERGED_FILE_NAME);
-        Tv mergedTv = new Tv();
+        Tv mergedTv;
         if (mergedFile.exists()) {
             String mergedContent = readCacheContent(mergedFile);
-            if (!mergedContent.isEmpty()) {
-                Tv t = parseTv(mergedContent);
-                if (t != null) mergedTv = t;
-            }
+            mergedTv = mergedContent.isEmpty() ? new Tv() : parseTv(mergedContent);
+        } else {
+            mergedTv = new Tv();
         }
 
         // 1.合并channel，按id去重（保留首次出现）
@@ -168,13 +208,22 @@ public class EpgParser {
         LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
         List<Tv.Programme> finalProgs = new ArrayList<>();
         Set<String> seen = new java.util.HashSet<>();
-        // 2a.已合并的节目全部保留，并记录已占用的 (频道|日期)
         collectByDate(mergedTv.getProgramme(), zoneId, keepFrom, seen, finalProgs, true);
-        // 2b.新源中，仅当 (频道|日期) 未被占用时才加入该天全部节目；已占用则整天空过
         collectByDate(sourceTv.getProgramme(), zoneId, keepFrom, seen, finalProgs, false);
 
-        // 写回总xml（流式写入，避免一次性构造超大字符串导致 OOM）
-        writeMergedXml(mergedFile, channelMap, finalProgs);
+        // 3.用反射设字段 + Persister.write 序列化（与原始源 XML 完全同构，避免手写格式错位）
+        writeTvToFile(mergedTv, new ArrayList<>(channelMap.values()), finalProgs, mergedFile);
+    }
+
+    /** 反射设置 Tv 的 channel/programme 字段，用 SimpleFramework 写出（保证 XML 结构与源一致） */
+    private static void writeTvToFile(Tv tv, List<Tv.Channel> channels, List<Tv.Programme> programmes, File file) throws Exception {
+        java.lang.reflect.Field chField = Tv.class.getDeclaredField("channel");
+        chField.setAccessible(true);
+        chField.set(tv, channels);
+        java.lang.reflect.Field progField = Tv.class.getDeclaredField("programme");
+        progField.setAccessible(true);
+        progField.set(tv, programmes);
+        new Persister().write(tv, file);
     }
 
     /**
@@ -198,57 +247,6 @@ public class EpgParser {
                 if (!seen.contains(key)) out.add(p);
             }
         }
-    }
-
-    /** 流式写入合并总xml（Tv 无 setter，手动拼接；逐段写出，避免大字符串 OOM） */
-    private static void writeMergedXml(File file, Map<String, Tv.Channel> channels, List<Tv.Programme> programmes) throws Exception {
-        try (java.io.BufferedWriter w = new java.io.BufferedWriter(
-                new java.io.OutputStreamWriter(new java.io.FileOutputStream(file), StandardCharsets.UTF_8), 8192)) {
-            w.write("<tv>");
-            for (Tv.Channel ch : channels.values()) {
-                w.write("<channel id=\"");
-                w.write(escape(ch.getId()));
-                w.write("\">");
-                String src = ch.getSrc();
-                if (!src.isEmpty()) {
-                    w.write("<icon src=\"");
-                    w.write(escape(src));
-                    w.write("\"/>");
-                }
-                for (Tv.DisplayName dn : ch.getDisplayName()) {
-                    String text = dn.getText();
-                    if (!text.isEmpty()) {
-                        w.write("<display-name>");
-                        w.write(escape(text));
-                        w.write("</display-name>");
-                    }
-                }
-                w.write("</channel>");
-            }
-            for (Tv.Programme p : programmes) {
-                w.write("<programme start=\"");
-                w.write(escape(p.getStart()));
-                w.write("\" stop=\"");
-                w.write(escape(p.getStop()));
-                w.write("\" channel=\"");
-                w.write(escape(p.getChannel()));
-                w.write("\">");
-                String title = p.getTitle();
-                if (!title.isEmpty()) {
-                    w.write("<title>");
-                    w.write(escape(title));
-                    w.write("</title>");
-                }
-                w.write("</programme>");
-            }
-            w.write("</tv>");
-        }
-    }
-
-    private static String escape(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                .replace("\"", "&quot;").replace("'", "&apos;");
     }
 
     private static MergeMeta loadMergeMeta() {
