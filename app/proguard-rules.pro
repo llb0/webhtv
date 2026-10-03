@@ -22,6 +22,7 @@
 -keep,allowobfuscation class com.fongmi.android.tv.player.engine.MpvPlayerEngine { *; }
 
 # Gson
+-keepattributes Signature
 -keep class com.google.gson.** { *; }
 -keep class com.fongmi.android.tv.remote.** { *; }
 -keep class com.fongmi.android.tv.gitcloud.** { *; }
