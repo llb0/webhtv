@@ -15,7 +15,7 @@ import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
-import com.alibaba.fastjson2.JSON;
+import com.google.gson.Gson;
 
 import org.simpleframework.xml.core.Persister;
 
@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import okhttp3.Request;
 import okhttp3.Response;
@@ -45,6 +46,7 @@ public class EpgParser {
     public static final int KEEP_DAYS = 7;
     public static final String MERGED_FILE_NAME = "merged_epg.xml";
     public static final String MERGED_META_NAME = "merged_meta.json";
+    private static final Gson GSON = new Gson();
 
     public static void start(Live live) {
         if (live == null || live.getGroups().isEmpty()) return;
@@ -63,7 +65,7 @@ public class EpgParser {
             if (tv == null) return;
             Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
             Map<String, List<Tv.Channel>> xmlChannelMap = tv.getChannel().stream()
-                    .collect(java.util.stream.Collectors.groupingBy(Tv.Channel::getId));
+                    .collect(Collectors.groupingBy(Tv.Channel::getId));
             Map<String, Map<String, Epg>> sourceMap = buildSourceMap(tv, liveChannelMap, xmlChannelMap, zoneId);
             mergeIntoLive(live, sourceMap);
         } catch (Exception e) {
@@ -184,7 +186,7 @@ public class EpgParser {
         if (metaFile.exists()) {
             try {
                 String json = Path.read(metaFile);
-                meta = JSON.parseObject(json, MergeMeta.class);
+                meta = GSON.fromJson(json, MergeMeta.class);
             } catch (Exception e) {
                 meta = new MergeMeta();
             }
@@ -195,7 +197,7 @@ public class EpgParser {
     private static void saveMergeMeta(MergeMeta meta) {
         try {
             File metaFile = Path.epg(MERGED_META_NAME);
-            String json = JSON.toJSONString(meta);
+            String json = GSON.toJson(meta);
             Path.write(metaFile, json.getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {}
     }
