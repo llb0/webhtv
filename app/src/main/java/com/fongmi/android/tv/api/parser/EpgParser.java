@@ -19,6 +19,7 @@ import com.google.common.net.HttpHeaders;
 import org.simpleframework.xml.core.Persister;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -32,45 +33,168 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
- 
+
 import okhttp3.Request;
 import okhttp3.Response;
- 
+
 public class EpgParser {
 
     private static final String TAG = EpgParser.class.getSimpleName();
-    private static final long UPDATE_INTERVAL_MS = TimeUnit.HOURS.toMillis(6);
-    private static final int KEEP_DAYS = 7;
- 
+    public static final long UPDATE_INTERVAL_MS = TimeUnit.HOURS.toMillis(6);
+    public static final int KEEP_DAYS = 7;
+    public static final String MERGED_FILE_NAME = "merged_epg.xml";
+    public static final String MERGED_META_NAME = "merged_meta.json";
+
     public static void start(Live live) {
+        if (live == null || live.getGroups().isEmpty()) return;
+        ZoneId zoneId = zoneIdOf(live.getTimeZone());
+        loadMergedEpg(live, zoneId);
+    }
+
+    // 加载合并好的总xml，组装EPG数据（EpgParser只干这件事）
+    private static void loadMergedEpg(Live live, ZoneId zoneId) {
+        File mergedFile = Path.epg(MERGED_FILE_NAME);
+        if (!mergedFile.exists()) return;
+        try {
+            String content = readCacheContent(mergedFile);
+            if (content.isEmpty()) return;
+            Tv tv = parseTv(content);
+            if (tv == null) return;
+            Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
+            Map<String, List<Tv.Channel>> xmlChannelMap = tv.getChannel().stream()
+                    .collect(java.util.stream.Collectors.groupingBy(Tv.Channel::getId));
+            Map<String, Map<String, Epg>> sourceMap = buildSourceMap(tv, liveChannelMap, xmlChannelMap, zoneId);
+            mergeIntoLive(live, sourceMap);
+        } catch (Exception e) {
+            Log.w(TAG, "loadMergedEpg error:" + e.getMessage());
+        }
+    }
+
+    // ========= 后台增量合并相关静态方法，给App全局空闲任务调用 =========
+    public static class MergeMeta {
+        public long lastMergeRun;
+        public Map<String, SourceItem> sources = new HashMap<>();
+        public static class SourceItem {
+            public String fileMd5;
+        }
+    }
+
+    /** 空闲任务调用：检测全部epg源，下载更新，增量合并到merged_epg.xml */
+    public static void syncEpgSources(Live live) {
         if (live == null || live.getGroups().isEmpty()) return;
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
         if (urls.isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
+        MergeMeta meta = loadMergeMeta();
+        boolean needMerge = false;
         for (String url : urls) {
             try {
-                parseUrl(live, url, zoneId);
+                File cacheFile = ensureCache(url);
+                if (cacheFile == null || !cacheFile.exists()) continue;
+                String fileMd5 = Util.md5(Path.readToByte(cacheFile));
+                String urlMd5 = Util.md5(url);
+                MergeMeta.SourceItem sourceItem = meta.sources.get(urlMd5);
+                if (sourceItem != null && fileMd5.equals(sourceItem.fileMd5)) {
+                    continue;
+                }
+                // 当前源文件发生变更，执行增量合并
+                incrementalMergeSource(url, cacheFile, zoneId);
+                // 更新meta记录该源md5
+                if (sourceItem == null) sourceItem = new MergeMeta.SourceItem();
+                sourceItem.fileMd5 = fileMd5;
+                meta.sources.put(urlMd5, sourceItem);
+                needMerge = true;
             } catch (Exception e) {
-                Log.w(TAG, "parseUrl failed url=" + url + ": " + e.getMessage());
+                Log.w(TAG, "syncEpgSources url=" + url + " err:" + e.getMessage());
             }
+        }
+        if (needMerge) {
+            meta.lastMergeRun = System.currentTimeMillis();
+            saveMergeMeta(meta);
         }
     }
 
-    private static void parseUrl(Live live, String url, ZoneId zoneId) throws Exception {
-        File cacheFile = ensureCache(url);
-        if (cacheFile == null || !cacheFile.exists()) return;
-        String content = readCacheContent(cacheFile);
-        if (content.isEmpty()) return;
-        Tv tv = parseTv(content);
-        if (tv == null) return;
-        Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
-        Map<String, List<Tv.Channel>> xmlChannelMap = tv.getChannel().stream()
-                .collect(java.util.stream.Collectors.groupingBy(Tv.Channel::getId));
-        Map<String, Map<String, Epg>> sourceMap = buildSourceMap(tv, liveChannelMap, xmlChannelMap, zoneId);
-        mergeIntoLive(live, sourceMap);
+    /** 增量合并：单个更新源 -> 合并进merged_epg.xml，合并完成统一清理7天外节目 */
+    private static void incrementalMergeSource(String url, File sourceCacheFile, ZoneId zoneId) throws Exception {
+        Tv sourceTv;
+        {
+            String content = readCacheContent(sourceCacheFile);
+            if (content.isEmpty()) return;
+            sourceTv = parseTv(content);
+            if (sourceTv == null) return;
+        }
+        File mergedFile = Path.epg(MERGED_FILE_NAME);
+        Tv mergedTv = new Tv();
+        if (mergedFile.exists()) {
+            String mergedContent = readCacheContent(mergedFile);
+            if (!mergedContent.isEmpty()) {
+                mergedTv = parseTv(mergedContent);
+                if (mergedTv == null) mergedTv = new Tv();
+            }
+        }
+        if (mergedTv.getChannel() == null) mergedTv.setChannel(new ArrayList<>());
+        if (mergedTv.getProgramme() == null) mergedTv.setProgramme(new ArrayList<>());
+
+        // 1.合并channel，不重复
+        Map<String, Tv.Channel> channelMap = new HashMap<>();
+        for (Tv.Channel ch : mergedTv.getChannel()) channelMap.putIfAbsent(ch.getId(), ch);
+        for (Tv.Channel ch : sourceTv.getChannel()) channelMap.putIfAbsent(ch.getId(), ch);
+
+        // 2.合并programme，按channelId+startTs去重
+        Map<String, Tv.Programme> progMap = new HashMap<>();
+        for (Tv.Programme p : mergedTv.getProgramme()) {
+            OffsetDateTime start = parseFull(p.getStart(), zoneId);
+            String key = p.getChannel() + "|" + start.toInstant().toEpochMilli();
+            progMap.putIfAbsent(key, p);
+        }
+        for (Tv.Programme p : sourceTv.getProgramme()) {
+            OffsetDateTime start = parseFull(p.getStart(), zoneId);
+            String key = p.getChannel() + "|" + start.toInstant().toEpochMilli();
+            progMap.putIfAbsent(key, p);
+        }
+
+        // 3.【全局清理总xml：删除7天前全部节目】
+        LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
+        List<Tv.Programme> finalProgs = new ArrayList<>();
+        for (Tv.Programme p : progMap.values()) {
+            OffsetDateTime start = parseFull(p.getStart(), zoneId);
+            LocalDate progDate = start.atZoneSameInstant(zoneId).toLocalDate();
+            if (!progDate.isBefore(keepFrom)) {
+                finalProgs.add(p);
+            }
+        }
+
+        mergedTv.setChannel(new ArrayList<>(channelMap.values()));
+        mergedTv.setProgramme(finalProgs);
+
+        // 写回总xml
+        Persister persister = new Persister();
+        String xmlText = persister.write(mergedTv);
+        Path.write(mergedFile, xmlText.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** 取缓存：缺失则下载；超过 6 小时则 HEAD 比对，有变化才重新下载 */
+    private static MergeMeta loadMergeMeta() {
+        File metaFile = Path.epg(MERGED_META_NAME);
+        MergeMeta meta = new MergeMeta();
+        if (metaFile.exists()) {
+            try {
+                String json = Path.read(metaFile);
+                meta = com.alibaba.fastjson2.JSON.parseObject(json, MergeMeta.class);
+            } catch (Exception e) {
+                meta = new MergeMeta();
+            }
+        }
+        return meta;
+    }
+
+    private static void saveMergeMeta(MergeMeta meta) {
+        try {
+            File metaFile = Path.epg(MERGED_META_NAME);
+            String json = com.alibaba.fastjson2.JSON.toJSONString(meta);
+            Path.write(metaFile, json.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {}
+    }
+
     private static File ensureCache(String url) {
         File cacheFile = Path.epg(Util.md5(url) + ".xml");
         if (!cacheFile.exists()) {
@@ -118,7 +242,7 @@ public class EpgParser {
             return null;
         }
     }
- 
+
     private static String readTag(String url) {
         try {
             File tagFile = Path.epg(Util.md5(url) + ".tag");
@@ -128,7 +252,7 @@ public class EpgParser {
             return null;
         }
     }
- 
+
     private static void writeTag(String url, String tag) {
         try {
             File tagFile = Path.epg(Util.md5(url) + ".tag");
@@ -139,7 +263,7 @@ public class EpgParser {
 
     private static String readCacheContent(File file) throws Exception {
         byte[] bytes = Path.readToByte(file);
-        if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0x1F && (bytes[1] & 0xFF) == 0x8B) {
+        if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0x1F && (bytes[1] & 0x8B)) {
             File xml = Path.epg(file.getName() + ".xml");
             FileUtil.gzipDecompress(file, xml);
             bytes = Path.readToByte(xml);
@@ -159,7 +283,6 @@ public class EpgParser {
         return new Persister().read(Tv.class, content, false);
     }
 
-    /** 将单个 EPG 源解析为 tvgId -> date -> Epg 的映射（频道匹配复用直播源的 tvgId/tvgName/name 及 display-name 回退） */
     private static Map<String, Map<String, Epg>> buildSourceMap(Tv tv, Map<String, Channel> liveChannelMap,
                                                                   Map<String, List<Tv.Channel>> xmlChannelMap, ZoneId zoneId) {
         Map<String, Map<String, Epg>> result = new HashMap<>();
@@ -214,7 +337,6 @@ public class EpgParser {
         return null;
     }
 
-    /** 增量合并到直播频道：已有日期保留，新日期补充；并清理 7 天前数据 */
     private static void mergeIntoLive(Live live, Map<String, Map<String, Epg>> sourceMap) {
         for (Group group : live.getGroups()) {
             for (Channel channel : group.getChannel()) {
@@ -254,8 +376,7 @@ public class EpgParser {
         result.sort((a, b) -> a.getDate().compareTo(b.getDate()));
         return result;
     }
- 
-    /** 供 Epg.objectFrom 使用：解析单频道 EPG 字符串为单日 Epg */
+
     public static Epg getEpg(String xml, String key, ZoneId zoneId) {
         try {
             String content = sanitizeXml(xml);
@@ -271,7 +392,7 @@ public class EpgParser {
             return new Epg();
         }
     }
- 
+
     private static String sanitizeXml(String xml) {
         if (xml == null || xml.isEmpty()) return "";
         String s = xml;
@@ -280,7 +401,7 @@ public class EpgParser {
         if (head.startsWith("<!DOCTYPE html") || head.startsWith("<html") || head.startsWith("<HTML")) return "";
         return s;
     }
- 
+
     private static EpgData getEpgData(Tv.Programme programme, ZoneId zoneId) {
         OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
         OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
