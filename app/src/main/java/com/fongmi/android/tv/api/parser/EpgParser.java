@@ -55,7 +55,7 @@ public class EpgParser {
     public static void start(Live live) {
         if (live == null || live.getGroups().isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
-        // 先触发版本迁移：旧版本的 merged 文件会被删除，避免读取时 OOM
+        // 读取 meta
         loadMergeMeta();
         File mergedFile = Path.epg(MERGED_FILE_NAME);
         if (!mergedFile.exists()) {
@@ -93,7 +93,7 @@ public class EpgParser {
                 String content = readCacheContent(cacheFile);
                 if (content.isEmpty()) continue;
                 // 直接写原始内容，不重新序列化（保证 XML 结构与源完全一致，避免解析错位）
-                Path.write(Path.epg(MERGED_FILE_NAME), content.getBytes(StandardCharsets.UTF_8));
+                writeFile(Path.epg(MERGED_FILE_NAME), content.getBytes(StandardCharsets.UTF_8));
                 // 记录该源已合并；lastMergeRun 保持0，让 start() 立即触发后台合并其余源
                 MergeMeta.SourceItem item = new MergeMeta.SourceItem();
                 item.fileMd5 = Util.md5(cacheFile);
@@ -127,12 +127,7 @@ public class EpgParser {
         }
     }
 
-    // ========= 后台增量合并相关静态方法，给App全局空闲任务调用 =========
-    /** 合并格式版本：去重算法变更后自增，旧版本merged文件删除重建，避免读取膨胀的旧数据 */
-    public static final int MERGED_VERSION = 2;
-
     public static class MergeMeta {
-        public int version;
         public long lastMergeRun;
         public Map<String, SourceItem> sources = new HashMap<>();
         public static class SourceItem {
@@ -257,22 +252,26 @@ public class EpgParser {
                 meta = new MergeMeta();
             }
         }
-        // 版本迁移：旧版本merged文件去重逻辑不同、可能已膨胀，删除重建，避免读取旧数据时 OOM
-        if (meta.version != MERGED_VERSION) {
-            File mergedFile = Path.epg(MERGED_FILE_NAME);
-            if (mergedFile.exists()) mergedFile.delete();
-            meta = new MergeMeta();
-        }
         return meta;
     }
 
     private static void saveMergeMeta(MergeMeta meta) {
         try {
-            meta.version = MERGED_VERSION;
             File metaFile = Path.epg(MERGED_META_NAME);
             String json = GSON.toJson(meta);
-            Path.write(metaFile, json.getBytes(StandardCharsets.UTF_8));
-        } catch (Exception ignored) {}
+            writeFile(metaFile, json.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            Log.w(TAG, "saveMergeMeta error: " + e.getMessage());
+        }
+    }
+
+    /** 标准 Java IO 写文件：确保父目录存在，不吞异常 */
+    private static void writeFile(File file, byte[] data) throws Exception {
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists()) parent.mkdirs();
+        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(file)) {
+            fos.write(data);
+        }
     }
 
     private static File ensureCache(String url) {
