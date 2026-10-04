@@ -282,7 +282,6 @@ public class EpgParser {
             if(rawBizName != null && !rawBizName.isEmpty()){
                 String normName = normalizeChannelName(rawBizName);
                 localXmlToBizName.put(xmlChId, normName);
-                SpiderDebug.log(TAG,"EPG台名 raw="+rawBizName+" norm="+normName);
             }
         }
 
@@ -510,7 +509,6 @@ public class EpgParser {
                 if (lookupKey == null || lookupKey.isEmpty()) continue;
                 String rawLookup = lookupKey.trim();
                 String normLookup = normalizeChannelName(rawLookup);
-                SpiderDebug.log(TAG,"Live频道 raw="+rawLookup+" norm="+normLookup);
 
                 List<Tv.Programme> progList = progIndex.get(normLookup);
                 if (progList == null || progList.isEmpty()) continue;
