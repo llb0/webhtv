@@ -99,8 +99,8 @@ public class EpgParser {
     }
 
     /**
-     * 首次快速加载：取第一个可用源，【不做7天过滤】，同步填充live原始channel，并且持久化索引+meta
-     * 解决：第一次打开直播页面，start返回前就把dataList写入原始channel，上层UI直接读到EPG
+     * 首次快速加载：仅下载源、生成索引并持久化，移除独立内存组装逻辑
+     * 全部EPG绑定逻辑交给loadMergedIndex，和后台合并流程完全统一
      */
     private static void buildInitialEpgAndSave(Live live, ZoneId zoneId) {
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
@@ -121,41 +121,13 @@ public class EpgParser {
                 }
                 Tv tv = parseTv(content);
                 if (tv == null) continue;
+
+                // 单源，不做任何过滤、不去重，直接构建索引用于持久化
                 Map<String, List<Tv.Programme>> tempProgIndex = new HashMap<>();
-                for (Tv.Programme p : tv.getProgramme()) {
-                    OffsetDateTime start = parseFull(p.getStart(), zoneId);
-                    if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
-                    tempProgIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
+                for (Tv.Programme origin : tv.getProgramme()) {
+                    tempProgIndex.computeIfAbsent(origin.getChannel(), k -> new ArrayList<>()).add(origin);
                 }
-                // 填充原始live的channel，直接修改live内Channel实例，无副本问题
-                Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
-                for (Group group : live.getGroups()) {
-                    for (Channel ch : group.getChannel()) {
-                        List<Tv.Programme> progList = tempProgIndex.get(ch.getTvgId());
-                        if (progList == null || progList.isEmpty()) {
-                            progList = tempProgIndex.get(ch.getTvgName());
-                        }
-                        if (progList == null || progList.isEmpty()) continue;
-                        List<Epg> epgList = new ArrayList<>();
-                        Map<String, Epg> dateGroup = new LinkedHashMap<>();
-                        for (Tv.Programme programme : progList) {
-                            OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
-                            OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
-                            if (startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC)) || endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) {
-                                continue;
-                            }
-                            String dateStr = startDate.atZoneSameInstant(zoneId).format(Formatters.DATE);
-                            Epg epg = dateGroup.get(dateStr);
-                            if (epg == null) {
-                                epg = Epg.create(ch.getTvgId(), dateStr);
-                                dateGroup.put(dateStr, epg);
-                            }
-                            epg.getList().add(getEpgData(programme, zoneId));
-                        }
-                        epgList.addAll(dateGroup.values());
-                        ch.setDataList(epgList);
-                    }
-                }
+
                 // 持久化本次第一个源的索引
                 writeIndexFile(tempProgIndex);
                 // 写入meta，记录当前源ETag
@@ -167,6 +139,8 @@ public class EpgParser {
                 meta.sources.put(urlMd5, sourceItem);
                 meta.lastMergeRun = System.currentTimeMillis();
                 saveMergeMeta(meta);
+
+                // 统一走loadMergedIndex加载磁盘索引填充channel EPG，对齐后台合并逻辑
                 loadMergedIndex(live, zoneId);
                 SpiderDebug.log(TAG, "首次加载Epg成功并持久化, source=" + url);
                 return;
@@ -304,7 +278,7 @@ public class EpgParser {
     }
 
     /**
-     * 多源合并，合并后生成索引json持久化，保留7天过滤
+     * 多源合并，合并后生成索引json持久化，保留7天过滤，多源去重，防止数据无限增大
      */
     private static void incrementalMergeSource(String url, File sourceCacheFile, ZoneId zoneId) throws Exception {
         String sourceContent = readCacheContent(sourceCacheFile, url);
