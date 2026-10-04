@@ -89,9 +89,13 @@ public class EpgParser {
                     Map<String, List<Tv.Programme>> memoryIndex = syncEpgSourcesInternal(live, zoneId);
                     if (memoryIndex != null) {
                         synchronized (SYNC_LOCK) {
-                            writeIndexFile(memoryIndex);
-                            saveMergeMeta(loadMergeMeta());
-                            if (zoneId != null) loadMergedIndex(live, zoneId);
+                            try {
+                                writeIndexFile(memoryIndex);
+                                saveMergeMeta(loadMergeMeta());
+                                if (zoneId != null) loadMergedIndex(live, zoneId);
+                            } catch (Exception e) {
+                                SpiderDebug.log(TAG, "写入epg总表文件异常", e);
+                            }
                         }
                     }
                 }).start();
@@ -158,13 +162,17 @@ public class EpgParser {
             Map<String, List<Tv.Programme>> memoryIndex = syncEpgSourcesInternal(live, zoneId);
             if (memoryIndex != null) {
                 synchronized (SYNC_LOCK) {
-                    writeIndexFile(memoryIndex);
-                    MergeMeta meta = loadMergeMeta();
-                    meta.lastMergeRun = System.currentTimeMillis();
-                    saveMergeMeta(meta);
-                    if (zoneId != null) loadMergedIndex(live, zoneId);
+                    try {
+                        writeIndexFile(memoryIndex);
+                        MergeMeta meta = loadMergeMeta();
+                        meta.lastMergeRun = System.currentTimeMillis();
+                        saveMergeMeta(meta);
+                        if (zoneId != null) loadMergedIndex(live, zoneId);
+                        SpiderDebug.log(TAG, "远程Epg数据已更新至本地。");
+                    } catch (Exception e) {
+                        SpiderDebug.log(TAG, "写入epg总表文件异常", e);
+                    }
                 }
-                SpiderDebug.log(TAG, "远程Epg数据已更新至本地。");
             } else {
                 SpiderDebug.log(TAG, "远程Epg数据无变化，未更新。");
             }
