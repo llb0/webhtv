@@ -655,6 +655,17 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void checkPlay() {
+        if (isWebViewChannel()) {
+            // WebView 频道：直接控制 WebView 内的 video 元素，并同步图标
+            if (mWebViewPlayer.isWebPlaying()) {
+                mWebViewPlayer.pause();
+                mBinding.control.play.setImageResource(androidx.media3.ui.R.drawable.exo_icon_play);
+            } else {
+                mWebViewPlayer.play();
+                mBinding.control.play.setImageResource(androidx.media3.ui.R.drawable.exo_icon_pause);
+            }
+            return;
+        }
         if (player().isPlaying()) onPaused();
         else onPlay();
     }
@@ -891,6 +902,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         setR1Callback();
         hideInfo();
         hideWidgetOverlay();
+        // WebView 频道：显示控制栏时同步播放/暂停图标
+        if (isWebViewChannel()) {
+            mBinding.control.play.setImageResource(mWebViewPlayer.isWebPlaying()
+                    ? androidx.media3.ui.R.drawable.exo_icon_pause
+                    : androidx.media3.ui.R.drawable.exo_icon_play);
+        }
     }
 
     private void hideControl() {
@@ -1250,7 +1267,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             mKeyDown.onTouchEvent(e);
             return true;
         };
-        mWebViewPlayer.attach(this, mBinding.video, url, webTouchListener);
+        mWebViewPlayer.attach(this, mBinding.video, url, webTouchListener, playing -> {
+            // WebView 内 video 播放状态变化时，同步刷新控制栏播放/暂停图标
+            mBinding.control.play.setImageResource(playing
+                    ? androidx.media3.ui.R.drawable.exo_icon_pause
+                    : androidx.media3.ui.R.drawable.exo_icon_play);
+        });
         bringOverlaysToFront();
     }
  
@@ -1259,6 +1281,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         if (mBinding.control != null) mBinding.control.getRoot().bringToFront();
         if (mBinding.progress != null) mBinding.progress.getRoot().bringToFront();
         if (mBinding.osd != null) mBinding.osd.getRoot().bringToFront();
+        // 频道列表也要提到 WebView 之上，否则切台后左半屏调出的列表会被 WebView 遮挡
+        if (mBinding.recycler != null) mBinding.recycler.bringToFront();
     }
  
     private boolean isSameReloadUrl(String realUrl) {
@@ -1805,6 +1829,21 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         }
     }
 
+    @Override
+    public void onSingleTap(float x, float y, float width, float height) {
+        // 小窗预览模式：右上角单击直接旋转全屏，其余位置仍调出播放控制栏
+        if (isInPictureInPictureMode()) {
+            if (width > 0 && height > 0 && x > width * 0.65f && y < height * 0.35f) {
+                enterFullscreenLive();
+                return;
+            }
+            if (isVisible(mBinding.control.getRoot())) hideControl();
+            else showControl();
+            return;
+        }
+        onSingleTap(x, width);
+    }
+ 
     @Override
     public void onDoubleTap() {
         if (isLock()) {
