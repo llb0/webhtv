@@ -36,7 +36,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import okhttp3.Request;
 import okhttp3.Response;
@@ -68,6 +67,10 @@ public class EpgParser {
         return new File(Path.files(), "epg");
     }
 
+    private static File getCacheFile(String url) {
+        return new File(getEpgCacheDir(), Util.md5(url) + ".xml");
+    }
+
     public static void start(Live live) {
         if (live == null || live.getGroups().isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
@@ -76,15 +79,16 @@ public class EpgParser {
         if (!indexFile.exists()) {
             SpiderDebug.log(TAG, "没有Epg持久索引，进入首次快速加载并持久化");
             buildInitialEpgAndSave(live, zoneId);
-            startBackgroundMerge(live);
+            startBackgroundMerge(live, zoneId);
         } else {
+            SpiderDebug.log(TAG, "Epg持久化索引存在，正常加载");
             loadMergedIndex(live, zoneId);
             long age = System.currentTimeMillis() - meta.lastMergeRun;
             if (meta.lastMergeRun == 0 || age > UPDATE_INTERVAL_MS) {
                 new Thread(() -> {
                     synchronized (SYNC_LOCK) {
                         try {
-                            syncEpgSources(live);
+                            syncEpgSources(live, zoneId);
                         } catch (Exception e) {
                             SpiderDebug.log(TAG, "后台合并Epg索引错误：" + e.toString());
                         }
@@ -103,10 +107,18 @@ public class EpgParser {
         if (urls.isEmpty()) return;
         for (String url : urls) {
             try {
-                File cacheFile = ensureCache(url);
-                if (cacheFile == null || !cacheFile.exists()) continue;
+                SpiderDebug.log(TAG, "首次尝试源：" + url);
+                File cacheFile = getCacheFile(url);
+                // 首次场景强制下载第一个源，不复用任何本地残留缓存
+                if (!download(url, cacheFile)) {
+                    SpiderDebug.log(TAG, "首次下载源失败：" + url);
+                    continue;
+                }
                 String content = readCacheContent(cacheFile, url);
-                if (content.isEmpty()) continue;
+                if (content.isEmpty()) {
+                    SpiderDebug.log(TAG, "源读取内容为空：" + url);
+                    continue;
+                }
                 Tv tv = parseTv(content);
                 if (tv == null) continue;
                 Map<String, List<Tv.Programme>> tempProgIndex = new HashMap<>();
@@ -178,11 +190,11 @@ public class EpgParser {
         }
     }
 
-    private static void startBackgroundMerge(Live live) {
+    private static void startBackgroundMerge(Live live, ZoneId zoneId) {
         new Thread(() -> {
             synchronized (SYNC_LOCK) {
                 try {
-                    syncEpgSources(live);
+                    syncEpgSources(live, zoneId);
                 } catch (Exception e) {
                     SpiderDebug.log(TAG, "首次触发后台合并失败：" + e.toString());
                 }
@@ -203,7 +215,7 @@ public class EpgParser {
             if (progIndex == null) {
                 SpiderDebug.log(TAG, "Epg索引解析为空，进入首次逻辑");
                 buildInitialEpgAndSave(live, zoneId);
-                startBackgroundMerge(live);
+                startBackgroundMerge(live, zoneId);
                 return;
             }
             Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
@@ -237,32 +249,36 @@ public class EpgParser {
         } catch (Exception e) {
             SpiderDebug.log(TAG, "加载持久Epg索引出错，进入首次逻辑：" + e.toString());
             buildInitialEpgAndSave(live, zoneId);
-            startBackgroundMerge(live);
+            startBackgroundMerge(live, zoneId);
         }
     }
 
     public static void syncEpgSources(Live live) {
+        syncEpgSources(live, null);
+    }
+
+    public static void syncEpgSources(Live live, ZoneId zoneId) {
         if (live == null || live.getGroups().isEmpty()) {
-            SpiderDebug.log(TAG, "Epg后台更新时Live为空！");
+            SpiderDebug.log(TAG, "Epg远程更新时Live为空！");
             return;
         }
-        SpiderDebug.log(TAG, "进入Epg后台更新。");
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
         if (urls.isEmpty()) return;
-        ZoneId zoneId = zoneIdOf(live.getTimeZone());
         MergeMeta meta = loadMergeMeta();
         boolean needMerge = false;
+        SpiderDebug.log(TAG, "准备Epg远程更新...");
         for (String url : urls) {
             try {
                 String urlMd5 = Util.md5(url);
                 String remoteEtag = fetchRemoteTag(url);
                 MergeMeta.SourceItem sourceItem = meta.sources.get(urlMd5);
                 if (sourceItem != null && remoteEtag != null && remoteEtag.equals(sourceItem.etag)) {
-                    SpiderDebug.log(TAG, "源ETag无变化，跳过：" + url);
                     continue;
                 }
-                File cacheFile = ensureCache(url);
-                if (cacheFile == null || !cacheFile.exists()) continue;
+                SpiderDebug.log(TAG, "远程Epg有变化：" + url);
+                File cacheFile = getCacheFile(url);
+                // Etag不一致才下载
+                if (!download(url, cacheFile)) continue;
 
                 incrementalMergeSource(url, cacheFile, zoneId);
                 if (sourceItem == null) sourceItem = new MergeMeta.SourceItem();
@@ -272,13 +288,16 @@ public class EpgParser {
                 //合并完成删除本次缓存
                 if(cacheFile.exists()) cacheFile.delete();
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "后台更新索引出错 url=" + url + "：" + e.toString());
+                SpiderDebug.log(TAG, "后台更新Epg出错 url=" + url + "：" + e.toString());
             }
         }
         if (needMerge) {
             meta.lastMergeRun = System.currentTimeMillis();
             saveMergeMeta(meta);
-            SpiderDebug.log(TAG, "Epg后台更新索引完毕。");
+            if (zoneId != null) loadMergedIndex(live, zoneId);
+            SpiderDebug.log(TAG, "远程Epg数据已更新至本地。");
+        } else {
+            SpiderDebug.log(TAG, "远程Epg数据无变化，未更新。");
         }
         // 合并完成，清理无效缓存
         cleanStaleEpgCache(meta, urls);
@@ -411,36 +430,6 @@ public class EpgParser {
         }
     }
 
-    private static File ensureCache(String url) {
-        File cacheFile = Path.epg(Util.md5(url) + ".xml");
-        if (!cacheFile.exists()) {
-            if (!download(url, cacheFile)) return null;
-            return cacheFile;
-        }
-        long age = System.currentTimeMillis() - cacheFile.lastModified();
-        if (age > UPDATE_INTERVAL_MS) refreshIfChanged(url, cacheFile);
-        return cacheFile;
-    }
-
-    private static void refreshIfChanged(String url, File cacheFile) {
-        try {
-            String remoteTag = fetchRemoteTag(url);
-            MergeMeta meta = loadMergeMeta();
-            String urlMd5 = Util.md5(url);
-            MergeMeta.SourceItem item = meta.sources.get(urlMd5);
-            String storedTag = (item != null) ? item.etag : null;
-            if (remoteTag == null) return;
-            if (storedTag != null && storedTag.equals(remoteTag)) return;
-            if (download(url, cacheFile)) {
-                item = new MergeMeta.SourceItem();
-                item.etag = remoteTag;
-                meta.sources.put(urlMd5, item);
-                saveMergeMeta(meta);
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
     private static boolean download(String url, File file) {
         try {
             com.fongmi.android.tv.utils.Download.create(url, file).get();
@@ -467,11 +456,10 @@ public class EpgParser {
         }
     }
 
-    // 删除readTag、writeTag 独立tag文件相关方法
     private static String readCacheContent(File file, String url) throws Exception {
         byte[] bytes = Path.readToByte(file);
         if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0x1F && (bytes[1] & 0xFF) == 0x8B) {
-            File xml = Path.epg(file.getName() + ".xml");
+            File xml = new File(getEpgCacheDir(), file.getName() + ".xml");
             try {
                 FileUtil.gzipDecompress(file, xml);
                 bytes = Path.readToByte(xml);
