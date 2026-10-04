@@ -1624,7 +1624,7 @@
     <string name="live_epg_select">选择EPG源</string>
     <string name="live_epg_default">随直播源</string>
     <string name="live_epg_follow">随源</string>
-    <string name="live_epg_apply">使用</string>
+    <string name="live_epg_apply">添加</string>
     <string name="live_epg_save">保存</string>
     <string name="live_epg_edit">编辑</string>
     <string name="live_epg_delete">删除</string>
