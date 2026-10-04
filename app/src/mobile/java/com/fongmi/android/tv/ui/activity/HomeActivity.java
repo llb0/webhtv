@@ -461,7 +461,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
             // 根页面返回 = 真正退出：后台线程同步备份后结束进程，避免进程残留（外挂 jar 悬浮窗、播放服务等仍存活）。想进后台请用 Home 键。
             Task.execute(() -> {
                 AppDatabase.backupOnExitSync();
-                if (Setting.isAutoClearCache()) Path.clear(Path.cache(), Arrays.asList("epg"));
+                if (Setting.isAutoClearCache()) Path.clear(Path.cache());
                 Process.killProcess(Process.myPid());
                 System.exit(0);
             });
