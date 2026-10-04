@@ -52,6 +52,14 @@ public class EpgParser {
 
     public static final Object SYNC_LOCK = new Object();
 
+    /**
+     * 台名归一化：移除横杠、空白，转大写，解决 CCTV‑1 / CCTV1 匹配失败
+     */
+    private static String normalizeChannelName(String raw) {
+        if (raw == null || raw.isEmpty()) return "";
+        return raw.trim().replaceAll("[-\\s]+", "").toUpperCase();
+    }
+
     private static File getIndexFile() {
         File dir = new File(Path.files(), "epg");
         if (!dir.exists()) dir.mkdirs();
@@ -190,7 +198,6 @@ public class EpgParser {
         boolean needMerge = false;
         Map<String, List<Tv.Programme>> mergedIndex = new HashMap<>();
 
-        //先加载现有索引到内存（无锁）
         File indexFile = getIndexFile();
         if (indexFile.exists()) {
             try {
@@ -227,12 +234,30 @@ public class EpgParser {
                 SpiderDebug.log(TAG, "后台更新Epg出错 url=" + url + "：" + e.toString());
             }
         }
+
+        // ==========修复：全部台统一执行7天过期过滤，不仅仅新源出现过的台==========
+        if(needMerge){
+            LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
+            Map<String,List<Tv.Programme>> cleanedIndex = new HashMap<>();
+            for(Map.Entry<String,List<Tv.Programme>> entry : mergedIndex.entrySet()){
+                String bizName = entry.getKey();
+                List<Tv.Programme> oldList = entry.getValue();
+                Set<String> seen = new HashSet<>();
+                List<Tv.Programme> outList = new ArrayList<>();
+                collectByDate(oldList, zoneId, keepFrom, seen, outList, true, bizName);
+                if(!outList.isEmpty()){
+                    cleanedIndex.put(bizName, outList);
+                }
+            }
+            mergedIndex.clear();
+            mergedIndex.putAll(cleanedIndex);
+        }
+
         if (!needMerge) {
             SpiderDebug.log(TAG, "远程Epg数据无变化，未更新");
             cleanStaleEpgCache(meta, urls);
             return null;
         }
-        meta.sources = meta.sources;
         cleanStaleEpgCache(meta, urls);
         return mergedIndex;
     }
@@ -243,24 +268,24 @@ public class EpgParser {
         Tv sourceTv = parseTv(sourceContent);
         if (sourceTv == null) return;
 
-        // 单源内部构建 xmlChId -> bizName，只取第一个非空display‑name(兼容zh/cn)，无则丢弃
         Map<String,String> localXmlToBizName = new HashMap<>();
         for(Tv.Channel ch : sourceTv.getChannel()){
             String xmlChId = ch.getId();
-            String bizName = null;
+            String rawBizName = null;
             for(Tv.DisplayName dn : ch.getDisplayName()){
                 String txt = dn.getText().trim();
                 if(!txt.isEmpty()){
-                    bizName = txt;
+                    rawBizName = txt;
                     break;
                 }
             }
-            if(bizName != null && !bizName.isEmpty()){
-                localXmlToBizName.put(xmlChId, bizName);
+            if(rawBizName != null && !rawBizName.isEmpty()){
+                String normName = normalizeChannelName(rawBizName);
+                localXmlToBizName.put(xmlChId, normName);
+                SpiderDebug.log(TAG,"EPG台名 raw="+rawBizName+" norm="+normName);
             }
         }
 
-        // 当前源按bizName分组节目
         Map<String,List<Tv.Programme>> sourceByName = new HashMap<>();
         for(Tv.Programme p : sourceTv.getProgramme()){
             String xmlId = p.getChannel();
@@ -271,7 +296,7 @@ public class EpgParser {
 
         if (enableFilter) {
             LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
-            // 遍历每个业务台名做合并去重
+            // 合并新源节目到现有索引（同台名做日期去重）
             for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
                 String bizName = entry.getKey();
                 List<Tv.Programme> newProgs = entry.getValue();
@@ -289,7 +314,7 @@ public class EpgParser {
                 }
             }
         } else {
-            // 首次加载：直接把本源节目放入索引，不去和旧数据合并
+            //首次加载：直接覆盖写入
             mergedIndex.clear();
             for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
                 mergedIndex.put(entry.getKey(), entry.getValue());
@@ -297,17 +322,14 @@ public class EpgParser {
         }
     }
 
-    /**
-     * @param bizName EPG解析得到的业务台名，作为去重key一部分
-     */
     private static void collectByDate(List<Tv.Programme> programmes, ZoneId zoneId, LocalDate keepFrom,
                                        Set<String> seen, List<Tv.Programme> out, boolean takeExisting, String bizName) {
         for (Tv.Programme p : programmes) {
             OffsetDateTime start = parseFull(p.getStart(), zoneId);
             if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
             LocalDate progDate = start.atZoneSameInstant(zoneId).toLocalDate();
+            // 只丢弃7天之前，7天以及以内全部保留
             if (progDate.isBefore(keepFrom)) continue;
-            // 使用EPG解析的台名做去重key，不再使用xml channel id
             String key = bizName + "|" + progDate.format(Formatters.DATE);
             if (takeExisting) {
                 out.add(p);
@@ -409,7 +431,7 @@ public class EpgParser {
             }
         } catch (InterruptedIOException e) {
             SpiderDebug.log(TAG, url + "获取etag被中断：" + e.getMessage());
-            Thread.interrupted(); //清除线程中断标记，防止后续IO连锁失败
+            Thread.interrupted();
             return null;
         } catch (Exception e) {
             SpiderDebug.log(TAG, url + "获取etag出错：" + e.toString());
@@ -481,15 +503,16 @@ public class EpgParser {
         int bindCount = 0;
         for (Group group : live.getGroups()) {
             for (Channel ch : group.getChannel()) {
-                // 多源合并下xml tvg‑id不可靠，完全不使用id查询；优先tvg‑name，没有取name，trim
                 String lookupKey = ch.getTvgName();
                 if (lookupKey == null || lookupKey.isEmpty()) {
                     lookupKey = ch.getName();
                 }
                 if (lookupKey == null || lookupKey.isEmpty()) continue;
-                lookupKey = lookupKey.trim();
+                String rawLookup = lookupKey.trim();
+                String normLookup = normalizeChannelName(rawLookup);
+                SpiderDebug.log(TAG,"Live频道 raw="+rawLookup+" norm="+normLookup);
 
-                List<Tv.Programme> progList = progIndex.get(lookupKey);
+                List<Tv.Programme> progList = progIndex.get(normLookup);
                 if (progList == null || progList.isEmpty()) continue;
 
                 List<Epg> epgList = new ArrayList<>();
@@ -503,7 +526,7 @@ public class EpgParser {
                     String dateStr = startDate.atZoneSameInstant(zoneId).format(Formatters.DATE);
                     Epg epg = dateGroup.get(dateStr);
                     if (epg == null) {
-                        epg = Epg.create(lookupKey, dateStr);
+                        epg = Epg.create(normLookup, dateStr);
                         dateGroup.put(dateStr, epg);
                     }
                     epg.getList().add(getEpgData(programme, zoneId));
