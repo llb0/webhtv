@@ -94,7 +94,7 @@ public class EpgParser {
                                 saveMergeMeta(loadMergeMeta());
                                 if (zoneId != null) loadMergedIndex(live, zoneId);
                             } catch (Exception e) {
-                                SpiderDebug.log(TAG, "写入epg总表文件异常", e);
+                                SpiderDebug.log(TAG, "写入epg总表文件异常" + e.toString());
                             }
                         }
                     }
@@ -157,6 +157,7 @@ public class EpgParser {
             try {
                 Thread.sleep(1500);
             } catch (InterruptedException e) {
+                SpiderDebug.log(TAG, "迟延启动后台更新出错：" + e.toString());
                 return;
             }
             Map<String, List<Tv.Programme>> memoryIndex = syncEpgSourcesInternal(live, zoneId);
@@ -170,11 +171,9 @@ public class EpgParser {
                         if (zoneId != null) loadMergedIndex(live, zoneId);
                         SpiderDebug.log(TAG, "远程Epg数据已更新至本地。");
                     } catch (Exception e) {
-                        SpiderDebug.log(TAG, "写入epg总表文件异常", e);
+                        SpiderDebug.log(TAG, "写入epg总表文件异常" + e.toString());
                     }
                 }
-            } else {
-                SpiderDebug.log(TAG, "远程Epg数据无变化，未更新。");
             }
         }).start();
     }
@@ -199,7 +198,7 @@ public class EpgParser {
                 mergedIndex = GSON.fromJson(json, typeToken.getType());
                 if (mergedIndex == null) mergedIndex = new HashMap<>();
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "读取旧索引到内存失败，新建内存索引");
+                SpiderDebug.log(TAG, "读取旧索引到内存失败，新建内存索引" + e.toString());
                 mergedIndex = new HashMap<>();
             }
         }
@@ -228,6 +227,7 @@ public class EpgParser {
             }
         }
         if (!needMerge) {
+            SpiderDebug.log(TAG, "远程Epg数据无变化，未更新：" + e.toString());
             cleanStaleEpgCache(meta, urls);
             return null;
         }
@@ -336,7 +336,7 @@ public class EpgParser {
                 if (tempFile.exists()) tempFile.delete();
             }
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "保存meta失败：" + e.toString());
+            SpiderDebug.log(TAG, "保存meta出错：" + e.toString());
         }
     }
 
@@ -353,6 +353,7 @@ public class EpgParser {
             com.fongmi.android.tv.utils.Download.create(url, file).get();
             return file.exists() && file.length() > 0;
         } catch (Exception e) {
+            SpiderDebug.log(TAG, url + "下载出错：" + e.toString());
             return false;
         }
     }
@@ -370,6 +371,7 @@ public class EpgParser {
                 return contentLength != null ? contentLength : String.valueOf(System.currentTimeMillis());
             }
         } catch (Exception e) {
+            SpiderDebug.log(TAG, url + "获取etag出错：" + e.toString());
             return null;
         }
     }
@@ -515,6 +517,7 @@ public class EpgParser {
             data.trans();
             return data;
         } catch (Exception e) {
+            SpiderDebug.log(TAG, "getEpgData出错：" + e.toString());
             return new EpgData();
         }
     }
@@ -536,6 +539,7 @@ public class EpgParser {
                 return OffsetDateTime.parse(s, s.charAt(len - 3) == ':' ? Formatters.EPG_FULL_COLON : Formatters.EPG_FULL);
             return java.time.LocalDateTime.parse(len > 14 ? s.substring(0, 14) : s, Formatters.EPG_FULL_NO_TZ).atZone(zoneId).toOffsetDateTime();
         } catch (Exception e) {
+            SpiderDebug.log(TAG, "parseFull出错：" + e.toString());
             return OffsetDateTime.ofInstant(Instant.EPOCH, ZoneOffset.UTC);
         }
     }
