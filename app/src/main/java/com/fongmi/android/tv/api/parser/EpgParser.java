@@ -64,14 +64,18 @@ public class EpgParser {
         return new File(dir, MERGED_META_NAME);
     }
 
+    private static File getEpgCacheDir() {
+        return new File(Path.files(), "epg");
+    }
+
     public static void start(Live live) {
         if (live == null || live.getGroups().isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
         MergeMeta meta = loadMergeMeta();
         File indexFile = getIndexFile();
         if (!indexFile.exists()) {
-            SpiderDebug.log(TAG, "没有Epg持久索引，进入首次快速加载");
-            buildInitialTempEpg(live, zoneId);
+            SpiderDebug.log(TAG, "没有Epg持久索引，进入首次快速加载并持久化");
+            buildInitialEpgAndSave(live, zoneId);
             startBackgroundMerge(live);
         } else {
             loadMergedIndex(live, zoneId);
@@ -91,9 +95,10 @@ public class EpgParser {
     }
 
     /**
-     * 首次临时加载：取第一个可用源，**不做7天过滤**，仅内存组装给前台，不持久化
+     * 首次快速加载：取第一个可用源，【不做7天过滤】，同步填充live原始channel，并且持久化索引+meta
+     * 解决：第一次打开直播页面，start返回前就把dataList写入原始channel，上层UI直接读到EPG
      */
-    private static void buildInitialTempEpg(Live live, ZoneId zoneId) {
+    private static void buildInitialEpgAndSave(Live live, ZoneId zoneId) {
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
         if (urls.isEmpty()) return;
         for (String url : urls) {
@@ -110,14 +115,14 @@ public class EpgParser {
                     if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
                     tempProgIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
                 }
-                Map<String, List<Tv.Channel>> xmlChannelMap = tv.getChannel().stream()
-                        .collect(Collectors.groupingBy(Tv.Channel::getId));
+                // 填充原始live的channel，直接修改live内Channel实例，无副本问题
                 Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
                 for (Group group : live.getGroups()) {
                     for (Channel ch : group.getChannel()) {
-                        Channel matchedXmlCh = findTargetChannel(ch.getTvgId(), liveChannelMap, xmlChannelMap);
-                        if (matchedXmlCh == null) continue;
-                        List<Tv.Programme> progList = tempProgIndex.get(matchedXmlCh.getTvgId());
+                        List<Tv.Programme> progList = tempProgIndex.get(ch.getTvgId());
+                        if (progList == null || progList.isEmpty()) {
+                            progList = tempProgIndex.get(ch.getTvgName());
+                        }
                         if (progList == null || progList.isEmpty()) continue;
                         List<Epg> epgList = new ArrayList<>();
                         Map<String, Epg> dateGroup = new LinkedHashMap<>();
@@ -139,11 +144,37 @@ public class EpgParser {
                         ch.setDataList(epgList);
                     }
                 }
-                SpiderDebug.log(TAG, "首次临时加载Epg成功, source=" + url + " 不持久化");
+                // 持久化本次第一个源的索引
+                writeIndexFile(tempProgIndex);
+                // 写入meta，记录当前源ETag
+                MergeMeta meta = new MergeMeta();
+                String urlMd5 = Util.md5(url);
+                MergeMeta.SourceItem sourceItem = new MergeMeta.SourceItem();
+                String currentEtag = fetchRemoteTag(url);
+                sourceItem.etag = currentEtag;
+                meta.sources.put(urlMd5, sourceItem);
+                meta.lastMergeRun = System.currentTimeMillis();
+                saveMergeMeta(meta);
+
+                SpiderDebug.log(TAG, "首次加载Epg成功并持久化, source=" + url);
                 return;
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "首次临时加载源失败 url=" + url + "：" + e.toString());
+                SpiderDebug.log(TAG, "首次加载源失败 url=" + url + "：" + e.toString());
             }
+        }
+    }
+
+    private static void writeIndexFile(Map<String, List<Tv.Programme>> indexMap) throws Exception {
+        File indexFile = getIndexFile();
+        File tempFile = new File(indexFile.getParent(), INDEX_FILE_NAME + ".tmp");
+        String jsonOutput = GSON.toJson(indexMap);
+        writeFile(tempFile, jsonOutput.getBytes(StandardCharsets.UTF_8));
+        if (tempFile.exists() && tempFile.length() > 0) {
+            if (indexFile.exists()) indexFile.delete();
+            tempFile.renameTo(indexFile);
+        } else {
+            if (tempFile.exists()) tempFile.delete();
+            throw new Exception("写入索引临时文件失败");
         }
     }
 
@@ -171,7 +202,7 @@ public class EpgParser {
             Map<String, List<Tv.Programme>> progIndex = GSON.fromJson(json, typeToken.getType());
             if (progIndex == null) {
                 SpiderDebug.log(TAG, "Epg索引解析为空，进入首次逻辑");
-                buildInitialTempEpg(live, zoneId);
+                buildInitialEpgAndSave(live, zoneId);
                 startBackgroundMerge(live);
                 return;
             }
@@ -205,7 +236,7 @@ public class EpgParser {
             }
         } catch (Exception e) {
             SpiderDebug.log(TAG, "加载持久Epg索引出错，进入首次逻辑：" + e.toString());
-            buildInitialTempEpg(live, zoneId);
+            buildInitialEpgAndSave(live, zoneId);
             startBackgroundMerge(live);
         }
     }
@@ -223,19 +254,23 @@ public class EpgParser {
         boolean needMerge = false;
         for (String url : urls) {
             try {
-                File cacheFile = ensureCache(url);
-                if (cacheFile == null || !cacheFile.exists()) continue;
-                String fileMd5 = Util.md5(cacheFile);
                 String urlMd5 = Util.md5(url);
+                String remoteEtag = fetchRemoteTag(url);
                 MergeMeta.SourceItem sourceItem = meta.sources.get(urlMd5);
-                if (sourceItem != null && fileMd5.equals(sourceItem.fileMd5)) {
+                if (sourceItem != null && remoteEtag != null && remoteEtag.equals(sourceItem.etag)) {
+                    SpiderDebug.log(TAG, "源ETag无变化，跳过：" + url);
                     continue;
                 }
+                File cacheFile = ensureCache(url);
+                if (cacheFile == null || !cacheFile.exists()) continue;
+
                 incrementalMergeSource(url, cacheFile, zoneId);
                 if (sourceItem == null) sourceItem = new MergeMeta.SourceItem();
-                sourceItem.fileMd5 = fileMd5;
+                sourceItem.etag = remoteEtag;
                 meta.sources.put(urlMd5, sourceItem);
                 needMerge = true;
+                //合并完成删除本次缓存
+                if(cacheFile.exists()) cacheFile.delete();
             } catch (Exception e) {
                 SpiderDebug.log(TAG, "后台更新索引出错 url=" + url + "：" + e.toString());
             }
@@ -245,6 +280,8 @@ public class EpgParser {
             saveMergeMeta(meta);
             SpiderDebug.log(TAG, "Epg后台更新索引完毕。");
         }
+        // 合并完成，清理无效缓存
+        cleanStaleEpgCache(meta, urls);
     }
 
     /**
@@ -283,17 +320,37 @@ public class EpgParser {
             SpiderDebug.log(TAG, "合并索引结果为空，不覆盖");
             return;
         }
-        File tempFile = new File(getIndexFile().getParent(), INDEX_FILE_NAME + ".tmp");
-        String jsonOutput = GSON.toJson(newIndex);
-        writeFile(tempFile, jsonOutput.getBytes(StandardCharsets.UTF_8));
-        if (tempFile.exists() && tempFile.length() > 0) {
-            if (indexFile.exists()) indexFile.delete();
-            tempFile.renameTo(indexFile);
-            SpiderDebug.log(TAG, "增量合并完成，已更新持久索引");
-        } else {
-            SpiderDebug.log(TAG, "增量合并临时索引文件无效，不替换");
-            if (tempFile.exists()) tempFile.delete();
-            return;
+        writeIndexFile(newIndex);
+    }
+
+    /**
+     * 清理失效缓存：不在当前url列表里的缓存文件全部删除
+     */
+    private static void cleanStaleEpgCache(MergeMeta meta, List<String> validUrls) {
+        File cacheDir = getEpgCacheDir();
+        File[] allFiles = cacheDir.listFiles();
+        if (allFiles == null) return;
+        Set<String> validUrlMd5Set = new HashSet<>();
+        for(String url : validUrls){
+            validUrlMd5Set.add(Util.md5(url));
+        }
+        for (File f : allFiles) {
+            String name = f.getName();
+            if (name.equals(INDEX_FILE_NAME) || name.equals(MERGED_META_NAME) || name.endsWith(".tmp")) {
+                continue;
+            }
+            //文件名前缀是urlMd5
+            boolean keep = false;
+            for(String md5 : validUrlMd5Set){
+                if(name.startsWith(md5)){
+                    keep = true;
+                    break;
+                }
+            }
+            if(!keep){
+                boolean del = f.delete();
+                SpiderDebug.log(TAG, "清理过期EPG缓存:" + f.getName() + " del=" + del);
+            }
         }
     }
 
@@ -367,11 +424,19 @@ public class EpgParser {
 
     private static void refreshIfChanged(String url, File cacheFile) {
         try {
-            String storedTag = readTag(url);
             String remoteTag = fetchRemoteTag(url);
+            MergeMeta meta = loadMergeMeta();
+            String urlMd5 = Util.md5(url);
+            MergeMeta.SourceItem item = meta.sources.get(urlMd5);
+            String storedTag = (item != null) ? item.etag : null;
             if (remoteTag == null) return;
             if (storedTag != null && storedTag.equals(remoteTag)) return;
-            if (download(url, cacheFile)) writeTag(url, remoteTag);
+            if (download(url, cacheFile)) {
+                item = new MergeMeta.SourceItem();
+                item.etag = remoteTag;
+                meta.sources.put(urlMd5, item);
+                saveMergeMeta(meta);
+            }
         } catch (Exception ignored) {
         }
     }
@@ -402,23 +467,7 @@ public class EpgParser {
         }
     }
 
-    private static String readTag(String url) {
-        try {
-            File tagFile = Path.epg(Util.md5(url) + ".tag");
-            if (!tagFile.exists()) return null;
-            return Path.read(tagFile);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static void writeTag(String url, String tag) {
-        try {
-            File tagFile = Path.epg(Util.md5(url) + ".tag");
-            java.nio.file.Files.write(tagFile.toPath(), tag.getBytes());
-        } catch (Exception ignored) {
-        }
-    }
+    // 删除readTag、writeTag 独立tag文件相关方法
 
     private static String readCacheContent(File file, String url) throws Exception {
         byte[] bytes = Path.readToByte(file);
@@ -456,21 +505,6 @@ public class EpgParser {
             }
         }
         return map;
-    }
-
-    private static Channel findTargetChannel(String xmlChannelId, Map<String, Channel> liveChannelMap,
-                                              Map<String, List<Tv.Channel>> xmlChannelMap) {
-        Channel target = liveChannelMap.get(xmlChannelId);
-        if (target != null) return target;
-        List<Tv.Channel> channels = xmlChannelMap.get(xmlChannelId);
-        if (channels == null) return null;
-        for (Tv.Channel ch : channels) {
-            for (Tv.DisplayName dn : ch.getDisplayName()) {
-                String name = dn.getText();
-                if (!name.isEmpty() && liveChannelMap.containsKey(name)) return liveChannelMap.get(name);
-            }
-        }
-        return null;
     }
 
     public static Epg getEpg(String xml, String key, ZoneId zoneId) {
