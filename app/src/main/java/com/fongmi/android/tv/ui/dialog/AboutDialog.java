@@ -25,6 +25,18 @@ public final class AboutDialog {
     public static void show(FragmentActivity activity, Runnable updateAction) {
         DialogAboutBinding binding = DialogAboutBinding.inflate(LayoutInflater.from(activity));
         binding.version.setText(activity.getString(R.string.about_version, AppVersion.fullName(), BuildConfig.FLAVOR_mode, BuildConfig.FLAVOR_abi));
+
+        // 置零MaterialButton默认inset，扩大文字区域
+        binding.checkUpdate.setInsetLeft(0);
+        binding.checkUpdate.setInsetRight(0);
+        binding.checkUpdate.setInsetTop(0);
+        binding.checkUpdate.setInsetBottom(0);
+
+        binding.confirm.setInsetLeft(0);
+        binding.confirm.setInsetRight(0);
+        binding.confirm.setInsetTop(0);
+        binding.confirm.setInsetBottom(0);
+
         configureContentHeight(activity, binding);
 
         Dialog dialog = LightDialog.create(activity, null, binding.getRoot());
