@@ -16,24 +16,25 @@ import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 import org.simpleframework.xml.core.Persister;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -45,18 +46,16 @@ public class EpgParser {
     private static final String TAG = "EpgParser";
     public static final long UPDATE_INTERVAL_MS = TimeUnit.HOURS.toMillis(6);
     public static final int KEEP_DAYS = 7;
-    public static final String MERGED_FILE_NAME = "merged_epg.xml";
+    public static final String INDEX_FILE_NAME = "merged_index.json";
     public static final String MERGED_META_NAME = "merged_meta.json";
     private static final Gson GSON = new Gson();
 
-    /** 全流程共享锁：防止首次合并与定时同步并发写 merged_epg.xml */
     public static final Object SYNC_LOCK = new Object();
 
-    // ========== 新增：合并成品放在 files/epg，不受清缓存影响 ==========
-    private static File getMergedEpgFile() {
+    private static File getIndexFile() {
         File dir = new File(Path.files(), "epg");
         if (!dir.exists()) dir.mkdirs();
-        return new File(dir, MERGED_FILE_NAME);
+        return new File(dir, INDEX_FILE_NAME);
     }
 
     private static File getMergeMetaFile() {
@@ -64,24 +63,18 @@ public class EpgParser {
         if (!dir.exists()) dir.mkdirs();
         return new File(dir, MERGED_META_NAME);
     }
-    // ==============================================================
 
     public static void start(Live live) {
         if (live == null || live.getGroups().isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
-        // 读取 meta
-        loadMergeMeta();
-        File mergedFile = getMergedEpgFile();
-        if (!mergedFile.exists()) {
-            // 首次：同步把第一个有效源直接建为总表（复制原始内容，不重新序列化）
-            SpiderDebug.log(TAG, "没有Epg总表");
-
-            buildInitialMerged(live, zoneId);
-        }
-        if (mergedFile.exists()) {
-            loadMergedEpg(live, zoneId);
-            // 后台做增量合并（仅距离上次合并超过6小时才跑）
-            MergeMeta meta = loadMergeMeta();
+        MergeMeta meta = loadMergeMeta();
+        File indexFile = getIndexFile();
+        if (!indexFile.exists()) {
+            SpiderDebug.log(TAG, "没有Epg持久索引，进入首次快速加载");
+            buildInitialTempEpg(live, zoneId);
+            startBackgroundMerge(live);
+        } else {
+            loadMergedIndex(live, zoneId);
             long age = System.currentTimeMillis() - meta.lastMergeRun;
             if (meta.lastMergeRun == 0 || age > UPDATE_INTERVAL_MS) {
                 new Thread(() -> {
@@ -89,7 +82,7 @@ public class EpgParser {
                         try {
                             syncEpgSources(live);
                         } catch (Exception e) {
-                            SpiderDebug.log(TAG, "后台合并Epg总表错误："+e.toString());
+                            SpiderDebug.log(TAG, "后台合并Epg索引错误：" + e.toString());
                         }
                     }
                 }).start();
@@ -97,81 +90,105 @@ public class EpgParser {
         }
     }
 
-    /** 首次使用：直接复制第一个有效源的原始内容为总表，格式与源完全一致 */
-    private static void buildInitialMerged(Live live, ZoneId zoneId) {
+    /**
+     * 首次临时加载：取第一个可用源，**不做7天过滤**，仅内存组装给前台，不持久化
+     */
+    private static void buildInitialTempEpg(Live live, ZoneId zoneId) {
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
         if (urls.isEmpty()) return;
-        MergeMeta meta = loadMergeMeta();
         for (String url : urls) {
             try {
                 File cacheFile = ensureCache(url);
                 if (cacheFile == null || !cacheFile.exists()) continue;
                 String content = readCacheContent(cacheFile, url);
                 if (content.isEmpty()) continue;
-                // 原子写入，先写临时文件（临时文件也放在files目录）
-                File tempFile = new File(getMergedEpgFile().getParent(), MERGED_FILE_NAME + ".tmp");
-                writeFile(tempFile, content.getBytes(StandardCharsets.UTF_8));
-                File mergedFile = getMergedEpgFile();
-                if(tempFile.exists() && tempFile.length()>0){
-                    if(mergedFile.exists()) mergedFile.delete();
-                    tempFile.renameTo(mergedFile);
-                }else{
-                    SpiderDebug.log(TAG, "首次初始化临时文件写入失败");
-                    if(tempFile.exists()) tempFile.delete();
-                    continue;
+                Tv tv = parseTv(content);
+                if (tv == null) continue;
+                Map<String, List<Tv.Programme>> tempProgIndex = new HashMap<>();
+                for (Tv.Programme p : tv.getProgramme()) {
+                    OffsetDateTime start = parseFull(p.getStart(), zoneId);
+                    if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
+                    tempProgIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
                 }
-                // 记录该源已合并；lastMergeRun 保持0，让 start() 立即触发后台合并其余源
-                MergeMeta.SourceItem item = new MergeMeta.SourceItem();
-                item.fileMd5 = Util.md5(cacheFile);
-                meta.sources.put(Util.md5(url), item);
-                meta.lastMergeRun = 0;
-                saveMergeMeta(meta);
-                SpiderDebug.log(TAG, "首次使用，加载第一个可用Epg源, source=" + url);
+                Map<String, List<Tv.Channel>> xmlChannelMap = tv.getChannel().stream()
+                        .collect(Collectors.groupingBy(Tv.Channel::getId));
+                Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
+                for (Group group : live.getGroups()) {
+                    for (Channel ch : group.getChannel()) {
+                        Channel matchedXmlCh = findTargetChannel(ch.getTvgId(), liveChannelMap, xmlChannelMap);
+                        if (matchedXmlCh == null) continue;
+                        List<Tv.Programme> progList = tempProgIndex.get(matchedXmlCh.getTvgId());
+                        if (progList == null || progList.isEmpty()) continue;
+                        List<Epg> epgList = new ArrayList<>();
+                        Map<String, Epg> dateGroup = new LinkedHashMap<>();
+                        for (Tv.Programme programme : progList) {
+                            OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
+                            OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
+                            if (startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC)) || endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) {
+                                continue;
+                            }
+                            String dateStr = startDate.atZoneSameInstant(zoneId).format(Formatters.DATE);
+                            Epg epg = dateGroup.get(dateStr);
+                            if (epg == null) {
+                                epg = Epg.create(ch.getTvgId(), dateStr);
+                                dateGroup.put(dateStr, epg);
+                            }
+                            epg.getList().add(getEpgData(programme, zoneId));
+                        }
+                        epgList.addAll(dateGroup.values());
+                        ch.setDataList(epgList);
+                    }
+                }
+                SpiderDebug.log(TAG, "首次临时加载Epg成功, source=" + url + " 不持久化");
                 return;
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "首次使用时加载第一个可用Epg源错误 url=" + url+"："+e.toString());
+                SpiderDebug.log(TAG, "首次临时加载源失败 url=" + url + "：" + e.toString());
             }
         }
     }
 
-    // 加载合并好的总xml，组装EPG数据
-    private static void loadMergedEpg(Live live, ZoneId zoneId) {
-        File mergedFile = getMergedEpgFile();
-        if (!mergedFile.exists()) return;
+    private static void startBackgroundMerge(Live live) {
+        new Thread(() -> {
+            synchronized (SYNC_LOCK) {
+                try {
+                    syncEpgSources(live);
+                } catch (Exception e) {
+                    SpiderDebug.log(TAG, "首次触发后台合并失败：" + e.toString());
+                }
+            }
+        }).start();
+    }
+
+    /**
+     * 加载持久化json索引，直接组装EPG
+     */
+    private static void loadMergedIndex(Live live, ZoneId zoneId) {
+        File indexFile = getIndexFile();
+        if (!indexFile.exists()) return;
         try {
-            String content = readCacheContent(mergedFile, "Epg总表");
-            if (content.isEmpty()) {
-                SpiderDebug.log(TAG, "Epg总表为空！");
+            String json = Path.read(indexFile);
+            TypeToken<Map<String, List<Tv.Programme>>> typeToken = new TypeToken<Map<String, List<Tv.Programme>>>() {};
+            Map<String, List<Tv.Programme>> progIndex = GSON.fromJson(json, typeToken.getType());
+            if (progIndex == null) {
+                SpiderDebug.log(TAG, "Epg索引解析为空，进入首次逻辑");
+                buildInitialTempEpg(live, zoneId);
+                startBackgroundMerge(live);
                 return;
             }
-            Tv tv = parseTv(content);
-            if (tv == null) return;
-
-            // 构建节目索引，仅遍历一次节目，不做时间解析
-            Map<String, List<Tv.Programme>> progIndex = new HashMap<>();
-            for (Tv.Programme p : tv.getProgramme()) {
-                progIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
-            }
-            Map<String, List<Tv.Channel>> xmlChannelMap = tv.getChannel().stream()
-                    .collect(Collectors.groupingBy(Tv.Channel::getId));
             Map<String, Channel> liveChannelMap = prepareLiveChannels(live);
-
-            // 遍历Live全部频道
             for (Group group : live.getGroups()) {
                 for (Channel ch : group.getChannel()) {
-                    // 沿用原来的频道匹配逻辑：tvgId / tvgName / displayName
-                    Channel matchedXmlCh = findTargetChannel(ch.getTvgId(), liveChannelMap, xmlChannelMap);
-                    if (matchedXmlCh == null) continue;
-                    List<Tv.Programme> progList = progIndex.get(matchedXmlCh.getTvgId());
+                    List<Tv.Programme> progList = progIndex.get(ch.getTvgId());
+                    if (progList == null || progList.isEmpty()) {
+                        progList = progIndex.get(ch.getTvgName());
+                    }
                     if (progList == null || progList.isEmpty()) continue;
-
-                    // 复用原有getEpg/getEpgData解析逻辑
                     List<Epg> epgList = new ArrayList<>();
                     Map<String, Epg> dateGroup = new LinkedHashMap<>();
                     for (Tv.Programme programme : progList) {
                         OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
                         OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
-                        if(startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC)) || endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))){
+                        if (startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC)) || endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) {
                             continue;
                         }
                         String dateStr = startDate.atZoneSameInstant(zoneId).format(Formatters.DATE);
@@ -183,15 +200,16 @@ public class EpgParser {
                         epg.getList().add(getEpgData(programme, zoneId));
                     }
                     epgList.addAll(dateGroup.values());
-                    ch.setDataList(cleanOldDays(epgList));
+                    ch.setDataList(epgList);
                 }
             }
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "加载Epg总表出错："+e.toString());
+            SpiderDebug.log(TAG, "加载持久Epg索引出错，进入首次逻辑：" + e.toString());
+            buildInitialTempEpg(live, zoneId);
+            startBackgroundMerge(live);
         }
     }
 
-    /** 空闲任务调用：检测全部epg源，下载更新，增量合并到merged_epg.xml */
     public static void syncEpgSources(Live live) {
         if (live == null || live.getGroups().isEmpty()) {
             SpiderDebug.log(TAG, "Epg后台更新时Live为空！");
@@ -213,86 +231,72 @@ public class EpgParser {
                 if (sourceItem != null && fileMd5.equals(sourceItem.fileMd5)) {
                     continue;
                 }
-                // 当前源文件发生变更，执行增量合并
                 incrementalMergeSource(url, cacheFile, zoneId);
-                // 更新meta记录该源md5
                 if (sourceItem == null) sourceItem = new MergeMeta.SourceItem();
                 sourceItem.fileMd5 = fileMd5;
                 meta.sources.put(urlMd5, sourceItem);
                 needMerge = true;
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "后台更新总表出错 url=" + url+"："+e.toString());
+                SpiderDebug.log(TAG, "后台更新索引出错 url=" + url + "：" + e.toString());
             }
         }
         if (needMerge) {
             meta.lastMergeRun = System.currentTimeMillis();
             saveMergeMeta(meta);
-            SpiderDebug.log(TAG, "Epg后台更新完毕。");
+            SpiderDebug.log(TAG, "Epg后台更新索引完毕。");
         }
     }
 
-    /** 增量合并：单个更新源 -> 合并进merged_epg.xml，合并完成统一清理7天外节目 */
+    /**
+     * 多源合并，合并后生成索引json持久化，保留7天过滤
+     */
     private static void incrementalMergeSource(String url, File sourceCacheFile, ZoneId zoneId) throws Exception {
         String sourceContent = readCacheContent(sourceCacheFile, url);
         if (sourceContent.isEmpty()) return;
         Tv sourceTv = parseTv(sourceContent);
         if (sourceTv == null) return;
 
-        File mergedFile = getMergedEpgFile();
-        Tv mergedTv;
-        if (mergedFile.exists()) {
-            String mergedContent = readCacheContent(mergedFile, "Epg总表");
-            mergedTv = mergedContent.isEmpty() ? new Tv() : parseTv(mergedContent);
+        Map<String, List<Tv.Programme>> mergedIndex;
+        File indexFile = getIndexFile();
+        if (indexFile.exists()) {
+            String json = Path.read(indexFile);
+            TypeToken<Map<String, List<Tv.Programme>>> typeToken = new TypeToken<Map<String, List<Tv.Programme>>>() {};
+            mergedIndex = GSON.fromJson(json, typeToken.getType());
         } else {
-            mergedTv = new Tv();
+            mergedIndex = new HashMap<>();
         }
 
-        // 1.合并channel，按id去重（保留首次出现）
-        Map<String, Tv.Channel> channelMap = new LinkedHashMap<>();
-        for (Tv.Channel ch : mergedTv.getChannel()) channelMap.putIfAbsent(ch.getId(), ch);
-        for (Tv.Channel ch : sourceTv.getChannel()) channelMap.putIfAbsent(ch.getId(), ch);
-
-        // 2.按 频道+日期 去重：同频道同一天只采纳一个源的全天节目单；
-        //   不做时间重叠扫描、不排序（原始数据本身已按时间排序），同一天内多条节目全部保留
         LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
         List<Tv.Programme> finalProgs = new ArrayList<>();
-        Set<String> seen = new java.util.HashSet<>();
-        collectByDate(mergedTv.getProgramme(), zoneId, keepFrom, seen, finalProgs, true);
+        Set<String> seen = new HashSet<>();
+
+        for (List<Tv.Programme> list : mergedIndex.values()) {
+            collectByDate(list, zoneId, keepFrom, seen, finalProgs, true);
+        }
         collectByDate(sourceTv.getProgramme(), zoneId, keepFrom, seen, finalProgs, false);
 
-        // 3.合并结果为空则不覆盖已有总表（避免合并失败把好数据冲掉）
-        if (finalProgs.isEmpty()) {
-            SpiderDebug.log(TAG, "合并结果为空，不覆盖已有Epg总表");
+        Map<String, List<Tv.Programme>> newIndex = new HashMap<>();
+        for (Tv.Programme p : finalProgs) {
+            newIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
+        }
+        if (newIndex.isEmpty()) {
+            SpiderDebug.log(TAG, "合并索引结果为空，不覆盖");
             return;
         }
-        File tempFile = new File(getMergedEpgFile().getParent(), MERGED_FILE_NAME + ".tmp");
-        writeTvToFile(mergedTv, new ArrayList<>(channelMap.values()), finalProgs, tempFile);
-        if(tempFile.exists() && tempFile.length() > 0){
-            if(mergedFile.exists()) mergedFile.delete();
-            tempFile.renameTo(mergedFile);
-            SpiderDebug.log(TAG, "增量合并完成，已替换总表");
-        }else{
-            SpiderDebug.log(TAG, "增量合并临时文件无效，不替换总表");
-            if(tempFile.exists()) tempFile.delete();
+        File tempFile = new File(getIndexFile().getParent(), INDEX_FILE_NAME + ".tmp");
+        String jsonOutput = GSON.toJson(newIndex);
+        writeFile(tempFile, jsonOutput.getBytes(StandardCharsets.UTF_8));
+        if (tempFile.exists() && tempFile.length() > 0) {
+            if (indexFile.exists()) indexFile.delete();
+            tempFile.renameTo(indexFile);
+            SpiderDebug.log(TAG, "增量合并完成，已更新持久索引");
+        } else {
+            SpiderDebug.log(TAG, "增量合并临时索引文件无效，不替换");
+            if (tempFile.exists()) tempFile.delete();
             return;
         }
     }
 
-    /** 反射设置 Tv 的 channel/programme 字段，用 SimpleFramework 写出（保证 XML 结构与源一致） */
-    private static void writeTvToFile(Tv tv, List<Tv.Channel> channels, List<Tv.Programme> programmes, File file) throws Exception {
-        java.lang.reflect.Field chField = Tv.class.getDeclaredField("channel");
-        chField.setAccessible(true);
-        chField.set(tv, channels);
-        java.lang.reflect.Field progField = Tv.class.getDeclaredField("programme");
-        progField.setAccessible(true);
-        progField.set(tv, programmes);
-        new Persister().write(tv, file);
-    }
-
-    /**
-     * 遍历节目，按 (频道|日期) 归集。
-     * @param takeExisting true=已合并数据：全部保留并登记日期；false=新源：仅加入未登记日期的节目
-     */
     private static void collectByDate(List<Tv.Programme> programmes, ZoneId zoneId, LocalDate keepFrom,
                                        Set<String> seen, List<Tv.Programme> out, boolean takeExisting) {
         for (Tv.Programme p : programmes) {
@@ -305,8 +309,6 @@ public class EpgParser {
                 out.add(p);
                 seen.add(key);
             } else {
-                // 该(频道|日期)未被已合并数据占用 → 保留当天全部节目（早中晚多条）；
-                // 已被占用 → 整个当天跳过（多源同一天的重复节目单）
                 if (!seen.contains(key)) out.add(p);
             }
         }
@@ -318,11 +320,10 @@ public class EpgParser {
         if (metaFile.exists()) {
             try {
                 String json = Path.read(metaFile);
-                // 增加TypeToken，告诉Gson完整泛型类型
-                java.lang.reflect.Type type = new com.google.gson.reflect.TypeToken<MergeMeta>(){}.getType();
-                meta = GSON.fromJson(json, type);
+                TypeToken<MergeMeta> typeToken = new TypeToken<MergeMeta>() {};
+                meta = GSON.fromJson(json, typeToken.getType());
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "meta文件解析损坏，使用空meta："+e.toString());
+                SpiderDebug.log(TAG, "meta文件解析损坏，使用空meta：" + e.toString());
             }
         }
         return meta;
@@ -334,22 +335,21 @@ public class EpgParser {
             File tempFile = new File(metaFile.getParent(), MERGED_META_NAME + ".tmp");
             String json = GSON.toJson(meta);
             writeFile(tempFile, json.getBytes(StandardCharsets.UTF_8));
-            if(tempFile.exists() && tempFile.length()>0){
-                if(metaFile.exists()) metaFile.delete();
+            if (tempFile.exists() && tempFile.length() > 0) {
+                if (metaFile.exists()) metaFile.delete();
                 tempFile.renameTo(metaFile);
-            }else{
-                if(tempFile.exists()) tempFile.delete();
+            } else {
+                if (tempFile.exists()) tempFile.delete();
             }
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "保存meta失败："+e.toString());
+            SpiderDebug.log(TAG, "保存meta失败：" + e.toString());
         }
     }
 
-    /** 标准 Java IO 写文件：确保父目录存在，不吞异常 */
     private static void writeFile(File file, byte[] data) throws Exception {
         File parent = file.getParentFile();
         if (parent != null && !parent.exists()) parent.mkdirs();
-        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(file)) {
+        try (FileOutputStream fos = new FileOutputStream(file)) {
             fos.write(data);
         }
     }
@@ -422,13 +422,11 @@ public class EpgParser {
 
     private static String readCacheContent(File file, String url) throws Exception {
         byte[] bytes = Path.readToByte(file);
-        // 修复gzip魔数判断BUG
         if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0x1F && (bytes[1] & 0xFF) == 0x8B) {
             File xml = Path.epg(file.getName() + ".xml");
             FileUtil.gzipDecompress(file, xml);
             bytes = Path.readToByte(xml);
-            // 新增：解压后校验非空
-            if(bytes == null || bytes.length == 0){
+            if (bytes == null || bytes.length == 0) {
                 return "";
             }
         }
@@ -475,21 +473,6 @@ public class EpgParser {
         return null;
     }
 
-    private static List<Epg> cleanOldDays(List<Epg> list) {
-        if (list == null || list.isEmpty()) return new ArrayList<>();
-        List<Epg> result = new ArrayList<>();
-        for (Epg epg : list) {
-            try {
-                LocalDate date = LocalDate.parse(epg.getDate(), Formatters.DATE);
-                if (!date.isBefore(LocalDate.now().minusDays(KEEP_DAYS))) result.add(epg);
-            } catch (Exception e) {
-                result.add(epg);
-            }
-        }
-        result.sort((a, b) -> a.getDate().compareTo(b.getDate()));
-        return result;
-    }
-
     public static Epg getEpg(String xml, String key, ZoneId zoneId) {
         try {
             String content = sanitizeXml(xml);
@@ -498,17 +481,17 @@ public class EpgParser {
             String rawDate = tv.getDate();
             String date = rawDate.isEmpty() ? LocalDate.now(zoneId).format(Formatters.DATE) : parseFull(rawDate, zoneId).atZoneSameInstant(zoneId).format(Formatters.DATE);
             Epg epg = Epg.create(key, date);
-            for (Tv.Programme programme : tv.getProgramme()){
+            for (Tv.Programme programme : tv.getProgramme()) {
                 OffsetDateTime startDate = parseFull(programme.getStart(), zoneId);
                 OffsetDateTime endDate = parseFull(programme.getStop(), zoneId);
-                if(startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC)) || endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))){
+                if (startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC)) || endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) {
                     continue;
                 }
                 epg.getList().add(getEpgData(programme, zoneId));
             }
             return epg;
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "获取Epg数据失败 key=" + key+"："+e.toString());
+            SpiderDebug.log(TAG, "获取Epg数据失败 key=" + key + "：" + e.toString());
             return new Epg();
         }
     }
@@ -558,7 +541,7 @@ public class EpgParser {
         try {
             if (len >= 20)
                 return OffsetDateTime.parse(s, s.charAt(len - 3) == ':' ? Formatters.EPG_FULL_COLON : Formatters.EPG_FULL);
-            return LocalDateTime.parse(len > 14 ? s.substring(0, 14) : s, Formatters.EPG_FULL_NO_TZ).atZone(zoneId).toOffsetDateTime();
+            return java.time.LocalDateTime.parse(len > 14 ? s.substring(0, 14) : s, Formatters.EPG_FULL_NO_TZ).atZone(zoneId).toOffsetDateTime();
         } catch (Exception e) {
             return OffsetDateTime.ofInstant(Instant.EPOCH, ZoneOffset.UTC);
         }
