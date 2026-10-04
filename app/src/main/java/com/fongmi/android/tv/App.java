@@ -13,10 +13,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.os.HandlerCompat;
 
-import com.fongmi.android.tv.api.config.LiveConfig;
-import com.fongmi.android.tv.api.parser.EpgParser;
 import com.fongmi.android.tv.bean.Config;
-import com.fongmi.android.tv.bean.Live;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.playback.PlaybackRemoteSyncer;
 import com.fongmi.android.tv.player.PlaybackMemoryMonitor;
@@ -200,32 +197,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
         RemoteAgent.get().start();
         NsdDeviceDiscovery.register();
 
-        // ====== EPG源定时同步：每6小时跑一次，子线程执行，不卡UI ======
-        scheduleEpgSync();
-
         SpiderDebug.log("startup", "background services ready cost=%sms", System.currentTimeMillis() - time);
-    }
-
-    /** 每 UPDATE_INTERVAL_MS 调度一次EPG源同步（比IdleHandler更可靠，不依赖主线程空闲） */
-    private void scheduleEpgSync() {
-        handler.postDelayed(this::onEpgSyncTick, EpgParser.UPDATE_INTERVAL_MS);
-    }
-
-    private void onEpgSyncTick() {
-        new Thread(() -> {
-            synchronized (EpgParser.SYNC_LOCK) {
-                try {
-                    Live live = LiveConfig.get().getHome();
-                    // 配置尚未加载（live为空）时本次跳过，但不影响下轮定时调度，避免浪费同步窗口
-                    if (live != null && !live.getGroups().isEmpty()) {
-                        EpgParser.syncEpgSources(live);
-                    }
-                } catch (Exception e) {
-                    Log.e("AppEpgSync", "epg sync error", e);
-                }
-            }
-        }).start();
-        scheduleEpgSync(); // 无论本次结果如何，下轮照常6小时后调度
     }
 
     @Override
