@@ -227,7 +227,7 @@ public class EpgParser {
             }
         }
         if (!needMerge) {
-            SpiderDebug.log(TAG, "远程Epg数据无变化，未更新：" + e.toString());
+            SpiderDebug.log(TAG, "远程Epg数据无变化，未更新");
             cleanStaleEpgCache(meta, urls);
             return null;
         }
