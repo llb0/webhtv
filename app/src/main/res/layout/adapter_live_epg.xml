@@ -15,6 +15,16 @@
     android:paddingStart="14dp"
     android:paddingEnd="6dp">
 
+    <androidx.appcompat.widget.AppCompatCheckBox
+        android:id="@+id/check"
+        android:layout_width="32dp"
+        android:layout_height="match_parent"
+        android:buttonTint="@color/white"
+        android:clickable="false"
+        android:focusable="false"
+        android:scaleX="0.85"
+        android:scaleY="0.85" />
+ 
     <com.google.android.material.textview.MaterialTextView
         android:id="@+id/text"
         android:layout_width="0dp"

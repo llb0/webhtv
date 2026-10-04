@@ -31,7 +31,13 @@ public class LiveApi {
     }
 
     public static boolean parseXml(@NonNull Live item) {
-        return LiveEpgSetting.getXmlUrls(item).stream().map(url -> startXml(item, url)).reduce(false, Boolean::logicalOr);
+        try {
+            EpgParser.start(item);
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 
     @NonNull
@@ -55,16 +61,6 @@ public class LiveApi {
         result.setUrl(item.getCatchup().format(result.getRealUrl(), data));
         if (item.isRtsp()) result.getHeader().put("rtsp_range", data.getRange());
         return result;
-    }
-
-    private static boolean startXml(Live item, String url) {
-        try {
-            EpgParser.start(item, url);
-            return true;
-        } catch (Exception e) {
-            e.printStackTrace();
-            return false;
-        }
     }
 
     private static void fetchEpgDay(@NonNull Channel item, @NonNull ZoneId zoneId, int offset) {

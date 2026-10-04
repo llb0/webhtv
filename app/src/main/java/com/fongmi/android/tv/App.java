@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -164,7 +165,6 @@ public class App extends Application implements Application.ActivityLifecycleCal
             String cls = element.getClassName();
             if (cls == null) continue;
             // 第三方 jar 中的所有 spider/parser 包类（应用自身不在这两个包下）
-            // 覆盖 merge 混淆类、Init、Proxy、DexNative、Danmaku、AowuShinidie、XxxAmns 等
             if (cls.startsWith("com.github.catvod.spider.")
                     || cls.startsWith("com.github.catvod.parser.")) {
                 return true;
@@ -196,6 +196,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
         PlaybackRemoteSyncer.start();
         RemoteAgent.get().start();
         NsdDeviceDiscovery.register();
+
         SpiderDebug.log("startup", "background services ready cost=%sms", System.currentTimeMillis() - time);
     }
 
@@ -211,12 +212,14 @@ public class App extends Application implements Application.ActivityLifecycleCal
 
     @Override
     public void onActivityResumed(@NonNull Activity activity) {
-        if (activity != activity()) this.activity = activity;
+        this.activity = activity;
     }
 
     @Override
     public void onActivityPaused(@NonNull Activity activity) {
-        if (activity == activity()) this.activity = null;
+        if (this.activity == activity) {
+            this.activity = null;
+        }
     }
 
     @Override

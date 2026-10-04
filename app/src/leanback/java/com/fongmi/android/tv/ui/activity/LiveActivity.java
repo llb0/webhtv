@@ -478,10 +478,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
  
     @Override
-    public void onLiveEpgSelected(String url) {
+    public void onLiveEpgSelected() {
         if (mChannel == null) return;
         LiveEpgSetting.apply(getHome());
-        if (LiveEpgSetting.isGlobalXmlUrl(LiveEpgSetting.getUrl()) || (LiveEpgSetting.getUrl().isEmpty() && !getHome().getEpgXml().isEmpty())) {
+        if (!LiveEpgSetting.getXmlUrls(getHome()).isEmpty()) {
             mViewModel.parseXml(getHome());
         } else {
             mViewModel.getEpg(mChannel);

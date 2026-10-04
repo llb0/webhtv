@@ -9,6 +9,7 @@ import androidx.core.content.FileProvider;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.parser.EpgParser;
 import com.fongmi.android.tv.impl.Callback;
 import com.github.catvod.utils.Path;
 
@@ -83,8 +84,23 @@ public class FileUtil {
     public static void clearCache(Callback callback) {
         Task.execute(() -> {
             Path.clear(Path.cache());
+            FileUtil.deleteEpgDir();
             App.post(callback::success);
         });
+    }
+
+    public static void deleteEpgDir() {
+        synchronized (EpgParser.SYNC_LOCK) {
+            File epgDir = new File(Path.files(), "epg");
+            if (!epgDir.exists()) return;
+            File[] files = epgDir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    f.delete();
+                }
+            }
+            epgDir.delete();
+        }
     }
 
     public static void getCacheSize(Callback callback) {
