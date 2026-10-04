@@ -471,6 +471,7 @@ public class EpgParser {
     private static String readCacheContent(File file, String url) throws Exception {
         byte[] bytes = Path.readToByte(file);
         if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0x1F && (bytes[1] & 0xFF) == 0x8B) {
+            File xml = Path.epg(file.getName() + ".xml");
             try {
                 FileUtil.gzipDecompress(file, xml);
                 bytes = Path.readToByte(xml);
