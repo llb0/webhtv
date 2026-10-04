@@ -663,7 +663,6 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
                     mEpgFirstOpen = true;
                 }
             } else {
-                hideEpg();
                 mEpgFirstOpen = false;
             }
         });
