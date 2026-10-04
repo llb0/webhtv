@@ -155,7 +155,7 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
     @Override
     public boolean onSingleTapConfirmed(@NonNull MotionEvent e) {
         if (isMultiple(e) || changeScale) return true;
-        listener.onSingleTap(e.getRawX(), ResUtil.getScreenWidth(App.get()));
+        listener.onSingleTap(e.getRawX(), e.getRawY(), ResUtil.getScreenWidth(App.get()), ResUtil.getScreenHeight(App.get()));
         return true;
     }
 
@@ -260,6 +260,10 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
             onSingleTap();
         }
 
+        default void onSingleTap(float x, float y, float width, float height) {
+            onSingleTap(x, width);
+        }
+ 
         void onDoubleTap();
 
         void onTouchEnd();
