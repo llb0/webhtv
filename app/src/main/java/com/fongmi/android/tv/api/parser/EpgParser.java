@@ -23,6 +23,7 @@ import org.simpleframework.xml.core.Persister;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.io.InterruptedIOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -231,7 +232,6 @@ public class EpgParser {
             cleanStaleEpgCache(meta, urls);
             return null;
         }
-        // 更新meta到内存，后续写盘
         meta.sources = meta.sources;
         cleanStaleEpgCache(meta, urls);
         return mergedIndex;
@@ -243,35 +243,72 @@ public class EpgParser {
         Tv sourceTv = parseTv(sourceContent);
         if (sourceTv == null) return;
 
+        // 单源内部构建 xmlChId -> bizName，只取第一个非空display‑name(兼容zh/cn)，无则丢弃
+        Map<String,String> localXmlToBizName = new HashMap<>();
+        for(Tv.Channel ch : sourceTv.getChannel()){
+            String xmlChId = ch.getId();
+            String bizName = null;
+            for(Tv.DisplayName dn : ch.getDisplayName()){
+                String txt = dn.getText().trim();
+                if(!txt.isEmpty()){
+                    bizName = txt;
+                    break;
+                }
+            }
+            if(bizName != null && !bizName.isEmpty()){
+                localXmlToBizName.put(xmlChId, bizName);
+            }
+        }
+
+        // 当前源按bizName分组节目
+        Map<String,List<Tv.Programme>> sourceByName = new HashMap<>();
+        for(Tv.Programme p : sourceTv.getProgramme()){
+            String xmlId = p.getChannel();
+            String bizName = localXmlToBizName.get(xmlId);
+            if(bizName == null) continue;
+            sourceByName.computeIfAbsent(bizName, k->new ArrayList<>()).add(p);
+        }
+
         if (enableFilter) {
             LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
-            List<Tv.Programme> finalProgs = new ArrayList<>();
-            Set<String> seen = new HashSet<>();
+            // 遍历每个业务台名做合并去重
+            for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
+                String bizName = entry.getKey();
+                List<Tv.Programme> newProgs = entry.getValue();
+                List<Tv.Programme> oldProgs = mergedIndex.getOrDefault(bizName, new ArrayList<>());
 
-            for (List<Tv.Programme> list : mergedIndex.values()) {
-                collectByDate(list, zoneId, keepFrom, seen, finalProgs, true);
-            }
-            collectByDate(sourceTv.getProgramme(), zoneId, keepFrom, seen, finalProgs, false);
+                Set<String> seen = new HashSet<>();
+                List<Tv.Programme> finalProgs = new ArrayList<>();
+                collectByDate(oldProgs, zoneId, keepFrom, seen, finalProgs, true, bizName);
+                collectByDate(newProgs, zoneId, keepFrom, seen, finalProgs, false, bizName);
 
-            mergedIndex.clear();
-            for (Tv.Programme p : finalProgs) {
-                mergedIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
+                if(finalProgs.isEmpty()){
+                    mergedIndex.remove(bizName);
+                }else{
+                    mergedIndex.put(bizName, finalProgs);
+                }
             }
         } else {
-            for (Tv.Programme p : sourceTv.getProgramme()) {
-                mergedIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
+            // 首次加载：直接把本源节目放入索引，不去和旧数据合并
+            mergedIndex.clear();
+            for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
+                mergedIndex.put(entry.getKey(), entry.getValue());
             }
         }
     }
 
+    /**
+     * @param bizName EPG解析得到的业务台名，作为去重key一部分
+     */
     private static void collectByDate(List<Tv.Programme> programmes, ZoneId zoneId, LocalDate keepFrom,
-                                       Set<String> seen, List<Tv.Programme> out, boolean takeExisting) {
+                                       Set<String> seen, List<Tv.Programme> out, boolean takeExisting, String bizName) {
         for (Tv.Programme p : programmes) {
             OffsetDateTime start = parseFull(p.getStart(), zoneId);
             if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
             LocalDate progDate = start.atZoneSameInstant(zoneId).toLocalDate();
             if (progDate.isBefore(keepFrom)) continue;
-            String key = p.getChannel() + "|" + progDate.format(Formatters.DATE);
+            // 使用EPG解析的台名做去重key，不再使用xml channel id
+            String key = bizName + "|" + progDate.format(Formatters.DATE);
             if (takeExisting) {
                 out.add(p);
                 seen.add(key);
@@ -370,6 +407,10 @@ public class EpgParser {
                 String contentLength = res.header(HttpHeaders.CONTENT_LENGTH);
                 return contentLength != null ? contentLength : String.valueOf(System.currentTimeMillis());
             }
+        } catch (InterruptedIOException e) {
+            SpiderDebug.log(TAG, url + "获取etag被中断：" + e.getMessage());
+            Thread.interrupted(); //清除线程中断标记，防止后续IO连锁失败
+            return null;
         } catch (Exception e) {
             SpiderDebug.log(TAG, url + "获取etag出错：" + e.toString());
             return null;
@@ -406,6 +447,7 @@ public class EpgParser {
         return new Persister().read(Tv.class, content, false);
     }
 
+    @Deprecated
     private static Map<String, Channel> prepareLiveChannels(Live live) {
         Map<String, Channel> map = new HashMap<>();
         for (Group group : live.getGroups()) {
@@ -439,11 +481,17 @@ public class EpgParser {
         int bindCount = 0;
         for (Group group : live.getGroups()) {
             for (Channel ch : group.getChannel()) {
-                List<Tv.Programme> progList = progIndex.get(ch.getTvgId());
-                if (progList == null || progList.isEmpty()) {
-                    progList = progIndex.get(ch.getTvgName());
+                // 多源合并下xml tvg‑id不可靠，完全不使用id查询；优先tvg‑name，没有取name，trim
+                String lookupKey = ch.getTvgName();
+                if (lookupKey == null || lookupKey.isEmpty()) {
+                    lookupKey = ch.getName();
                 }
+                if (lookupKey == null || lookupKey.isEmpty()) continue;
+                lookupKey = lookupKey.trim();
+
+                List<Tv.Programme> progList = progIndex.get(lookupKey);
                 if (progList == null || progList.isEmpty()) continue;
+
                 List<Epg> epgList = new ArrayList<>();
                 Map<String, Epg> dateGroup = new LinkedHashMap<>();
                 for (Tv.Programme programme : progList) {
@@ -455,7 +503,7 @@ public class EpgParser {
                     String dateStr = startDate.atZoneSameInstant(zoneId).format(Formatters.DATE);
                     Epg epg = dateGroup.get(dateStr);
                     if (epg == null) {
-                        epg = Epg.create(ch.getTvgId(), dateStr);
+                        epg = Epg.create(lookupKey, dateStr);
                         dateGroup.put(dateStr, epg);
                     }
                     epg.getList().add(getEpgData(programme, zoneId));
