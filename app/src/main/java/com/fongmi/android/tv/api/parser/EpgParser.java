@@ -99,8 +99,8 @@ public class EpgParser {
     }
 
     /**
-     * 首次快速加载：仅下载源、生成索引并持久化，移除独立内存组装逻辑
-     * 全部EPG绑定逻辑交给loadMergedIndex，和后台合并流程完全统一
+     * 首次构建：遍历url列表，拿到第一个可用源就执行合并+load，然后break跳出循环
+     * 复用incrementalMergeSource，enableFilter=false 单源不去重、不裁剪过期
      */
     private static void buildInitialEpgAndSave(Live live, ZoneId zoneId) {
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
@@ -109,41 +109,26 @@ public class EpgParser {
             try {
                 SpiderDebug.log(TAG, "首次尝试源：" + url);
                 File cacheFile = getCacheFile(url);
-                // 首次场景强制下载第一个源，不复用任何本地残留缓存
                 if (!download(url, cacheFile)) {
                     SpiderDebug.log(TAG, "首次下载源失败：" + url);
                     continue;
                 }
-                String content = readCacheContent(cacheFile, url);
-                if (content.isEmpty()) {
-                    SpiderDebug.log(TAG, "源读取内容为空：" + url);
-                    continue;
-                }
-                Tv tv = parseTv(content);
-                if (tv == null) continue;
+                // 统一合并函数，关闭过滤
+                incrementalMergeSource(url, cacheFile, zoneId, false);
 
-                // 单源，不做任何过滤、不去重，直接构建索引用于持久化
-                Map<String, List<Tv.Programme>> tempProgIndex = new HashMap<>();
-                for (Tv.Programme origin : tv.getProgramme()) {
-                    tempProgIndex.computeIfAbsent(origin.getChannel(), k -> new ArrayList<>()).add(origin);
-                }
-
-                // 持久化本次第一个源的索引
-                writeIndexFile(tempProgIndex);
-                // 写入meta，记录当前源ETag
-                MergeMeta meta = new MergeMeta();
+                MergeMeta meta = loadMergeMeta();
                 String urlMd5 = Util.md5(url);
+                String remoteEtag = fetchRemoteTag(url);
                 MergeMeta.SourceItem sourceItem = new MergeMeta.SourceItem();
-                String currentEtag = fetchRemoteTag(url);
-                sourceItem.etag = currentEtag;
+                sourceItem.etag = remoteEtag;
                 meta.sources.put(urlMd5, sourceItem);
                 meta.lastMergeRun = System.currentTimeMillis();
                 saveMergeMeta(meta);
 
-                // 统一走loadMergedIndex加载磁盘索引填充channel EPG，对齐后台合并逻辑
                 loadMergedIndex(live, zoneId);
                 SpiderDebug.log(TAG, "首次加载Epg成功并持久化, source=" + url);
-                return;
+                // 拿到第一个可用源，直接break，不再试后面链接
+                break;
             } catch (Exception e) {
                 SpiderDebug.log(TAG, "首次加载源失败 url=" + url + "：" + e.toString());
             }
@@ -177,7 +162,7 @@ public class EpgParser {
     }
 
     /**
-     * 加载持久化json索引，直接组装EPG
+     * 加载持久化json索引，组装EPG
      */
     private static void loadMergedIndex(Live live, ZoneId zoneId) {
         File indexFile = getIndexFile();
@@ -251,15 +236,14 @@ public class EpgParser {
                 }
                 SpiderDebug.log(TAG, "远程Epg有变化：" + url);
                 File cacheFile = getCacheFile(url);
-                // Etag不一致才下载
                 if (!download(url, cacheFile)) continue;
 
-                incrementalMergeSource(url, cacheFile, zoneId);
+                //后台合并开启过滤，多源去重+7天过期裁剪
+                incrementalMergeSource(url, cacheFile, zoneId, true);
                 if (sourceItem == null) sourceItem = new MergeMeta.SourceItem();
                 sourceItem.etag = remoteEtag;
                 meta.sources.put(urlMd5, sourceItem);
                 needMerge = true;
-                //合并完成删除本次缓存
                 if(cacheFile.exists()) cacheFile.delete();
             } catch (Exception e) {
                 SpiderDebug.log(TAG, "后台更新Epg出错 url=" + url + "：" + e.toString());
@@ -273,14 +257,15 @@ public class EpgParser {
         } else {
             SpiderDebug.log(TAG, "远程Epg数据无变化，未更新。");
         }
-        // 合并完成，清理无效缓存
         cleanStaleEpgCache(meta, urls);
     }
 
     /**
-     * 多源合并，合并后生成索引json持久化，保留7天过滤，多源去重，防止数据无限增大
+     * 统一合并入口
+     * enableFilter=true：多源，7天裁剪 + channel|date去重
+     * enableFilter=false：首次单源，原样追加节目，不过滤不去重
      */
-    private static void incrementalMergeSource(String url, File sourceCacheFile, ZoneId zoneId) throws Exception {
+    private static void incrementalMergeSource(String url, File sourceCacheFile, ZoneId zoneId, boolean enableFilter) throws Exception {
         String sourceContent = readCacheContent(sourceCacheFile, url);
         if (sourceContent.isEmpty()) return;
         Tv sourceTv = parseTv(sourceContent);
@@ -296,19 +281,29 @@ public class EpgParser {
             mergedIndex = new HashMap<>();
         }
 
-        LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
-        List<Tv.Programme> finalProgs = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
+        Map<String, List<Tv.Programme>> newIndex;
+        if (enableFilter) {
+            LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
+            List<Tv.Programme> finalProgs = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
 
-        for (List<Tv.Programme> list : mergedIndex.values()) {
-            collectByDate(list, zoneId, keepFrom, seen, finalProgs, true);
-        }
-        collectByDate(sourceTv.getProgramme(), zoneId, keepFrom, seen, finalProgs, false);
+            for (List<Tv.Programme> list : mergedIndex.values()) {
+                collectByDate(list, zoneId, keepFrom, seen, finalProgs, true);
+            }
+            collectByDate(sourceTv.getProgramme(), zoneId, keepFrom, seen, finalProgs, false);
 
-        Map<String, List<Tv.Programme>> newIndex = new HashMap<>();
-        for (Tv.Programme p : finalProgs) {
-            newIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
+            newIndex = new HashMap<>();
+            for (Tv.Programme p : finalProgs) {
+                newIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
+            }
+        } else {
+            //首次单源：直接追加节目，不去重、不删除过期
+            newIndex = mergedIndex;
+            for (Tv.Programme p : sourceTv.getProgramme()) {
+                newIndex.computeIfAbsent(p.getChannel(), k -> new ArrayList<>()).add(p);
+            }
         }
+
         if (newIndex.isEmpty()) {
             SpiderDebug.log(TAG, "合并索引结果为空，不覆盖");
             return;
@@ -332,7 +327,6 @@ public class EpgParser {
             if (name.equals(INDEX_FILE_NAME) || name.equals(MERGED_META_NAME) || name.endsWith(".tmp")) {
                 continue;
             }
-            //文件名前缀是urlMd5
             boolean keep = false;
             for(String md5 : validUrlMd5Set){
                 if(name.startsWith(md5)){
