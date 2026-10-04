@@ -145,7 +145,9 @@ public class WebViewPlayer {
                 videoEl.addEventListener('volumechange', () => {
                     if (videoEl.muted || videoEl.volume === 0) ensureVideoVolume();
                 }, { passive: true });
-                videoEl.addEventListener('play', () => { ensureVideoVolume(); }, { passive: true });
+                videoEl.addEventListener('play', () => { ensureVideoVolume(); if (typeof WebVideoBridge !== 'undefined') WebVideoBridge.onPlay(true); }, { passive: true });
+                videoEl.addEventListener('pause', () => { if (typeof WebVideoBridge !== 'undefined') WebVideoBridge.onPlay(false); }, { passive: true });
+                videoEl.addEventListener('playing', () => { if (typeof WebVideoBridge !== 'undefined') WebVideoBridge.onPlay(true); }, { passive: true });
                 if (typeof ku9 !== 'undefined' && ku9.getscale) setscale(ku9.getscale());
                 if (typeof ku9 !== 'undefined' && ku9.setduration) {
                     if (videoEl.duration > 0) ku9.setduration(videoEl.duration);
@@ -172,21 +174,35 @@ public class WebViewPlayer {
     private WebChromeClient.CustomViewCallback customViewCallback;
     private Activity activity;
     private View.OnTouchListener touchListener;
+    private PlaybackListener playbackListener;
+    private boolean webPlaying;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    /**
+     * 视频播放状态回调，用于把 WebView 内 video 元素的播放/暂停状态同步给原生控制栏。
+     */
+    public interface PlaybackListener {
+        void onWebPlayStateChanged(boolean playing);
+    }
+ 
     public void attach(Activity activity, ViewGroup container, String url) {
-        attach(activity, container, url, null);
+        attach(activity, container, url, null, null);
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
     public void attach(Activity activity, ViewGroup container, String url, View.OnTouchListener touchListener) {
+        attach(activity, container, url, touchListener, null);
+    }
+ 
+    @SuppressLint("SetJavaScriptEnabled")
+    public void attach(Activity activity, ViewGroup container, String url, View.OnTouchListener touchListener, PlaybackListener playbackListener) {
         if (activeWebView == null) {
             // 首次加载，新建WebView
             detach();
             this.activity = activity;
             this.container = container;
             this.touchListener = touchListener;
+            this.playbackListener = playbackListener;
 
             activeWebView = createWebViewInstance(activity);
             if (touchListener != null) activeWebView.setOnTouchListener(touchListener);
@@ -197,7 +213,13 @@ public class WebViewPlayer {
         } else {
             // 切台：复用当前webview直接加载新链接
             SpiderDebug.log(TAG, "switch url: %s", url);
+            this.touchListener = touchListener;
+            this.playbackListener = playbackListener;
+            // 切台时同步刷新触摸监听器，避免旧监听器残留
+            if (touchListener != null) activeWebView.setOnTouchListener(touchListener);
+            if (customView != null && touchListener != null) customView.setOnTouchListener(touchListener);
         }
+        webPlaying = false;
         activeWebView.onResume();
         activeWebView.loadUrl(url);
     }
@@ -228,6 +250,9 @@ public class WebViewPlayer {
         s.setLoadsImagesAutomatically(false);
         s.setBlockNetworkImage(true);
 
+        // 注册 JS 回调接口，把 video 元素的播放/暂停状态同步给原生
+        webView.addJavascriptInterface(new WebVideoBridge(), "WebVideoBridge");
+ 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
@@ -274,6 +299,8 @@ public class WebViewPlayer {
                 FrameLayout decor = (FrameLayout) activity.getWindow().getDecorView();
                 decor.addView(customView, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                // 把触摸监听器挂到 customView 上，拦截所有触摸事件，避免点击画面导致 video 暂停
+                if (touchListener != null) customView.setOnTouchListener(touchListener);
                 if (webView != null) webView.setVisibility(View.GONE);
             }
 
@@ -282,6 +309,7 @@ public class WebViewPlayer {
                 if (customView == null) return;
                 FrameLayout decor = (FrameLayout) activity.getWindow().getDecorView();
                 decor.removeView(customView);
+                if (customView != null) customView.setOnTouchListener(null);
                 customView = null;
                 if (customViewCallback != null) customViewCallback.onCustomViewHidden();
                 customViewCallback = null;
@@ -350,6 +378,22 @@ public class WebViewPlayer {
         if (activeWebView != null) activeWebView.goBack();
     }
 
+    /** 由原生控制栏调用，让 WebView 内的 video 播放 */
+    public void play() {
+        if (activeWebView == null) return;
+        activeWebView.evaluateJavascript("javascript:if(typeof play==='function')play();", null);
+    }
+ 
+    /** 由原生控制栏调用，让 WebView 内的 video 暂停 */
+    public void pause() {
+        if (activeWebView == null) return;
+        activeWebView.evaluateJavascript("javascript:if(typeof pause==='function')pause();", null);
+    }
+ 
+    public boolean isWebPlaying() {
+        return webPlaying;
+    }
+ 
     public void detach() {
         if (customView != null) {
             FrameLayout decor = activity != null ? (FrameLayout) activity.getWindow().getDecorView() : null;
@@ -366,5 +410,20 @@ public class WebViewPlayer {
         container = null;
         activity = null;
         touchListener = null;
+        playbackListener = null;
+    }
+ 
+    /**
+     * JS 回调桥梁：把 video 元素的 play/pause 事件转发给原生 PlaybackListener。
+     * 运行在 WebView 内部线程，需切到主线程回调。
+     */
+    private class WebVideoBridge {
+        @android.webkit.JavascriptInterface
+        public void onPlay(final boolean playing) {
+            webPlaying = playing;
+            if (playbackListener != null) {
+                mainHandler.post(() -> playbackListener.onWebPlayStateChanged(playing));
+            }
+        }
     }
 }
