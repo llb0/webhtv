@@ -27,6 +27,10 @@
 -keep class com.fongmi.android.tv.remote.** { *; }
 -keep class com.fongmi.android.tv.gitcloud.** { *; }
 
+# SAX
+-keep class org.xml.sax.** { *; }
+-keep class javax.xml.parsers.** { *; }
+
 # SimpleXML
 -keep interface org.simpleframework.xml.core.Label { public *; }
 -keep class * implements org.simpleframework.xml.core.Label { public *; }

@@ -87,15 +87,6 @@
     <string name="live_control_list_readable">易讀</string>
     <string name="live_control_player">播放</string>
     <string name="live_source_select">選擇直播源</string>
-    <string name="live_epg_select">選擇EPG源</string>
-    <string name="live_epg_default">隨直播源</string>
-    <string name="live_epg_follow">隨源</string>
-    <string name="live_epg_apply">使用</string>
-    <string name="live_epg_save">儲存</string>
-    <string name="live_epg_edit">編輯</string>
-    <string name="live_epg_delete">刪除</string>
-    <string name="live_epg_hint">輸入 XML/GZ 或 {name}/{date} 模板地址</string>
-    <string name="live_epg_empty">請輸入EPG地址，或直接選擇下方來源</string>
     <string name="live_program_title">節目預告</string>
     <string name="live_program_empty">暫無節目預告</string>
     <string name="dialog_clear">清空</string>
