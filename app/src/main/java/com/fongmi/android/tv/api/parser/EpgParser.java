@@ -17,22 +17,18 @@ import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
 
 import org.simpleframework.xml.core.Persister;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserFactory;
 
-import javax.xml.stream.XMLInputFactory;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.io.InterruptedIOException;
+import java.lang.reflect.Field;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -160,17 +156,8 @@ public class EpgParser {
     private static void writeIndexFile(Map<String, List<Tv.Programme>> indexMap) throws Exception {
         File indexFile = getIndexFile();
         File tempFile = new File(indexFile.getParent(), INDEX_FILE_NAME + ".tmp");
-        try (FileOutputStream fos = new FileOutputStream(tempFile);
-             OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
-             JsonWriter writer = new JsonWriter(osw)) {
-            writer.beginObject();
-            for (Map.Entry<String, List<Tv.Programme>> entry : indexMap.entrySet()) {
-                writer.name(entry.getKey());
-                GSON.toJson(entry.getValue(), new TypeToken<List<Tv.Programme>>() {}.getType(), writer);
-            }
-            writer.endObject();
-            writer.flush();
-        }
+        String jsonOutput = GSON.toJson(indexMap);
+        writeFile(tempFile, jsonOutput.getBytes(StandardCharsets.UTF_8));
         if (tempFile.exists() && tempFile.length() > 0) {
             if (indexFile.exists()) indexFile.delete();
             tempFile.renameTo(indexFile);
@@ -178,26 +165,6 @@ public class EpgParser {
             if (tempFile.exists()) tempFile.delete();
             throw new Exception("写入索引临时文件失败");
         }
-    }
-
-    private static Map<String, List<Tv.Programme>> readIndexStream(File indexFile) {
-        Map<String, List<Tv.Programme>> result = new HashMap<>();
-        if (!indexFile.exists()) return result;
-        try (FileInputStream fis = new FileInputStream(indexFile);
-             InputStreamReader isr = new InputStreamReader(fis, StandardCharsets.UTF_8);
-             JsonReader reader = new JsonReader(isr)) {
-            reader.beginObject();
-            while (reader.hasNext()) {
-                String normChannelName = reader.nextName();
-                List<Tv.Programme> progList = GSON.fromJson(reader, new TypeToken<List<Tv.Programme>>() {}.getType());
-                result.put(normChannelName, progList);
-            }
-            reader.endObject();
-        } catch (Exception e) {
-            SpiderDebug.log(TAG, "流式读取索引文件失败 " + e.toString());
-            result.clear();
-        }
-        return result;
     }
 
     private static void startBackgroundMerge(Live live, ZoneId zoneId) {
@@ -239,8 +206,15 @@ public class EpgParser {
 
         File indexFile = getIndexFile();
         if (indexFile.exists()) {
-            mergedIndex = readIndexStream(indexFile);
-            if (mergedIndex == null) mergedIndex = new HashMap<>();
+            try {
+                String json = Path.read(indexFile);
+                TypeToken<Map<String, List<Tv.Programme>>> typeToken = new TypeToken<Map<String, List<Tv.Programme>>>() {};
+                mergedIndex = GSON.fromJson(json, typeToken.getType());
+                if (mergedIndex == null) mergedIndex = new HashMap<>();
+            } catch (Exception e) {
+                SpiderDebug.log(TAG, "读取旧索引到内存失败，新建内存索引" + e.toString());
+                mergedIndex = new HashMap<>();
+            }
         }
 
         SpiderDebug.log(TAG, "准备Epg远程更新...");
@@ -295,88 +269,130 @@ public class EpgParser {
     }
 
     private static void readSingleSourceToIndex(File cacheFile, String url, ZoneId zoneId, Map<String, List<Tv.Programme>> mergedIndex, boolean enableFilter) throws Exception {
-        FileInputStream fis = new FileInputStream(cacheFile);
-        byte[] header = new byte[2];
-        int readLen = fis.read(header);
-        fis.close();
+        InputStream rawIn = null;
+        XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
+        try {
+            rawIn = new FileInputStream(cacheFile);
+            byte[] header = new byte[2];
+            if (rawIn.read(header) == 2 && (header[0] & 0xFF) == 0x1F && (header[1] & 0xFF) == 0x8B) {
+                rawIn.close();
+                rawIn = new GZIPInputStream(new FileInputStream(cacheFile));
+            } else {
+                rawIn.reset();
+            }
+            parser.setInput(rawIn, "UTF-8");
 
-        fis = new FileInputStream(cacheFile);
-        InputStream xmlIn;
-        if (readLen == 2 && (header[0] & 0xFF) == 0x1F && (header[1] & 0xFF) == 0x8B) {
-            xmlIn = new GZIPInputStream(fis);
-        } else {
-            xmlIn = fis;
-        }
+            Tv tv = new Tv();
+            setField(tv, "channel", new ArrayList<>());
+            setField(tv, "programme", new ArrayList<>());
 
-        XMLInputFactory factory = XMLInputFactory.newInstance();
-        factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-        XMLStreamReader reader = factory.createXMLStreamReader(xmlIn);
+            Tv.Channel currentChannel = null;
+            Tv.DisplayName currentDisplayName = null;
+            Tv.Programme currentProg = null;
+            Tv.Title currentTitle = null;
+            StringBuilder textBuf = new StringBuilder();
+            int eventType = parser.getEventType();
 
-        Map<String,String> localXmlToBizName = new HashMap<>();
-        Map<String,List<Tv.Programme>> sourceByName = new HashMap<>();
-
-        while (reader.hasNext()) {
-            int event = reader.next();
-            if (event == XMLStreamReader.START_ELEMENT) {
-                String tagName = reader.getLocalName();
-                if ("channel".equals(tagName)) {
-                    XMLStreamReader subtree = reader.readSubtree();
-                    Tv.Channel ch = new Persister().read(Tv.Channel.class, subtree);
-                    subtree.close();
-
-                    String xmlChId = ch.getId();
-                    String rawBizName = null;
-                    for(Tv.DisplayName dn : ch.getDisplayName()){
-                        String txt = dn.getText().trim();
-                        if(!txt.isEmpty()){
-                            rawBizName = txt;
-                            break;
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                String tagName = parser.getName();
+                switch (eventType) {
+                    case XmlPullParser.START_TAG:
+                        textBuf.setLength(0);
+                        if ("tv".equals(tagName)) {
+                            String dateAttr = parser.getAttributeValue(null, "date");
+                            setField(tv, "date", dateAttr);
+                        } else if ("channel".equals(tagName)) {
+                            currentChannel = new Tv.Channel();
+                            setField(currentChannel, "id", parser.getAttributeValue(null, "id"));
+                            setField(currentChannel, "displayName", new ArrayList<>());
+                        } else if ("display-name".equals(tagName)) {
+                            currentDisplayName = new Tv.DisplayName();
+                        } else if ("programme".equals(tagName)) {
+                            currentProg = new Tv.Programme();
+                            setField(currentProg, "start", parser.getAttributeValue(null, "start"));
+                            setField(currentProg, "stop", parser.getAttributeValue(null, "stop"));
+                            setField(currentProg, "channel", parser.getAttributeValue(null, "channel"));
+                            setField(currentProg, "title", new ArrayList<>());
+                        } else if ("title".equals(tagName)) {
+                            currentTitle = new Tv.Title();
                         }
-                    }
-                    if(rawBizName != null && !rawBizName.isEmpty()){
-                        String normName = normalizeChannelName(rawBizName);
-                        localXmlToBizName.put(xmlChId, normName);
-                    }
-                } else if ("programme".equals(tagName)) {
-                    XMLStreamReader subtree = reader.readSubtree();
-                    Tv.Programme p = new Persister().read(Tv.Programme.class, subtree);
-                    subtree.close();
+                        break;
+                    case XmlPullParser.TEXT:
+                        textBuf.append(parser.getText());
+                        break;
+                    case XmlPullParser.END_TAG:
+                        String text = textBuf.toString().trim();
+                        if ("display-name".equals(tagName) && currentChannel != null && currentDisplayName != null) {
+                            setField(currentDisplayName, "text", text);
+                            currentChannel.getDisplayName().add(currentDisplayName);
+                            currentDisplayName = null;
+                        } else if ("channel".equals(tagName) && tv != null && currentChannel != null) {
+                            tv.getChannel().add(currentChannel);
+                            currentChannel = null;
+                        } else if ("title".equals(tagName) && currentProg != null && currentTitle != null) {
+                            setField(currentTitle, "text", text);
+                            currentProg.getTitle().add(currentTitle);
+                            currentTitle = null;
+                        } else if ("programme".equals(tagName) && tv != null && currentProg != null) {
+                            tv.getProgramme().add(currentProg);
+                            currentProg = null;
+                        }
+                        break;
+                }
+                eventType = parser.next();
+            }
 
-                    String xmlId = p.getChannel();
-                    String bizName = localXmlToBizName.get(xmlId);
-                    if(bizName == null) continue;
-                    sourceByName.computeIfAbsent(bizName, k->new ArrayList<>()).add(p);
+            Map<String,String> localXmlToBizName = new HashMap<>();
+            for(Tv.Channel ch : tv.getChannel()){
+                String xmlChId = ch.getId();
+                String rawBizName = null;
+                for(Tv.DisplayName dn : ch.getDisplayName()){
+                    String txt = dn.getText().trim();
+                    if(!txt.isEmpty()){
+                        rawBizName = txt;
+                        break;
+                    }
+                }
+                if(rawBizName != null && !rawBizName.isEmpty()){
+                    String normName = normalizeChannelName(rawBizName);
+                    localXmlToBizName.put(xmlChId, normName);
                 }
             }
-        }
-        reader.close();
-        xmlIn.close();
 
-        if (enableFilter) {
-            LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
-            // 合并新源节目到现有索引（同台名做日期去重）
-            for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
-                String bizName = entry.getKey();
-                List<Tv.Programme> newProgs = entry.getValue();
-                List<Tv.Programme> oldProgs = mergedIndex.getOrDefault(bizName, new ArrayList<>());
+            Map<String,List<Tv.Programme>> sourceByName = new HashMap<>();
+            for(Tv.Programme p : tv.getProgramme()){
+                String xmlId = p.getChannel();
+                String bizName = localXmlToBizName.get(xmlId);
+                if(bizName == null) continue;
+                sourceByName.computeIfAbsent(bizName, k->new ArrayList<>()).add(p);
+            }
 
-                Set<String> seen = new HashSet<>();
-                List<Tv.Programme> finalProgs = new ArrayList<>();
-                collectByDate(oldProgs, zoneId, keepFrom, seen, finalProgs, true, bizName);
-                collectByDate(newProgs, zoneId, keepFrom, seen, finalProgs, false, bizName);
+            if (enableFilter) {
+                LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
+                for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
+                    String bizName = entry.getKey();
+                    List<Tv.Programme> newProgs = entry.getValue();
+                    List<Tv.Programme> oldProgs = mergedIndex.getOrDefault(bizName, new ArrayList<>());
 
-                if(finalProgs.isEmpty()){
-                    mergedIndex.remove(bizName);
-                }else{
-                    mergedIndex.put(bizName, finalProgs);
+                    Set<String> seen = new HashSet<>();
+                    List<Tv.Programme> finalProgs = new ArrayList<>();
+                    collectByDate(oldProgs, zoneId, keepFrom, seen, finalProgs, true, bizName);
+                    collectByDate(newProgs, zoneId, keepFrom, seen, finalProgs, false, bizName);
+
+                    if(finalProgs.isEmpty()){
+                        mergedIndex.remove(bizName);
+                    }else{
+                        mergedIndex.put(bizName, finalProgs);
+                    }
+                }
+            } else {
+                mergedIndex.clear();
+                for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
+                    mergedIndex.put(entry.getKey(), entry.getValue());
                 }
             }
-        } else {
-            //首次加载：直接覆盖写入
-            mergedIndex.clear();
-            for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
-                mergedIndex.put(entry.getKey(), entry.getValue());
-            }
+        } finally {
+            if(rawIn != null) rawIn.close();
         }
     }
 
@@ -386,7 +402,6 @@ public class EpgParser {
             OffsetDateTime start = parseFull(p.getStart(), zoneId);
             if (start.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) continue;
             LocalDate progDate = start.atZoneSameInstant(zoneId).toLocalDate();
-            // 只丢弃7天之前，7天以及以内全部保留
             if (progDate.isBefore(keepFrom)) continue;
             String key = bizName + "|" + progDate.format(Formatters.DATE);
             if (takeExisting) {
@@ -497,6 +512,36 @@ public class EpgParser {
         }
     }
 
+    private static String readCacheContent(File file, String url) throws Exception {
+        byte[] bytes = Path.readToByte(file);
+        if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0x1F && (bytes[1] & 0xFF) == 0x8B) {
+            File xml = new File(getEpgCacheDir(), file.getName() + ".xml");
+            try {
+                FileUtil.gzipDecompress(file, xml);
+                bytes = Path.readToByte(xml);
+                if (bytes == null || bytes.length == 0) {
+                    return "";
+                }
+            } finally {
+                xml.delete();
+            }
+        }
+        if (bytes.length == 0) return "";
+        String content = new String(bytes, StandardCharsets.UTF_8);
+        if (content.isEmpty()) return "";
+        if (content.charAt(0) == '\uFEFF') content = content.substring(1);
+        String head = content.trim();
+        if (head.startsWith("<!DOCTYPE html") || head.startsWith("<html") || head.startsWith("<HTML")) {
+            SpiderDebug.log(TAG, url + "缓存内容是html，弃用");
+            return "";
+        }
+        return content;
+    }
+
+    private static Tv parseTv(String content) throws Exception {
+        return new Persister().read(Tv.class, content, false);
+    }
+
     @Deprecated
     private static Map<String, Channel> prepareLiveChannels(Live live) {
         Map<String, Channel> map = new HashMap<>();
@@ -515,9 +560,16 @@ public class EpgParser {
         synchronized (SYNC_LOCK) {
             File indexFile = getIndexFile();
             if (!indexFile.exists()) return;
-            progIndex = readIndexStream(indexFile);
-            if (progIndex.isEmpty()) {
-                SpiderDebug.log(TAG, "Epg索引解析为空");
+            try {
+                String json = Path.read(indexFile);
+                TypeToken<Map<String, List<Tv.Programme>>> typeToken = new TypeToken<Map<String, List<Tv.Programme>>>() {};
+                progIndex = GSON.fromJson(json, typeToken.getType());
+                if (progIndex == null) {
+                    SpiderDebug.log(TAG, "Epg索引解析为空");
+                    return;
+                }
+            } catch (Exception e) {
+                SpiderDebug.log(TAG, "加载持久Epg索引出错：" + e.toString());
                 return;
             }
         }
@@ -563,7 +615,7 @@ public class EpgParser {
         try {
             String content = sanitizeXml(xml);
             if (content.isEmpty()) return new Epg();
-            Tv tv = new Persister().read(Tv.class, content, false);
+            Tv tv = parseTv(content);
             String rawDate = tv.getDate();
             String date = rawDate.isEmpty() ? LocalDate.now(zoneId).format(Formatters.DATE) : parseFull(rawDate, zoneId).atZoneSameInstant(zoneId).format(Formatters.DATE);
             Epg epg = Epg.create(key, date);
@@ -633,5 +685,11 @@ public class EpgParser {
             SpiderDebug.log(TAG, "parseFull出错：" + e.toString());
             return OffsetDateTime.ofInstant(Instant.EPOCH, ZoneOffset.UTC);
         }
+    }
+
+    private static void setField(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 }
