@@ -3190,7 +3190,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean focusLutQuickContent() {
-        if (isFinishing() || isDestroyed()) return;
+        if (isFinishing() || isDestroyed()) return false;
         if (!isVisible(mBinding.lutQuick)) return false;
         View focus = getCurrentFocus();
         RecyclerView recycler = findRecyclerView(mBinding.lutQuick);
@@ -3484,7 +3484,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void switchPlayerKernelWithResult(int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
-        if (recycler == null || !recycler.isAttachedToWindow()) return;
+        if (isFinishing() || isDestroyed()) return;
         playerKernelSwitchRefreshing = false;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
@@ -6228,7 +6228,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean focusAudioStageDefault() {
-        if (isFinishing() || isDestroyed()) return;
+        if (isFinishing() || isDestroyed()) return false;
         if (mBinding == null || !mAudioStageVisible) return false;
         if (mBinding.audioPlay.isEnabled() && mBinding.audioPlay.requestFocus()) {
             showAudioStageFocusHighlight(mBinding.audioPlay);
