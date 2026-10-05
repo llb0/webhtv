@@ -22,6 +22,7 @@ import org.simpleframework.xml.core.Persister;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -272,11 +273,13 @@ public class EpgParser {
         InputStream rawIn = null;
         XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
         try {
-            rawIn = new FileInputStream(cacheFile);
+            rawIn = new BufferedInputStream(new FileInputStream(cacheFile));
             byte[] header = new byte[2];
-            if (rawIn.read(header) == 2 && (header[0] & 0xFF) == 0x1F && (header[1] & 0xFF) == 0x8B) {
+            rawIn.mark(2);
+            int readCnt = rawIn.read(header);
+            if (readCnt == 2 && (header[0] & 0xFF) == 0x1F && (header[1] & 0xFF) == 0x8B) {
                 rawIn.close();
-                rawIn = new GZIPInputStream(new FileInputStream(cacheFile));
+                rawIn = new GZIPInputStream(new BufferedInputStream(new FileInputStream(cacheFile)));
             } else {
                 rawIn.reset();
             }
@@ -354,7 +357,11 @@ public class EpgParser {
             for(Tv.Channel ch : tv.getChannel()){
                 String xmlChId = ch.getId();
                 String rawBizName = null;
-                for(Tv.DisplayName dn : ch.getDisplayName()){
+                Field dnField = ch.getClass().getDeclaredField("displayName");
+                dnField.setAccessible(true);
+                @SuppressWarnings("unchecked")
+                List<Tv.DisplayName> dnList = (List<Tv.DisplayName>) dnField.get(ch);
+                for(Tv.DisplayName dn : dnList){
                     String txt = dn.getText().trim();
                     if(!txt.isEmpty()){
                         rawBizName = txt;
