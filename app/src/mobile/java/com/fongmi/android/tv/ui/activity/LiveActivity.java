@@ -1024,10 +1024,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void selectChannel(Channel item, boolean syncPosition) {
         // 小窗预览模式下点击正在播放的频道标题，直接进入全屏播放
-        if (isInPictureInPictureMode() && item.isSelected() && mChannel != null && mChannel.equals(item)) {
-            hideUI();
-            hideControl();
-            hideInfo();
+        if (isEmbeddedLiveUi() && item.isSelected() && mChannel != null && mChannel.equals(item)) {
             enterFullscreenLive();
             return;
         }
@@ -1841,14 +1838,11 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     public void onSingleTap(float x, float y, float width, float height) {
         // 小窗预览模式：右上角单击直接旋转全屏，其余位置仍调出播放控制栏
-        if (isInPictureInPictureMode()) {
+        if (isEmbeddedLiveUi()) {
             if (width > 0 && height > 0 && x > width * 0.65f && y < height * 0.35f) {
                 enterFullscreenLive();
                 return;
             }
-            if (isVisible(mBinding.control.getRoot())) hideControl();
-            else showControl();
-            return;
         }
         onSingleTap(x, width);
     }
