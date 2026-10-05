@@ -401,6 +401,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void setSelected() {
+        if (isFinishing() || isDestroyed()) return;
         mChannelAdapter.setSelected(mChannel);
         notifyItemChanged(mBinding.channel, mChannelAdapter);
         fetch();
@@ -476,7 +477,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         LiveEpgDialog.create().show(this);
         hideControl();
     }
- 
+
     @Override
     public void onLiveEpgSelected() {
         if (mChannel == null) return;
@@ -487,7 +488,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
             mViewModel.getEpg(mChannel);
         }
     }
- 
+
     private void onAction() {
         checkPlay();
     }
@@ -534,6 +535,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void hideUI() {
+        if (isFinishing() || isDestroyed()) return;
         App.removeCallbacks(mR4);
         if (isGone(mBinding.recycler)) return;
         mBinding.recycler.setVisibility(View.GONE);
@@ -582,6 +584,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected void onError(String msg) {
+        if (isFinishing() || isDestroyed()) return;
         Track.delete(player().getKey());
         player().resetTrack();
         player().reset();
@@ -592,6 +595,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected void onReload(String msg) {
+        if (isFinishing() || isDestroyed()) return;
         if (mChannel == null) {
             onError(msg);
             return;
@@ -606,12 +610,14 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected void onReclaim() {
+        if (isFinishing() || isDestroyed()) return;
         Result result = mViewModel.url().getValue();
         if (result != null) start(result);
     }
 
     @Override
     protected void onStateChanged(int state) {
+        if (isFinishing() || isDestroyed()) return;
         switch (state) {
             case Player.STATE_BUFFERING:
                 showProgress();
@@ -629,6 +635,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
+        if (isFinishing() || isDestroyed()) return;
         if (isPlaying || isPaused()) updatePlayControl(isPlaying);
     }
 
@@ -638,12 +645,14 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected void onSizeChanged(VideoSize size) {
+        if (isFinishing() || isDestroyed()) return;
         applyResizeMode(LiveSetting.getScale());
         mBinding.widget.size.setText(player().getSizeText());
     }
 
     @Override
     protected void onSurfaceAttached() {
+        if (isFinishing() || isDestroyed()) return;
         applyResizeMode(LiveSetting.getScale());
     }
 
@@ -653,9 +662,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         boolean hasEpg = channel != null && !channel.getData(mViewModel.getZoneId()).getList().isEmpty();
         mBinding.program.setVisibility(hasEpg ? View.VISIBLE : View.GONE);
     }
- 
+
     private void onEpgFocusChange() {
         mBinding.program.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
             boolean focusEpg = mBinding.program.hasFocus() || mBinding.epgData.hasFocus();
             if (focusEpg) {
                 if (!mEpgFirstOpen) {
@@ -667,7 +677,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
             }
         });
     }
- 
+
     private Channel getFocusedChannel() {
         int position = mBinding.channel.getSelectedPosition();
         if (mChannelAdapter == null || position < 0 || position >= mChannelAdapter.getItemCount()) return null;
@@ -678,7 +688,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (item == null || item.getData(mViewModel.getZoneId()).getList().isEmpty()) return;
         mEpgChannel = item;
         mEpgDataAdapter.addAll(item.getData(mViewModel.getZoneId()).getList());
-    
+
         int selectedPos;
         if (item.getTvgId().equals(mChannel.getTvgId())) {
             selectedPos = item.getData(mViewModel.getZoneId()).getSelected();
@@ -693,9 +703,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
                 }
             }
         }
-    
+
         int finalPos = selectedPos;
         mBinding.epgData.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
             mBinding.epgData.setSelectedPosition(finalPos);
         });
         mBinding.epgData.setVisibility(View.VISIBLE);
@@ -744,6 +755,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void hideControl() {
+        if (isFinishing() || isDestroyed()) return;
         mBinding.control.getRoot().setVisibility(View.GONE);
         mBinding.widget.top.setVisibility(View.GONE);
         if (mOsd != null) mOsd.setControlsVisible(false);
@@ -775,11 +787,13 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void hideInfo() {
+        if (isFinishing() || isDestroyed()) return;
         mBinding.widget.bottom.setVisibility(View.GONE);
         App.removeCallbacks(mR3);
     }
 
     private void setTraffic() {
+        if (isFinishing() || isDestroyed()) return;
         Traffic.setSpeed(mBinding.progress.traffic);
         App.post(mR2, 1000);
     }
@@ -896,6 +910,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void setEpg(Epg epg) {
+        if (isFinishing() || isDestroyed()) return;
         if (mChannel == null || !mChannel.getTvgId().equals(epg.getKey())) return;
         EpgData data = epg.getEpgData();
         boolean hasTitle = !data.getTitle().isEmpty();
@@ -936,6 +951,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void start(Result result) {
+        if (isFinishing() || isDestroyed()) return;
         String realUrl = result.getRealUrl();
         if (isSameReloadUrl(realUrl)) {
             String msg = mPendingReloadMsg;
@@ -957,7 +973,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private boolean isWebViewChannel() {
         return mChannel != null && mChannel.getCurrent().startsWith("webview://");
     }
- 
+
     private void startWebView(String url) {
         if (player() != null) {
             player().stop();
@@ -967,14 +983,14 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mWebViewPlayer.attach(this, mBinding.video, url);
         bringOverlaysToFront();
     }
- 
+
     private void bringOverlaysToFront() {
         if (mBinding.widget != null) mBinding.widget.getRoot().bringToFront();
         if (mBinding.control != null) mBinding.control.getRoot().bringToFront();
         if (mBinding.progress != null) mBinding.progress.getRoot().bringToFront();
         if (mBinding.osd != null) mBinding.osd.getRoot().bringToFront();
     }
- 
+
     private boolean isSameReloadUrl(String realUrl) {
         return !TextUtils.isEmpty(mPendingReloadUrl) && TextUtils.equals(mPendingReloadUrl, realUrl);
     }
@@ -1071,6 +1087,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onRefreshEvent(RefreshEvent event) {
+        if (isFinishing() || isDestroyed()) return;
         switch (event.getType()) {
             case LIVE:
                 setLive(getHome());

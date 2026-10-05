@@ -816,6 +816,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void hideAudioStageFocusHighlight() {
+        if (isFinishing() || isDestroyed()) return;
         resetAudioStageIconBackgrounds();
     }
 
@@ -1130,6 +1131,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void setDetail(Result result) {
+        if (isFinishing() || isDestroyed()) return;
         long cost = System.currentTimeMillis() - detailStartTime;
         SpiderDebug.log("video-flow", "detail finish cost=%dms empty=%s msg=%s", cost, result.getList().isEmpty(), result.getMsg());
         recordDetailHealth(result, cost);
@@ -1166,6 +1168,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void showEmpty() {
+        if (isFinishing() || isDestroyed()) return;
         mBinding.progressLayout.showEmpty();
     }
 
@@ -1418,6 +1421,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void updateEpisodeWindowNow() {
+        if (isFinishing() || isDestroyed()) return;
         int height = getEpisodeWindowHeight();
         if (height <= 0) return;
         ViewGroup.LayoutParams params = mBinding.episode.getLayoutParams();
@@ -1508,6 +1512,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void updateFocus() {
+        if (isFinishing() || isDestroyed()) return;
         mArrayAdapter.setNextFocus(findFocusUp(2), findFocusDown(2));
         mEpisodeAdapter.setNextFocusUp(findFocusUp(3));
         mFlagAdapter.setNextFocusDown(findFocusDown(0));
@@ -1704,8 +1709,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 View firstSuggestion = addLyricsSearchSuggestions(root, input, searchButton, request, values);
                 View focusTarget = firstSuggestion == null ? searchButton : firstSuggestion;
                 focusLyricsSearchTarget(input, focusTarget);
-                focusTarget.postDelayed(() -> focusLyricsSearchTarget(input, focusTarget), 220);
-                focusTarget.postDelayed(() -> focusLyricsSearchTarget(input, focusTarget), 420);
+                focusTarget.postDelayed(() -> {
+                    if (sheetSeq != mLyricsSearchSheetSeq || !dialog.isShowing()) return;
+                    focusLyricsSearchTarget(input, focusTarget);
+                }, 220);
+                focusTarget.postDelayed(() -> {
+                    if (sheetSeq != mLyricsSearchSheetSeq || !dialog.isShowing()) return;
+                    focusLyricsSearchTarget(input, focusTarget);
+                }, 420);
                 String current = input.getText() == null ? "" : input.getText().toString();
                 String autoKeyword = firstLyricsSearchSuggestion(values);
                 if (!TextUtils.isEmpty(autoKeyword) && mLyricsSearchSeq == searchSeqAtOpen && (TextUtils.isEmpty(current) || TextUtils.equals(current, keyword))) {
@@ -2188,6 +2199,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mAudioQueueAdapter.setItems(items, selected);
         if (mAudioQueueList != null && selected >= 0) {
             mAudioQueueList.post(() -> {
+                if (isFinishing() || isDestroyed() || mAudioQueueList == null) return;
                 mAudioQueueList.scrollToPosition(selected);
                 mAudioQueueList.post(() -> focusAudioQueueItem(selected));
             });
@@ -2195,6 +2207,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void focusAudioQueueItem(int position) {
+        if (isFinishing() || isDestroyed()) return;
         if (mAudioQueueList == null) return;
         RecyclerView.ViewHolder holder = mAudioQueueList.findViewHolderForAdapterPosition(position);
         if (holder != null) holder.itemView.requestFocus();
@@ -2205,6 +2218,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         int selected = mAudioQueueAdapter.getSelectedPosition();
         if (selected < 0) return;
         mAudioQueueList.post(() -> {
+            if (isFinishing() || isDestroyed() || mAudioQueueList == null) return;
             mAudioQueueList.scrollToPosition(selected);
             mAudioQueueList.post(() -> focusAudioQueueItem(selected));
         });
@@ -3176,6 +3190,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean focusLutQuickContent() {
+        if (isFinishing() || isDestroyed()) return false;
         if (!isVisible(mBinding.lutQuick)) return false;
         View focus = getCurrentFocus();
         RecyclerView recycler = findRecyclerView(mBinding.lutQuick);
@@ -3212,6 +3227,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             if (recycler.getChildAdapterPosition(child) == position && focusFirstChild(child)) return true;
         }
         recycler.post(() -> {
+            if (recycler == null || !recycler.isAttachedToWindow()) return;
             RecyclerView.ViewHolder next = recycler.findViewHolderForAdapterPosition(position);
             if (next != null) {
                 focusFirstChild(next.itemView);
@@ -3456,6 +3472,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 App.post(() -> switchPlayerKernelWithResult(nextType, result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     playerKernelSwitchRefreshing = false;
                     setPlayerKernel();
                     setDecode();
@@ -3467,6 +3484,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void switchPlayerKernelWithResult(int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+        if (isFinishing() || isDestroyed()) return;
         playerKernelSwitchRefreshing = false;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
@@ -3581,6 +3599,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void hideControl() {
+        if (isFinishing() || isDestroyed()) return;
         mBinding.control.getRoot().setVisibility(View.GONE);
         updateCustomButtonVisibility();
         if (mOsd != null) mOsd.setControlsVisible(false);
@@ -3595,6 +3614,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void setTraffic() {
+        if (isFinishing() || isDestroyed()) return;
         Traffic.setSpeed(mBinding.progress.traffic);
         App.post(mR3, 1000);
     }
@@ -3967,6 +3987,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void refreshLyricsNow() {
+        if (isFinishing() || isDestroyed()) return;
         if (mLyrics == null || service() == null) return;
         int seq = ++mLyricsRefreshSeq;
         setAudioOnly(LyricsController.isAudioOnly(player()));
@@ -4161,6 +4182,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void applyAudioBackground() {
+        if (isFinishing() || isDestroyed()) return;
         if (mBinding == null || !mAudioStageVisible) return;
         mAudioLightEffectAnimated = service() != null && player().isPlaying();
         AudioPlayerBackgroundDrawable drawable = new AudioPlayerBackgroundDrawable(PlayerSetting.getAudioBackground(), mAudioArtworkColor, PlayerSetting.isAudioBackgroundDecorated(), PlayerSetting.isAudioBackgroundLightEffect(), mAudioLightEffectAnimated, PlayerSetting.getAudioBackgroundSeed(), PlayerSetting.getAudioBackgroundDecorationSeed());
@@ -4232,6 +4254,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void syncAudioBackgroundHalo(AudioPlayerBackgroundDrawable drawable) {
+        if (isFinishing() || isDestroyed()) return;
         if (mBinding == null || drawable == null) return;
         View anchor = mBinding.audioCover != null ? mBinding.audioCover : mBinding.audioDisc;
         if (mBinding.audioStage.getWidth() <= 0 || anchor.getWidth() <= 0 || anchor.getHeight() <= 0) return;
@@ -4256,6 +4279,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void scheduleAudioArtworkColorUpdate(String owner, String key, @Nullable Drawable drawable) {
         App.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
             if (!TextUtils.equals(mArtworkRequestOwner, owner)) return;
             updateAudioArtworkColor(key, drawable);
         }, 180);
@@ -5570,6 +5594,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onError(String msg) {
+        if (isFinishing() || isDestroyed()) return;
         recordPlayHealth(false, msg);
         Track.delete(player().getKey());
         mClock.setCallback(null);
@@ -5584,6 +5609,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onReload(String msg) {
+        if (isFinishing() || isDestroyed()) return;
         if (PlayerManager.RELOAD_LUT_WARMUP.equals(msg)) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "auto refresh after lut warmup playback failure key=%s episode=%s", getKey(), getEpisode() == null ? null : getEpisode().getName());
             onRefresh();
@@ -5594,12 +5620,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onReclaim() {
+        if (isFinishing() || isDestroyed()) return;
         Result result = mViewModel.getPlayer().getValue();
         if (result != null) setPlayer(result);
     }
 
     @Override
     protected void onStateChanged(int state) {
+        if (isFinishing() || isDestroyed()) return;
         switch (state) {
             case Player.STATE_BUFFERING:
                 showProgress();
@@ -5619,6 +5647,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
+        if (isFinishing() || isDestroyed()) return;
         syncKaraokePosition();
         checkAudioPlayImg(isPlaying);
         if (isPlaying) {
@@ -5631,6 +5660,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onSizeChanged(VideoSize size) {
+        if (isFinishing() || isDestroyed()) return;
         applyResizeMode(getScale());
         applyVideoRotation();
         mBinding.widget.size.setText(player().getSizeText());
@@ -5638,6 +5668,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onSurfaceAttached() {
+        if (isFinishing() || isDestroyed()) return;
         applyResizeMode(getScale());
         applyVideoRotation();
     }
@@ -5650,6 +5681,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     public void onTimeChanged(long time) {
+        if (isFinishing() || isDestroyed()) return;
         if (!isOwner()) return;
         long position, duration;
         mHistory.setCreateTime(time);
@@ -5686,6 +5718,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onRefreshEvent(RefreshEvent event) {
+        if (isFinishing() || isDestroyed()) return;
         if (isRedirect()) return;
         if (event.getType() == RefreshEvent.Type.DETAIL) getDetail();
         else if (event.getType() == RefreshEvent.Type.PLAYER) onRefresh();
@@ -5696,6 +5729,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onConfigEvent(ConfigEvent event) {
+        if (isFinishing() || isDestroyed()) return;
         if (isRedirect() || !event.isVod() || mParseAdapter == null) return;
         mParseAdapter.addAll(VodConfig.get().getParses());
     }
@@ -5830,6 +5864,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void setSearch(Result result) {
+        if (isFinishing() || isDestroyed()) return;
         List<Vod> items = result.getList();
         items.removeIf(this::mismatch);
         mQuickAdapter.addAll(items);
@@ -5844,6 +5879,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void setSearchProgress(SearchProgress progress) {
+        if (isFinishing() || isDestroyed()) return;
         if (progress == null || isInitAuto()) return;
         showQuickSearchDialog(new ArrayList<>());
         if (mQuickSearchDialog != null) mQuickSearchDialog.setProgress(progress.current(), progress.total(), progress.finished());
@@ -6192,6 +6228,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean focusAudioStageDefault() {
+        if (isFinishing() || isDestroyed()) return false;
         if (mBinding == null || !mAudioStageVisible) return false;
         if (mBinding.audioPlay.isEnabled() && mBinding.audioPlay.requestFocus()) {
             showAudioStageFocusHighlight(mBinding.audioPlay);
@@ -6502,6 +6539,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void showSettingPlayer() {
+         if (isFinishing() || isDestroyed() || getSupportFragmentManager().isStateSaved()) {
+             return;
+         }
         int wallColor = Setting.getWallColor();
         int bgColor = android.graphics.Color.argb(220, android.graphics.Color.red(wallColor), android.graphics.Color.green(wallColor), android.graphics.Color.blue(wallColor));
         mBinding.settingContainer.setBackgroundColor(bgColor);
@@ -6514,6 +6554,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
     
     private void hideSettingPlayer() {
+         if (isFinishing() || isDestroyed() || getSupportFragmentManager().isStateSaved()) {
+             mBinding.settingContainer.setVisibility(View.GONE);
+             mWasPlayingBeforeSetting = false;
+             return;
+         }
         androidx.fragment.app.Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.settingContainer);
         if (fragment != null) {
             getSupportFragmentManager().beginTransaction().remove(fragment).commit();

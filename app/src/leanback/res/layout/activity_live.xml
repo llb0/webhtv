@@ -60,7 +60,7 @@
 
         <com.fongmi.android.tv.ui.custom.CustomLiveListView
             android:id="@+id/group"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:minWidth="100dp"
             android:maxWidth="220dp"
@@ -72,7 +72,7 @@
 
         <com.fongmi.android.tv.ui.custom.CustomLiveListView
             android:id="@+id/channel"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:minWidth="120dp"
             android:maxWidth="260dp"

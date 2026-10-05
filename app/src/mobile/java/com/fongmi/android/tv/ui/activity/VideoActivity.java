@@ -1303,6 +1303,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setDetail(Result result) {
+        if (isFinishing() || isDestroyed()) return;
         long cost = System.currentTimeMillis() - detailStartTime;
         SpiderDebug.log("video-flow", "detail finish cost=%dms empty=%s msg=%s", cost, result.getList().isEmpty(), result.getMsg());
         recordDetailHealth(result, cost);
@@ -1335,6 +1336,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void showEmpty() {
+        if (isFinishing() || isDestroyed()) return;
         showError(getString(R.string.error_detail));
         mBinding.swipeLayout.setEnabled(true);
         mBinding.progressLayout.showEmpty();
@@ -4275,6 +4277,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void hideControl() {
+        if (isFinishing() || isDestroyed()) return;
         mBinding.control.getRoot().setVisibility(View.GONE);
         updateDiscMenuTools();
         updateCustomButtonVisibility();
@@ -4309,11 +4312,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setTraffic() {
+        if (isFinishing() || isDestroyed()) return;
         Traffic.setSpeed(mBinding.progress.traffic);
         App.post(mR2, 1000);
     }
 
     private void setOrient() {
+        if (isFinishing() || isDestroyed()) return;
         if (isPort() && isAutoRotate()) setRequestedOrientation(PlaybackOrientation.getPortAutoRotateOrientation());
         if (isLand() && isAutoRotate()) setRequestedOrientation(PlaybackOrientation.getLandAutoRotateOrientation());
     }
@@ -6029,12 +6034,14 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onCastEvent(CastEvent event) {
+        if (isFinishing() || isDestroyed()) return;
         if (isRedirect()) return;
         ReceiveDialog.create().event(event).show(this);
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onRefreshEvent(RefreshEvent event) {
+        if (isFinishing() || isDestroyed()) return;
         if (isRedirect()) return;
         if (event.getType() == RefreshEvent.Type.DETAIL) getDetail();
         else if (event.getType() == RefreshEvent.Type.PLAYER) onRefresh();
@@ -6045,6 +6052,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onConfigEvent(ConfigEvent event) {
+        if (isFinishing() || isDestroyed()) return;
         if (isRedirect() || !event.isVod() || mParseAdapter == null) return;
         mParseAdapter.reload();
     }
@@ -6263,6 +6271,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void setSearch(Result result) {
+        if (isFinishing() || isDestroyed()) return;
         List<Vod> items = result.getList();
         items.removeIf(this::mismatch);
         mBinding.quick.setVisibility(View.GONE);
@@ -6688,6 +6697,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void showSettingPlayer() {
+        if (isFinishing() || isDestroyed()) return;
         int wallColor = Setting.getWallColor();
         int bgColor = android.graphics.Color.argb(220, android.graphics.Color.red(wallColor), android.graphics.Color.green(wallColor), android.graphics.Color.blue(wallColor));
         mBinding.settingContainer.setBackgroundColor(bgColor);
@@ -6698,6 +6708,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void hideSettingPlayer() {
+        if (isFinishing() || isDestroyed() || getSupportFragmentManager().isStateSaved()) {
+             return;
+         }
         androidx.fragment.app.Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.settingContainer);
         if (fragment != null) {
             getSupportFragmentManager().beginTransaction().remove(fragment).commit();
