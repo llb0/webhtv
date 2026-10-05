@@ -1329,7 +1329,7 @@
     </string-array>
 
     <string-array name="select_ui_scale">
-        <item>Follow system</item>
+        <item>Relaxed</item>
         <item>Slightly relaxed</item>
         <item>Standard</item>
         <item>Mild compact</item>
