@@ -213,6 +213,7 @@ public class WebViewPlayer {
         } else {
             // 切台：复用当前webview直接加载新链接
             SpiderDebug.log(TAG, "switch url: %s", url);
+            activeWebView.stopLoading();
             this.touchListener = touchListener;
             this.playbackListener = playbackListener;
             // 切台时同步刷新触摸监听器，避免旧监听器残留
@@ -290,7 +291,7 @@ public class WebViewPlayer {
 
             @Override
             public void onShowCustomView(View view, CustomViewCallback callback) {
-                if (customView != null) {
+                if (activity == null || customView != null) {
                     callback.onCustomViewHidden();
                     return;
                 }
@@ -395,9 +396,12 @@ public class WebViewPlayer {
     }
  
     public void detach() {
+        mainHandler.removeCallbacksAndMessages(null);
         if (customView != null) {
-            FrameLayout decor = activity != null ? (FrameLayout) activity.getWindow().getDecorView() : null;
-            if (decor != null) decor.removeView(customView);
+            if (activity != null) {
+                FrameLayout decor = (FrameLayout) activity.getWindow().getDecorView();
+                if (decor != null) decor.removeView(customView);
+            }
             customView = null;
             if (customViewCallback != null) {
                 customViewCallback.onCustomViewHidden();
@@ -420,10 +424,14 @@ public class WebViewPlayer {
     private class WebVideoBridge {
         @android.webkit.JavascriptInterface
         public void onPlay(final boolean playing) {
-            webPlaying = playing;
-            if (playbackListener != null) {
-                mainHandler.post(() -> playbackListener.onWebPlayStateChanged(playing));
-            }
+            if (activeWebView == null) return;
+            final PlaybackListener listener = playbackListener;
+            if (listener == null) return;
+            mainHandler.post(() -> {
+                if (listener != null) {
+                    listener.onWebPlayStateChanged(playing);
+                }
+            });
         }
     }
 }
