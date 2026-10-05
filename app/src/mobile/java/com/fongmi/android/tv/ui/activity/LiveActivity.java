@@ -396,6 +396,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         applyResizeMode(scale);
         updatePlayerBounds(scale);
         mBinding.exo.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
             int current = LiveSetting.getScale();
             applyResizeMode(current);
             updatePlayerBounds(current);
@@ -569,10 +570,12 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onCast() {
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         CastDialog.create().video(new CastVideo(mBinding.control.title.getText().toString(), player().getUrl(), androidx.media3.common.C.TIME_UNSET, player().getHeaders())).fm(false).show(this);
     }
 
     private void onInfo() {
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         InfoDialog.create().title(mBinding.control.title.getText()).headers(player().getHeaders()).url(player().getUrl()).show(this);
     }
 
@@ -671,6 +674,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onTrack(View view) {
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         TrackDialog.create().type(Integer.parseInt(view.getTag().toString())).player(player()).show(this);
         hideControl();
     }
@@ -678,12 +682,16 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private void onHome() {
         refreshInjectedLives();
         if (LiveConfig.isOnly()) setLive(getHome());
-        else LiveDialog.show(this);
+        else {
+            if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
+            LiveDialog.show(this);
+        }
         hideControl();
     }
 
     private void onLiveSource() {
         refreshInjectedLives();
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         LiveDialog.show(this);
         hideControl();
         hideInfo();
@@ -691,6 +699,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void onFullscreenLiveSource() {
         refreshInjectedLives();
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         LiveDialog.create().drawer().show(getSupportFragmentManager(), null);
         hideControl();
         hideInfo();
@@ -732,11 +741,13 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onConfig() {
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         HistoryDialog.create().live().readOnly().show(this);
         hideControl();
     }
 
     private void onLiveSetting() {
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         LiveControlDialog.create().parent(mBinding).show(this);
         hideInfo();
     }
@@ -785,6 +796,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void onPlayerKernel() {
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         PlayerKernelDialog.show(this, player().getPlayerType(), this::switchPlayerKernel);
     }
 
@@ -911,6 +923,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void hideControl() {
+        if (isFinishing() || isDestroyed()) return;
         mBinding.control.getRoot().setVisibility(View.GONE);
         if (mOsd != null) mOsd.setControlsVisible(false);
         App.removeCallbacks(mR1);
@@ -941,6 +954,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void hideInfo() {
+        if (isFinishing() || isDestroyed()) return;
         mBinding.widget.infoPip.setVisibility(View.GONE);
         mBinding.widget.info.setVisibility(View.GONE);
         App.removeCallbacks(mR3);
@@ -955,6 +969,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void setTraffic() {
+        if (isFinishing() || isDestroyed()) return;
         Traffic.setSpeed(mBinding.progress.traffic);
         App.post(mR2, 1000);
     }
@@ -1007,7 +1022,10 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         scrollToChannelPosition(Math.max(item.getPosition(), 0));
         if (!item.isKeep() || ++count < 5 || mHides.isEmpty()) return;
         if (Biometric.enable()) Biometric.show(this);
-        else PassDialog.create().show(this);
+        else {
+            if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
+            PassDialog.create().show(this);
+        }
         resetPass();
     }
 
@@ -1029,6 +1047,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             return;
         }
         if (item.isSelected() && mChannel != null && mChannel.equals(item) && mChannel.getGroup().equals(mGroup) && isLineDoubleClick(item)) {
+            if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
             showLineDialog(item);
         } else if (!item.getData(mViewModel.getZoneId()).getList().isEmpty() && item.isSelected() && mChannel != null && mChannel.equals(item) && mChannel.getGroup().equals(mGroup)) {
             if (!isEmbeddedLiveUi()) {
@@ -1068,6 +1087,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private void showLineDialog(Channel item) {
         hideControl();
         hideInfo();
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         LiveLineDialog.create().channel(item).listener(this::setLine).show(this);
     }
 
@@ -1155,6 +1175,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private void onLiveProgram() {
         if (mChannel == null) return;
         if (!mChannel.getDataList().isEmpty()) {
+            if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
             showLiveProgram();
             return;
         }
@@ -1168,6 +1189,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             Notify.show(R.string.live_program_empty);
             return;
         }
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         LiveProgramDialog.create().channel(mChannel).zoneId(mViewModel.getZoneId()).listener(this::onItemClick).show(this);
         hideControl();
         hideInfo();
@@ -1178,6 +1200,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void setEpg(Epg epg) {
+        if (isFinishing() || isDestroyed()) return;
         if (mChannel == null) return;
         if (!mChannel.getTvgId().equals(epg.getKey())) {
             pendingShowEpg = false;
@@ -1235,6 +1258,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void start(Result result) {
+        if (isFinishing() || isDestroyed()) return;
         if (service() == null) {
             mPendingStartResult = result;
             return;
@@ -1348,6 +1372,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onLiveEpgPanel() {
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         LiveEpgDialog.create().show(this);
         hideControl();
         hideInfo();
@@ -1400,6 +1425,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onLiveTrackPanel(int type) {
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         TrackDialog.create().type(type).player(player()).show(this);
         hideControl();
     }
@@ -1439,6 +1465,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     protected void onError(String msg) {
+        if (isFinishing() || isDestroyed()) return;
         Track.delete(player().getKey());
         player().resetTrack();
         player().reset();
@@ -1449,6 +1476,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     protected void onReload(String msg) {
+        if (isFinishing() || isDestroyed()) return;
         if (mChannel == null) {
             onError(msg);
             return;
@@ -1463,12 +1491,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     protected void onReclaim() {
+        if (isFinishing() || isDestroyed()) return;
         Result result = mViewModel.url().getValue();
         if (result != null) start(result);
     }
 
     @Override
     protected void onStateChanged(int state) {
+        if (isFinishing() || isDestroyed()) return;
         switch (state) {
             case Player.STATE_BUFFERING:
                 showProgress();
@@ -1487,6 +1517,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     protected void onSizeChanged(VideoSize size) {
+        if (isFinishing() || isDestroyed()) return;
         mPiP.update(this, LIVE_PIP_WIDTH, LIVE_PIP_HEIGHT, LiveSetting.getScale());
         videoSize = size;
         updateVideoHeight(size);
@@ -1497,11 +1528,13 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     protected void onSurfaceAttached() {
+        if (isFinishing() || isDestroyed()) return;
         applyLiveResizeMode(LiveSetting.getScale());
     }
 
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
+        if (isFinishing() || isDestroyed()) return;
         if (isPlaying || isPaused()) updatePlayControl(isPlaying);
     }
 
@@ -1512,6 +1545,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onSubtitleClick() {
+        if (isFinishing() || getSupportFragmentManager().isStateSaved()) return;
         SubtitleDialog.create().view(mBinding.exo.getSubtitleView()).player(player()).show(this);
         hideControl();
     }
@@ -1716,7 +1750,10 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private void scrollToPosition(RecyclerView view, int position) {
         RecyclerView.Adapter<?> adapter = view.getAdapter();
         if (adapter == null || position < 0 || position >= adapter.getItemCount()) return;
-        view.post(() -> view.scrollToPosition(position));
+        view.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            view.scrollToPosition(position);
+        });
     }
 
     private void scrollToChannelPosition(int position) {
