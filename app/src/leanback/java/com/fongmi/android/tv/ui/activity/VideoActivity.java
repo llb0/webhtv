@@ -1421,6 +1421,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void updateEpisodeWindowNow() {
+        if (isFinishing() || isDestroyed()) return;
         int height = getEpisodeWindowHeight();
         if (height <= 0) return;
         ViewGroup.LayoutParams params = mBinding.episode.getLayoutParams();
@@ -1708,8 +1709,14 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 View firstSuggestion = addLyricsSearchSuggestions(root, input, searchButton, request, values);
                 View focusTarget = firstSuggestion == null ? searchButton : firstSuggestion;
                 focusLyricsSearchTarget(input, focusTarget);
-                focusTarget.postDelayed(() -> focusLyricsSearchTarget(input, focusTarget), 220);
-                focusTarget.postDelayed(() -> focusLyricsSearchTarget(input, focusTarget), 420);
+                focusTarget.postDelayed(() -> {
+                    if (sheetSeq != mLyricsSearchSheetSeq || !dialog.isShowing()) return;
+                    focusLyricsSearchTarget(input, focusTarget);
+                }, 220);
+                focusTarget.postDelayed(() -> {
+                    if (sheetSeq != mLyricsSearchSheetSeq || !dialog.isShowing()) return;
+                    focusLyricsSearchTarget(input, focusTarget);
+                }, 420);
                 String current = input.getText() == null ? "" : input.getText().toString();
                 String autoKeyword = firstLyricsSearchSuggestion(values);
                 if (!TextUtils.isEmpty(autoKeyword) && mLyricsSearchSeq == searchSeqAtOpen && (TextUtils.isEmpty(current) || TextUtils.equals(current, keyword))) {
@@ -2192,6 +2199,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mAudioQueueAdapter.setItems(items, selected);
         if (mAudioQueueList != null && selected >= 0) {
             mAudioQueueList.post(() -> {
+                if (isFinishing() || isDestroyed() || mAudioQueueList == null) return;
                 mAudioQueueList.scrollToPosition(selected);
                 mAudioQueueList.post(() -> focusAudioQueueItem(selected));
             });
@@ -2199,6 +2207,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void focusAudioQueueItem(int position) {
+        if (isFinishing() || isDestroyed()) return;
         if (mAudioQueueList == null) return;
         RecyclerView.ViewHolder holder = mAudioQueueList.findViewHolderForAdapterPosition(position);
         if (holder != null) holder.itemView.requestFocus();
@@ -2209,6 +2218,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         int selected = mAudioQueueAdapter.getSelectedPosition();
         if (selected < 0) return;
         mAudioQueueList.post(() -> {
+            if (isFinishing() || isDestroyed() || mAudioQueueList == null) return;
             mAudioQueueList.scrollToPosition(selected);
             mAudioQueueList.post(() -> focusAudioQueueItem(selected));
         });
@@ -3180,6 +3190,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean focusLutQuickContent() {
+        if (isFinishing() || isDestroyed()) return;
         if (!isVisible(mBinding.lutQuick)) return false;
         View focus = getCurrentFocus();
         RecyclerView recycler = findRecyclerView(mBinding.lutQuick);
@@ -3216,6 +3227,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
             if (recycler.getChildAdapterPosition(child) == position && focusFirstChild(child)) return true;
         }
         recycler.post(() -> {
+            if (recycler == null || !recycler.isAttachedToWindow()) return;
             RecyclerView.ViewHolder next = recycler.findViewHolderForAdapterPosition(position);
             if (next != null) {
                 focusFirstChild(next.itemView);
@@ -3460,6 +3472,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                 App.post(() -> switchPlayerKernelWithResult(nextType, result, position, speed, repeat, metadata));
             } catch (Throwable e) {
                 App.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     playerKernelSwitchRefreshing = false;
                     setPlayerKernel();
                     setDecode();
@@ -3471,6 +3484,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void switchPlayerKernelWithResult(int type, Result result, long position, float speed, boolean repeat, MediaMetadata metadata) {
+        if (recycler == null || !recycler.isAttachedToWindow()) return;
         playerKernelSwitchRefreshing = false;
         if (result == null || result.hasMsg() || result.getRealUrl().isEmpty()) {
             Notify.show(result != null && result.hasMsg() ? result.getMsg() : getString(R.string.error_play_url));
@@ -4240,6 +4254,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private void syncAudioBackgroundHalo(AudioPlayerBackgroundDrawable drawable) {
+        if (isFinishing() || isDestroyed()) return;
         if (mBinding == null || drawable == null) return;
         View anchor = mBinding.audioCover != null ? mBinding.audioCover : mBinding.audioDisc;
         if (mBinding.audioStage.getWidth() <= 0 || anchor.getWidth() <= 0 || anchor.getHeight() <= 0) return;
@@ -4264,6 +4279,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void scheduleAudioArtworkColorUpdate(String owner, String key, @Nullable Drawable drawable) {
         App.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
             if (!TextUtils.equals(mArtworkRequestOwner, owner)) return;
             updateAudioArtworkColor(key, drawable);
         }, 180);
@@ -5593,6 +5609,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onReload(String msg) {
+        if (isFinishing() || isDestroyed()) return;
         if (PlayerManager.RELOAD_LUT_WARMUP.equals(msg)) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "auto refresh after lut warmup playback failure key=%s episode=%s", getKey(), getEpisode() == null ? null : getEpisode().getName());
             onRefresh();
@@ -5603,6 +5620,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onReclaim() {
+        if (isFinishing() || isDestroyed()) return;
         Result result = mViewModel.getPlayer().getValue();
         if (result != null) setPlayer(result);
     }
@@ -5629,6 +5647,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
+        if (isFinishing() || isDestroyed()) return;
         syncKaraokePosition();
         checkAudioPlayImg(isPlaying);
         if (isPlaying) {
@@ -5641,6 +5660,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onSizeChanged(VideoSize size) {
+        if (isFinishing() || isDestroyed()) return;
         applyResizeMode(getScale());
         applyVideoRotation();
         mBinding.widget.size.setText(player().getSizeText());
@@ -5648,6 +5668,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     @Override
     protected void onSurfaceAttached() {
+        if (isFinishing() || isDestroyed()) return;
         applyResizeMode(getScale());
         applyVideoRotation();
     }
@@ -6207,6 +6228,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     private boolean focusAudioStageDefault() {
+        if (isFinishing() || isDestroyed()) return;
         if (mBinding == null || !mAudioStageVisible) return false;
         if (mBinding.audioPlay.isEnabled() && mBinding.audioPlay.requestFocus()) {
             showAudioStageFocusHighlight(mBinding.audioPlay);
