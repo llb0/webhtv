@@ -1266,6 +1266,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
  
     private void startWebView(String url) {
+        if (isFinishing() || isDestroyed()) return;
         if (service() != null) {
             player().stop();
             player().clear();
