@@ -155,7 +155,10 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
     @Override
     public boolean onSingleTapConfirmed(@NonNull MotionEvent e) {
         if (isMultiple(e) || changeScale) return true;
-        listener.onSingleTap(e.getRawX(), e.getRawY(), ResUtil.getScreenWidth(App.get()), ResUtil.getScreenHeight(App.get()));
+        // 使用视图相对坐标和 videoView 尺寸，保证 PIP 小窗模式下也能正确识别右上角等区域
+        int w = (videoView != null && videoView.getWidth() > 0) ? videoView.getWidth() : ResUtil.getScreenWidth(App.get());
+        int h = (videoView != null && videoView.getHeight() > 0) ? videoView.getHeight() : ResUtil.getScreenHeight(App.get());
+        listener.onSingleTap(e.getX(), e.getY(), w, h);
         return true;
     }
 
