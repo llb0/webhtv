@@ -1321,7 +1321,7 @@
     </string-array>
 
     <string-array name="select_ui_scale">
-        <item>跟随系统</item>
+        <item>宽松</item>
         <item>稍宽松</item>
         <item>标准</item>
         <item>较紧凑</item>
