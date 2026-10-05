@@ -1305,7 +1305,7 @@
     </string-array>
 
     <string-array name="select_ui_scale">
-        <item>跟隨系統</item>
+        <item>寬鬆</item>
         <item>稍寬鬆</item>
         <item>標準</item>
         <item>較緊湊</item>
