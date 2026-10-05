@@ -1023,6 +1023,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void selectChannel(Channel item, boolean syncPosition) {
+        // 小窗预览模式下点击正在播放的频道标题，直接进入全屏播放
+        if (isInPictureInPictureMode() && item.isSelected() && mChannel != null && mChannel.equals(item)) {
+            hideUI();
+            hideControl();
+            hideInfo();
+            enterFullscreenLive();
+            return;
+        }
         if (item.isSelected() && mChannel != null && mChannel.equals(item) && mChannel.getGroup().equals(mGroup) && isLineDoubleClick(item)) {
             showLineDialog(item);
         } else if (!item.getData(mViewModel.getZoneId()).getList().isEmpty() && item.isSelected() && mChannel != null && mChannel.equals(item) && mChannel.getGroup().equals(mGroup)) {
