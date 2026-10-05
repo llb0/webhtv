@@ -17,9 +17,9 @@ import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-import com.google.gson.reflect.TypeToken;
 
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
@@ -32,8 +32,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
-import java.io.InterruptedIOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -41,11 +41,11 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.HashSet;
 import java.util.concurrent.TimeUnit;
 
 import javax.xml.parsers.SAXParser;
@@ -62,7 +62,6 @@ public class EpgParser {
     public static final String INDEX_FILE_NAME = "merged_index.json";
     public static final String MERGED_META_NAME = "merged_meta.json";
     private static final Gson GSON = new GsonBuilder().create();
-
     public static final Object SYNC_LOCK = new Object();
 
     /**
@@ -113,8 +112,10 @@ public class EpgParser {
                         synchronized (SYNC_LOCK) {
                             try {
                                 writeIndexFile(memoryIndex);
-                                saveMergeMeta(loadMergeMeta());
-                                if (zoneId != null) loadMergedIndex(live, zoneId);
+                                MergeMeta newMeta = loadMergeMeta();
+                                newMeta.lastMergeRun = System.currentTimeMillis();
+                                saveMergeMeta(newMeta);
+                                loadMergedIndex(live, zoneId);
                             } catch (Exception e) {
                                 SpiderDebug.log(TAG, "写入epg总表文件异常" + e.toString());
                             }
@@ -167,7 +168,8 @@ public class EpgParser {
         File indexFile = getIndexFile();
         File tempFile = new File(indexFile.getParent(), INDEX_FILE_NAME + ".tmp");
         try (FileOutputStream fos = new FileOutputStream(tempFile);
-             JsonWriter writer = new JsonWriter(new InputStreamReader(fos, StandardCharsets.UTF_8))) {
+             OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
+             JsonWriter writer = new JsonWriter(osw)) {
             writer.beginObject();
             for (Map.Entry<String, List<Tv.Programme>> entry : indexMap.entrySet()) {
                 writer.name(entry.getKey());
@@ -186,7 +188,7 @@ public class EpgParser {
             tempFile.renameTo(indexFile);
         } else {
             if (tempFile.exists()) tempFile.delete();
-            throw new Exception("写入索引临时文件失败");
+            throw new Exception("写入索引临时文件为空");
         }
     }
 
@@ -197,7 +199,8 @@ public class EpgParser {
         Map<String, List<Tv.Programme>> result = new HashMap<>();
         if (!indexFile.exists()) return result;
         try (FileInputStream fis = new FileInputStream(indexFile);
-             JsonReader reader = new JsonReader(new InputStreamReader(fis, StandardCharsets.UTF_8))) {
+             InputStreamReader isr = new InputStreamReader(fis, StandardCharsets.UTF_8);
+             JsonReader reader = new JsonReader(isr)) {
             reader.beginObject();
             while (reader.hasNext()) {
                 String channelName = reader.nextName();
@@ -223,7 +226,8 @@ public class EpgParser {
             try {
                 Thread.sleep(1500);
             } catch (InterruptedException e) {
-                SpiderDebug.log(TAG, "迟延启动后台更新出错：" + e.toString());
+                SpiderDebug.log(TAG, "延迟启动后台更新中断：" + e.toString());
+                Thread.currentThread().interrupt();
                 return;
             }
             Map<String, List<Tv.Programme>> memoryIndex = syncEpgSourcesInternal(live, zoneId);
@@ -234,8 +238,8 @@ public class EpgParser {
                         MergeMeta meta = loadMergeMeta();
                         meta.lastMergeRun = System.currentTimeMillis();
                         saveMergeMeta(meta);
-                        if (zoneId != null) loadMergedIndex(live, zoneId);
-                        SpiderDebug.log(TAG, "远程Epg数据已更新至本地。");
+                        loadMergedIndex(live, zoneId);
+                        SpiderDebug.log(TAG, "远程Epg多源合并完成并持久化");
                     } catch (Exception e) {
                         SpiderDebug.log(TAG, "写入epg总表文件异常" + e.toString());
                     }
@@ -267,6 +271,7 @@ public class EpgParser {
                 String remoteEtag = fetchRemoteTag(url);
                 MergeMeta.SourceItem sourceItem = meta.sources.get(urlMd5);
                 if (sourceItem != null && remoteEtag != null && remoteEtag.equals(sourceItem.etag)) {
+                    SpiderDebug.log(TAG, "源未变化跳过：" + url);
                     continue;
                 }
                 SpiderDebug.log(TAG, "远程Epg有变化：" + url);
@@ -284,7 +289,7 @@ public class EpgParser {
             }
         }
 
-        // ==========修复：全部台统一执行7天过期过滤，不仅仅新源出现过的台==========
+        // 全部台统一执行7天过期过滤
         if(needMerge){
             LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
             Map<String,List<Tv.Programme>> cleanedIndex = new HashMap<>();
@@ -393,10 +398,9 @@ public class EpgParser {
     }
 
     /**
-     * 读取缓存文件流，自动处理gz解压，返回InputStream；不再一次性读全部字节到内存
+     * 读取缓存文件流，自动处理gz解压
      */
     private static InputStream openCacheStream(File file) throws IOException {
-        // 只读取前2字节判断是否gz，不读取全部
         try (FileInputStream fis = new FileInputStream(file)) {
             byte[] header = new byte[2];
             int read = fis.read(header);
@@ -518,7 +522,6 @@ public class EpgParser {
         try {
             File metaFile = getMergeMetaFile();
             File tempFile = new File(metaFile.getParent(), MERGED_META_NAME + ".tmp");
-            // meta体积很小，直接toJson无压力，不用流式
             String json = GSON.toJson(meta);
             writeFile(tempFile, json.getBytes(StandardCharsets.UTF_8));
             if (tempFile.exists() && tempFile.length() > 0) {
@@ -632,7 +635,6 @@ public class EpgParser {
 
     public static Epg getEpg(String xml, String key, ZoneId zoneId) {
         try {
-            // 这个是旧接口保留，依旧用SimpleXML，仅用于单独小xml，不参与后台大源合并
             String content = sanitizeXml(xml);
             if (content.isEmpty()) return new Epg();
             Tv tv = new org.simpleframework.xml.core.Persister().read(Tv.class, content, false);
@@ -645,7 +647,7 @@ public class EpgParser {
                 if (startDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC)) || endDate.isEqual(Instant.EPOCH.atOffset(ZoneOffset.UTC))) {
                     continue;
                 }
-                epg.getList().add(getEpgData(programme, zoneId));
+                epg.getList().add(getEpgData(startDate, endDate, zoneId, programme));
             }
             return epg;
         } catch (Exception e) {
