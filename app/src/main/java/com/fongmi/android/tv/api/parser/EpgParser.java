@@ -296,30 +296,25 @@ public class EpgParser {
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 String tagName = parser.getName();
                 switch (eventType) {
-                    case XmlPullParser.END_TAG:
-                        String text = textBuf.toString().trim();
-                        if ("display-name".equals(tagName) && currentChannel != null && currentDisplayName != null) {
-                            setField(currentDisplayName, "text", text);
-                            Field dnField = currentChannel.getClass().getDeclaredField("displayName");
-                            dnField.setAccessible(true);
-                            @SuppressWarnings("unchecked")
-                            List<Tv.DisplayName> dnList = (List<Tv.DisplayName>) dnField.get(currentChannel);
-                            dnList.add(currentDisplayName);
-                            currentDisplayName = null;
-                        } else if ("channel".equals(tagName) && tv != null && currentChannel != null) {
-                            tv.getChannel().add(currentChannel);
-                            currentChannel = null;
-                        } else if ("title".equals(tagName) && currentProg != null && currentTitle != null) {
-                            setField(currentTitle, "text", text);
-                            Field titleField = currentProg.getClass().getDeclaredField("title");
-                            titleField.setAccessible(true);
-                            @SuppressWarnings("unchecked")
-                            List<Tv.Title> titleList = (List<Tv.Title>) titleField.get(currentProg);
-                            titleList.add(currentTitle);
-                            currentTitle = null;
-                        } else if ("programme".equals(tagName) && tv != null && currentProg != null) {
-                            tv.getProgramme().add(currentProg);
-                            currentProg = null;
+                    case XmlPullParser.START_TAG:
+                        textBuf.setLength(0);
+                        if ("tv".equals(tagName)) {
+                            String dateAttr = parser.getAttributeValue(null, "date");
+                            setField(tv, "date", dateAttr);
+                        } else if ("channel".equals(tagName)) {
+                            currentChannel = new Tv.Channel();
+                            setField(currentChannel, "id", parser.getAttributeValue(null, "id"));
+                            setField(currentChannel, "displayName", new ArrayList<>());
+                        } else if ("display-name".equals(tagName)) {
+                            currentDisplayName = new Tv.DisplayName();
+                        } else if ("programme".equals(tagName)) {
+                            currentProg = new Tv.Programme();
+                            setField(currentProg, "start", parser.getAttributeValue(null, "start"));
+                            setField(currentProg, "stop", parser.getAttributeValue(null, "stop"));
+                            setField(currentProg, "channel", parser.getAttributeValue(null, "channel"));
+                            setField(currentProg, "title", new ArrayList<>());
+                        } else if ("title".equals(tagName)) {
+                            currentTitle = new Tv.Title();
                         }
                         break;
                     case XmlPullParser.TEXT:
@@ -329,7 +324,11 @@ public class EpgParser {
                         String text = textBuf.toString().trim();
                         if ("display-name".equals(tagName) && currentChannel != null && currentDisplayName != null) {
                             setField(currentDisplayName, "text", text);
-                            currentChannel.getDisplayName().add(currentDisplayName);
+                            Field dnField = currentChannel.getClass().getDeclaredField("displayName");
+                            dnField.setAccessible(true);
+                            @SuppressWarnings("unchecked")
+                            List<Tv.DisplayName> dnList = (List<Tv.DisplayName>) dnField.get(currentChannel);
+                            dnList.add(currentDisplayName);
                             currentDisplayName = null;
                         } else if ("channel".equals(tagName) && tv != null && currentChannel != null) {
                             tv.getChannel().add(currentChannel);
