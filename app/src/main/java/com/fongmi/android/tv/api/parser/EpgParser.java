@@ -16,17 +16,21 @@ import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 
 import org.simpleframework.xml.core.Persister;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.io.InterruptedIOException;
 import java.lang.reflect.Field;
@@ -55,6 +59,7 @@ public class EpgParser {
     public static final int KEEP_DAYS = 7;
     public static final String INDEX_FILE_NAME = "merged_index.json";
     public static final String MERGED_META_NAME = "merged_meta.json";
+    public static final String SHARDS_DIR_NAME = "shards";
     private static final Gson GSON = new Gson();
 
     public static final Object SYNC_LOCK = new Object();
@@ -67,10 +72,22 @@ public class EpgParser {
         return raw.trim().replaceAll("[-\\s]+", "").toUpperCase();
     }
 
-    private static File getIndexFile() {
-        File dir = new File(Path.files(), "epg");
+    private static File getEpgCacheDir() {
+        return new File(Path.files(), "epg");
+    }
+
+    private static File getShardsDir() {
+        File dir = new File(getEpgCacheDir(), SHARDS_DIR_NAME);
         if (!dir.exists()) dir.mkdirs();
-        return new File(dir, INDEX_FILE_NAME);
+        return dir;
+    }
+
+    /**
+     * 按完整频道名（归一化后）定位分片文件：每个频道一个分片。
+     * 文件名用频道名的 md5，保证文件系统安全且可按频道名直接定位。
+     */
+    private static File getShardFile(String channelName) {
+        return new File(getShardsDir(), Util.md5(channelName) + ".json");
     }
 
     private static File getMergeMetaFile() {
@@ -79,8 +96,8 @@ public class EpgParser {
         return new File(dir, MERGED_META_NAME);
     }
 
-    private static File getEpgCacheDir() {
-        return new File(Path.files(), "epg");
+    private static File getOldIndexFile() {
+        return new File(getEpgCacheDir(), INDEX_FILE_NAME);
     }
 
     private static File getCacheFile(String url) {
@@ -91,8 +108,12 @@ public class EpgParser {
         if (live == null || live.getGroups().isEmpty()) return;
         ZoneId zoneId = zoneIdOf(live.getTimeZone());
         MergeMeta meta = loadMergeMeta();
-        File indexFile = getIndexFile();
-        if (!indexFile.exists()) {
+        // 兼容旧版单文件总索引：若存在旧 merged_index.json 且无分片目录，则迁移为分片
+        File oldIndex = getOldIndexFile();
+        if (oldIndex.exists() && !hasAnyShard()) {
+            migrateOldIndexToShards();
+        }
+        if (!hasAnyShard()) {
             SpiderDebug.log(TAG, "没有Epg持久索引，进入首次快速加载并持久化");
             buildInitialEpgAndSave(live, zoneId);
             startBackgroundMerge(live, zoneId);
@@ -102,21 +123,26 @@ public class EpgParser {
             long age = System.currentTimeMillis() - meta.lastMergeRun;
             if (meta.lastMergeRun == 0 || age > UPDATE_INTERVAL_MS) {
                 new Thread(() -> {
-                    Map<String, List<Tv.Programme>> memoryIndex = syncEpgSourcesInternal(live, zoneId);
-                    if (memoryIndex != null) {
+                    boolean updated = syncEpgSourcesInternal(live, zoneId);
+                    if (updated) {
                         synchronized (SYNC_LOCK) {
                             try {
-                                writeIndexFile(memoryIndex);
                                 saveMergeMeta(loadMergeMeta());
                                 if (zoneId != null) loadMergedIndex(live, zoneId);
                             } catch (Exception e) {
-                                SpiderDebug.log(TAG, "写入epg总表文件异常" + e.toString());
+                                SpiderDebug.log(TAG, "更新epg分片异常" + e.toString());
                             }
                         }
                     }
                 }).start();
             }
         }
+    }
+
+    private static boolean hasAnyShard() {
+        File dir = getShardsDir();
+        File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
+        return files != null && files.length > 0;
     }
 
     private static void buildInitialEpgAndSave(Live live, ZoneId zoneId) {
@@ -130,11 +156,10 @@ public class EpgParser {
                     SpiderDebug.log(TAG, "首次下载源失败：" + url);
                     continue;
                 }
-                Map<String, List<Tv.Programme>> indexMap = new HashMap<>();
-                readSingleSourceToIndex(cacheFile, url, zoneId, indexMap, false);
+                Map<String, List<Tv.Programme>> indexMap = parseSourceByName(cacheFile, zoneId);
 
                 synchronized (SYNC_LOCK) {
-                    writeIndexFile(indexMap);
+                    writeShardedIndex(indexMap);
                     MergeMeta meta = loadMergeMeta();
                     String urlMd5 = Util.md5(url);
                     String remoteEtag = fetchRemoteTag(url);
@@ -154,17 +179,107 @@ public class EpgParser {
         }
     }
 
-    private static void writeIndexFile(Map<String, List<Tv.Programme>> indexMap) throws Exception {
-        File indexFile = getIndexFile();
-        File tempFile = new File(indexFile.getParent(), INDEX_FILE_NAME + ".tmp");
-        String jsonOutput = GSON.toJson(indexMap);
-        writeFile(tempFile, jsonOutput.getBytes(StandardCharsets.UTF_8));
+    /**
+     * 全量写出索引（首次加载场景）：逐频道写分片，不构造超大中间字符串。
+     */
+    private static void writeShardedIndex(Map<String, List<Tv.Programme>> indexMap) throws Exception {
+        for (Map.Entry<String, List<Tv.Programme>> entry : indexMap.entrySet()) {
+            writeChannelShard(entry.getKey(), entry.getValue());
+        }
+    }
+
+    /**
+     * 流式写入单个频道分片文件：内容为该频道的节目单数组。
+     * tmp 文件名带线程 ID 后缀，避免多线程并发写同一 tmp 文件导致内容交错损坏。
+     */
+    private static void writeChannelShard(String channelName, List<Tv.Programme> programmes) throws Exception {
+        File shardFile = getShardFile(channelName);
+        File tempFile = new File(shardFile.getParent(), Util.md5(channelName) + ".json.tmp." + Thread.currentThread().getId());
+        File parent = tempFile.getParentFile();
+        if (parent != null && !parent.exists()) parent.mkdirs();
+        try (FileOutputStream fos = new FileOutputStream(tempFile);
+             BufferedOutputStream bos = new BufferedOutputStream(fos);
+             OutputStreamWriter osw = new OutputStreamWriter(bos, StandardCharsets.UTF_8);
+             JsonWriter writer = new JsonWriter(osw)) {
+            writer.setIndent("");
+            writer.beginArray();
+            for (Tv.Programme p : programmes) {
+                GSON.toJson(p, Tv.Programme.class, writer);
+            }
+            writer.endArray();
+            writer.flush();
+        }
         if (tempFile.exists() && tempFile.length() > 0) {
-            if (indexFile.exists()) indexFile.delete();
-            tempFile.renameTo(indexFile);
+            if (shardFile.exists()) shardFile.delete();
+            tempFile.renameTo(shardFile);
         } else {
             if (tempFile.exists()) tempFile.delete();
-            throw new Exception("写入索引临时文件失败");
+        }
+    }
+
+    /**
+     * 删除单个频道分片（清理空频道时用）。
+     */
+    private static void deleteChannelShard(String channelName) {
+        File shardFile = getShardFile(channelName);
+        if (shardFile.exists()) shardFile.delete();
+    }
+
+    /**
+     * 流式读取单个频道分片，返回该频道的节目单列表；不存在返回空列表。
+     */
+    private static List<Tv.Programme> readChannelShard(String channelName) throws Exception {
+        File shardFile = getShardFile(channelName);
+        List<Tv.Programme> list = new ArrayList<>();
+        if (!shardFile.exists() || shardFile.length() == 0) return list;
+        try (FileInputStream fis = new FileInputStream(shardFile);
+             BufferedInputStream bis = new BufferedInputStream(fis);
+             InputStreamReader isr = new InputStreamReader(bis, StandardCharsets.UTF_8);
+             JsonReader reader = new JsonReader(isr)) {
+            reader.beginArray();
+            while (reader.hasNext()) {
+                list.add(GSON.fromJson(reader, Tv.Programme.class));
+            }
+            reader.endArray();
+        }
+        return list;
+    }
+
+    /**
+     * 将旧版单文件总索引迁移为分片索引：流式边读边写，内存峰值 = 单个频道。
+     * 写分片时用 SYNC_LOCK 保护，防止与合并/清理操作并发写同一分片。
+     */
+    private static void migrateOldIndexToShards() {
+        File oldIndex = getOldIndexFile();
+        if (!oldIndex.exists()) return;
+        int count = 0;
+        try (FileInputStream fis = new FileInputStream(oldIndex);
+             BufferedInputStream bis = new BufferedInputStream(fis);
+             InputStreamReader isr = new InputStreamReader(bis, StandardCharsets.UTF_8);
+             JsonReader reader = new JsonReader(isr)) {
+            SpiderDebug.log(TAG, "检测到旧版总索引，开始迁移为分片...");
+            reader.beginObject();
+            while (reader.hasNext()) {
+                String channelName = reader.nextName();
+                List<Tv.Programme> progs = new ArrayList<>();
+                reader.beginArray();
+                while (reader.hasNext()) {
+                    progs.add(GSON.fromJson(reader, Tv.Programme.class));
+                }
+                reader.endArray();
+                if (!progs.isEmpty()) {
+                    synchronized (SYNC_LOCK) {
+                        writeChannelShard(channelName, progs);
+                    }
+                    count++;
+                }
+            }
+            reader.endObject();
+            if (oldIndex.delete()) {
+                SpiderDebug.log(TAG, "旧索引迁移完成，共 " + count + " 个频道，已删除旧文件");
+            }
+        } catch (Exception e) {
+            SpiderDebug.log(TAG, "旧索引迁移失败：" + e.toString());
         }
     }
 
@@ -176,45 +291,40 @@ public class EpgParser {
                 SpiderDebug.log(TAG, "迟延启动后台更新出错：" + e.toString());
                 return;
             }
-            Map<String, List<Tv.Programme>> memoryIndex = syncEpgSourcesInternal(live, zoneId);
-            if (memoryIndex != null) {
+            boolean updated = syncEpgSourcesInternal(live, zoneId);
+            if (updated) {
                 synchronized (SYNC_LOCK) {
                     try {
-                        writeIndexFile(memoryIndex);
                         MergeMeta meta = loadMergeMeta();
                         meta.lastMergeRun = System.currentTimeMillis();
                         saveMergeMeta(meta);
                         if (zoneId != null) loadMergedIndex(live, zoneId);
                         SpiderDebug.log(TAG, "远程Epg数据已更新至本地。");
                     } catch (Exception e) {
-                        SpiderDebug.log(TAG, "写入epg总表文件异常" + e.toString());
+                        SpiderDebug.log(TAG, "更新epg分片异常" + e.toString());
                     }
                 }
             }
         }).start();
     }
 
-    private static Map<String, List<Tv.Programme>> syncEpgSourcesInternal(Live live, ZoneId zoneId) {
+    private static boolean syncEpgSourcesInternal(Live live, ZoneId zoneId) {
         if (live == null || live.getGroups().isEmpty()) {
             SpiderDebug.log(TAG, "Epg远程更新时Live为空！");
-            return null;
+            return false;
         }
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
-        if (urls.isEmpty()) return null;
+        if (urls.isEmpty()) return false;
         MergeMeta meta = loadMergeMeta();
         boolean needMerge = false;
-        Map<String, List<Tv.Programme>> mergedIndex = new HashMap<>();
 
-        File indexFile = getIndexFile();
-        if (indexFile.exists()) {
+        // 兼容：仍存在旧单文件索引时，逐频道流式迁移为分片后删除旧文件
+        File oldIndex = getOldIndexFile();
+        if (oldIndex.exists()) {
             try {
-                String json = Path.read(indexFile);
-                TypeToken<Map<String, List<Tv.Programme>>> typeToken = new TypeToken<Map<String, List<Tv.Programme>>>() {};
-                mergedIndex = GSON.fromJson(json, typeToken.getType());
-                if (mergedIndex == null) mergedIndex = new HashMap<>();
+                migrateOldIndexToShards();
             } catch (Exception e) {
-                SpiderDebug.log(TAG, "读取旧索引到内存失败，新建内存索引" + e.toString());
-                mergedIndex = new HashMap<>();
+                SpiderDebug.log(TAG, "迁移旧索引失败：" + e.toString());
             }
         }
 
@@ -231,7 +341,11 @@ public class EpgParser {
                 File cacheFile = getCacheFile(url);
                 if (!download(url, cacheFile)) continue;
 
-                readSingleSourceToIndex(cacheFile, url, zoneId, mergedIndex, true);
+                // 解析单个源，得到 频道名→节目单（仅该源的数据，内存峰值=单个源）
+                Map<String, List<Tv.Programme>> sourceByName = parseSourceByName(cacheFile, zoneId);
+                // 逐频道合并到分片：只读该频道旧分片，合并后写回
+                mergeSourceToShards(sourceByName, zoneId);
+
                 if (sourceItem == null) sourceItem = new MergeMeta.SourceItem();
                 sourceItem.etag = remoteEtag;
                 meta.sources.put(urlMd5, sourceItem);
@@ -242,34 +356,22 @@ public class EpgParser {
             }
         }
 
-        // ==========修复：全部台统一执行7天过期过滤，不仅仅新源出现过的台==========
-        if(needMerge){
-            LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
-            Map<String,List<Tv.Programme>> cleanedIndex = new HashMap<>();
-            for(Map.Entry<String,List<Tv.Programme>> entry : mergedIndex.entrySet()){
-                String bizName = entry.getKey();
-                List<Tv.Programme> oldList = entry.getValue();
-                Set<String> seen = new HashSet<>();
-                List<Tv.Programme> outList = new ArrayList<>();
-                collectByDate(oldList, zoneId, keepFrom, seen, outList, true, bizName);
-                if(!outList.isEmpty()){
-                    cleanedIndex.put(bizName, outList);
-                }
-            }
-            mergedIndex.clear();
-            mergedIndex.putAll(cleanedIndex);
-        }
-
         if (!needMerge) {
             SpiderDebug.log(TAG, "远程Epg数据无变化，未更新");
             cleanStaleEpgCache(meta, urls);
-            return null;
+            return false;
         }
+        // 全部分片统一执行7天过期过滤（逐文件，内存只占单个频道）
+        cleanAllShards(zoneId);
         cleanStaleEpgCache(meta, urls);
-        return mergedIndex;
+        return true;
     }
 
-    private static void readSingleSourceToIndex(File cacheFile, String url, ZoneId zoneId, Map<String, List<Tv.Programme>> mergedIndex, boolean enableFilter) throws Exception {
+    /**
+     * 解析单个 EPG 源文件，得到 归一化频道名→该频道节目单列表。
+     * 仅持有该源的数据，内存峰值 = 单个源。
+     */
+    private static Map<String, List<Tv.Programme>> parseSourceByName(File cacheFile, ZoneId zoneId) throws Exception {
         InputStream rawIn = null;
         XmlPullParser parser = XmlPullParserFactory.newInstance().newPullParser();
         try {
@@ -381,33 +483,36 @@ public class EpgParser {
                 if(bizName == null) continue;
                 sourceByName.computeIfAbsent(bizName, k->new ArrayList<>()).add(p);
             }
-
-            if (enableFilter) {
-                LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
-                for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
-                    String bizName = entry.getKey();
-                    List<Tv.Programme> newProgs = entry.getValue();
-                    List<Tv.Programme> oldProgs = mergedIndex.getOrDefault(bizName, new ArrayList<>());
-
-                    Set<String> seen = new HashSet<>();
-                    List<Tv.Programme> finalProgs = new ArrayList<>();
-                    collectByDate(oldProgs, zoneId, keepFrom, seen, finalProgs, true, bizName);
-                    collectByDate(newProgs, zoneId, keepFrom, seen, finalProgs, false, bizName);
-
-                    if(finalProgs.isEmpty()){
-                        mergedIndex.remove(bizName);
-                    }else{
-                        mergedIndex.put(bizName, finalProgs);
-                    }
-                }
-            } else {
-                mergedIndex.clear();
-                for(Map.Entry<String,List<Tv.Programme>> entry : sourceByName.entrySet()){
-                    mergedIndex.put(entry.getKey(), entry.getValue());
-                }
-            }
+            return sourceByName;
         } finally {
             if(rawIn != null) rawIn.close();
+        }
+    }
+
+    /**
+     * 逐频道将单个源的数据合并写入分片：只读该频道旧分片，7天过滤后写回。
+     * 内存峰值 = 单个频道的节目单列表。
+     * 每个频道的 read-modify-write 用 SYNC_LOCK 保护，防止并发合并导致数据丢失。
+     */
+    private static void mergeSourceToShards(Map<String, List<Tv.Programme>> sourceByName, ZoneId zoneId) throws Exception {
+        LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
+        for (Map.Entry<String, List<Tv.Programme>> entry : sourceByName.entrySet()) {
+            String bizName = entry.getKey();
+            List<Tv.Programme> newProgs = entry.getValue();
+            synchronized (SYNC_LOCK) {
+                List<Tv.Programme> oldProgs = readChannelShard(bizName);
+ 
+                Set<String> seen = new HashSet<>();
+                List<Tv.Programme> finalProgs = new ArrayList<>();
+                collectByDate(oldProgs, zoneId, keepFrom, seen, finalProgs, true, bizName);
+                collectByDate(newProgs, zoneId, keepFrom, seen, finalProgs, false, bizName);
+
+                if (finalProgs.isEmpty()) {
+                    deleteChannelShard(bizName);
+                } else {
+                    writeChannelShard(bizName, finalProgs);
+                }
+            }
         }
     }
 
@@ -428,6 +533,79 @@ public class EpgParser {
         }
     }
 
+    /**
+     * 遍历全部分片，逐个执行7天过期过滤并写回；空分片删除。
+     * 内存峰值 = 单个频道的节目单列表，不加载全量索引。
+     * 每个分片的 read-modify-write 用 SYNC_LOCK 保护，防止与合并操作并发导致数据覆盖。
+     */
+    private static void cleanAllShards(ZoneId zoneId) {
+        LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
+        File[] files = getShardsDir().listFiles((d, name) -> name.endsWith(".json"));
+        if (files == null) return;
+        for (File f : files) {
+            try {
+                synchronized (SYNC_LOCK) {
+                    List<Tv.Programme> progs = readChannelShardFile(f);
+                    Set<String> seen = new HashSet<>();
+                    List<Tv.Programme> outList = new ArrayList<>();
+                    collectByDate(progs, zoneId, keepFrom, seen, outList, true, f.getName());
+                    if (outList.isEmpty()) {
+                        f.delete();
+                    } else if (outList.size() != progs.size()) {
+                        writeChannelShardFile(f, outList);
+                    }
+                }
+            } catch (Exception e) {
+                SpiderDebug.log(TAG, "清理分片失败 " + f.getName() + "：" + e.toString());
+            }
+        }
+    }
+
+    /**
+     * 从指定文件流式读取单个频道分片（供 cleanAllShards 遍历文件时使用）。
+     */
+    private static List<Tv.Programme> readChannelShardFile(File shardFile) throws Exception {
+        List<Tv.Programme> list = new ArrayList<>();
+        if (!shardFile.exists() || shardFile.length() == 0) return list;
+        try (FileInputStream fis = new FileInputStream(shardFile);
+             BufferedInputStream bis = new BufferedInputStream(fis);
+             InputStreamReader isr = new InputStreamReader(bis, StandardCharsets.UTF_8);
+             JsonReader reader = new JsonReader(isr)) {
+            reader.beginArray();
+            while (reader.hasNext()) {
+                list.add(GSON.fromJson(reader, Tv.Programme.class));
+            }
+            reader.endArray();
+        }
+        return list;
+    }
+
+    /**
+     * 流式写入指定分片文件（供 cleanAllShards 原地写回时使用）。
+     * tmp 文件名带线程 ID 后缀，避免多线程并发写同一 tmp 文件导致内容交错损坏。
+     */
+    private static void writeChannelShardFile(File shardFile, List<Tv.Programme> programmes) throws Exception {
+        File tempFile = new File(shardFile.getParent(), shardFile.getName() + ".tmp." + Thread.currentThread().getId());
+        try (FileOutputStream fos = new FileOutputStream(tempFile);
+             BufferedOutputStream bos = new BufferedOutputStream(fos);
+             OutputStreamWriter osw = new OutputStreamWriter(bos, StandardCharsets.UTF_8);
+             JsonWriter writer = new JsonWriter(osw)) {
+            writer.setIndent("");
+            writer.beginArray();
+            for (Tv.Programme p : programmes) {
+                GSON.toJson(p, Tv.Programme.class, writer);
+            }
+            writer.endArray();
+            writer.flush();
+        }
+        if (tempFile.exists() && tempFile.length() > 0) {
+            if (shardFile.exists()) shardFile.delete();
+            tempFile.renameTo(shardFile);
+        } else {
+            if (tempFile.exists()) tempFile.delete();
+        }
+    }
+
     private static void cleanStaleEpgCache(MergeMeta meta, List<String> validUrls) {
         File cacheDir = getEpgCacheDir();
         File[] allFiles = cacheDir.listFiles();
@@ -438,9 +616,11 @@ public class EpgParser {
         }
         for (File f : allFiles) {
             String name = f.getName();
-            if (name.equals(INDEX_FILE_NAME) || name.equals(MERGED_META_NAME) || name.endsWith(".tmp")) {
+            // 跳过分片目录、meta 文件、旧总索引文件及临时文件
+            if (name.equals(SHARDS_DIR_NAME) || name.equals(MERGED_META_NAME) || name.equals(INDEX_FILE_NAME) || name.endsWith(".tmp")) {
                 continue;
             }
+            if (f.isDirectory()) continue;
             boolean keep = false;
             for(String md5 : validUrlMd5Set){
                 if(name.startsWith(md5)){
@@ -459,39 +639,43 @@ public class EpgParser {
         File metaFile = getMergeMetaFile();
         MergeMeta meta = new MergeMeta();
         if (metaFile.exists()) {
-            try {
-                String json = Path.read(metaFile);
-                TypeToken<MergeMeta> typeToken = new TypeToken<MergeMeta>() {};
-                meta = GSON.fromJson(json, typeToken.getType());
-            } catch (Exception e) {
-                SpiderDebug.log(TAG, "meta文件解析损坏，使用空meta：" + e.toString());
+            synchronized (SYNC_LOCK) {
+                try (FileInputStream fis = new FileInputStream(metaFile);
+                     BufferedInputStream bis = new BufferedInputStream(fis);
+                     InputStreamReader isr = new InputStreamReader(bis, StandardCharsets.UTF_8);
+                     JsonReader reader = new JsonReader(isr)) {
+                    meta = GSON.fromJson(reader, MergeMeta.class);
+                } catch (Exception e) {
+                    SpiderDebug.log(TAG, "meta文件解析损坏，使用空meta：" + e.toString());
+                }
             }
         }
         return meta;
     }
 
     private static void saveMergeMeta(MergeMeta meta) {
-        try {
-            File metaFile = getMergeMetaFile();
-            File tempFile = new File(metaFile.getParent(), MERGED_META_NAME + ".tmp");
-            String json = GSON.toJson(meta);
-            writeFile(tempFile, json.getBytes(StandardCharsets.UTF_8));
-            if (tempFile.exists() && tempFile.length() > 0) {
-                if (metaFile.exists()) metaFile.delete();
-                tempFile.renameTo(metaFile);
-            } else {
-                if (tempFile.exists()) tempFile.delete();
+        synchronized (SYNC_LOCK) {
+            try {
+                File metaFile = getMergeMetaFile();
+                File tempFile = new File(metaFile.getParent(), MERGED_META_NAME + ".tmp");
+                File parent = tempFile.getParentFile();
+                if (parent != null && !parent.exists()) parent.mkdirs();
+                try (FileOutputStream fos = new FileOutputStream(tempFile);
+                     BufferedOutputStream bos = new BufferedOutputStream(fos);
+                     OutputStreamWriter osw = new OutputStreamWriter(bos, StandardCharsets.UTF_8);
+                     JsonWriter writer = new JsonWriter(osw)) {
+                    GSON.toJson(meta, MergeMeta.class, writer);
+                    writer.flush();
+                }
+                if (tempFile.exists() && tempFile.length() > 0) {
+                    if (metaFile.exists()) metaFile.delete();
+                    tempFile.renameTo(metaFile);
+                } else {
+                    if (tempFile.exists()) tempFile.delete();
+                }
+            } catch (Exception e) {
+                SpiderDebug.log(TAG, "保存meta出错：" + e.toString());
             }
-        } catch (Exception e) {
-            SpiderDebug.log(TAG, "保存meta出错：" + e.toString());
-        }
-    }
-
-    private static void writeFile(File file, byte[] data) throws Exception {
-        File parent = file.getParentFile();
-        if (parent != null && !parent.exists()) parent.mkdirs();
-        try (FileOutputStream fos = new FileOutputStream(file)) {
-            fos.write(data);
         }
     }
 
@@ -571,23 +755,16 @@ public class EpgParser {
     }
 
     private static void loadMergedIndex(Live live, ZoneId zoneId) {
-        Map<String, List<Tv.Programme>> progIndex = null;
-        synchronized (SYNC_LOCK) {
-            File indexFile = getIndexFile();
-            if (!indexFile.exists()) return;
-            try {
-                String json = Path.read(indexFile);
-                TypeToken<Map<String, List<Tv.Programme>>> typeToken = new TypeToken<Map<String, List<Tv.Programme>>>() {};
-                progIndex = GSON.fromJson(json, typeToken.getType());
-                if (progIndex == null) {
-                    SpiderDebug.log(TAG, "Epg索引解析为空");
-                    return;
-                }
-            } catch (Exception e) {
-                SpiderDebug.log(TAG, "加载持久Epg索引出错：" + e.toString());
+        if (!hasAnyShard()) {
+            // 兼容：若只有旧版单文件索引，先迁移
+            if (getOldIndexFile().exists()) {
+                migrateOldIndexToShards();
+            } else {
                 return;
             }
         }
+        // 按频道名直接读取对应分片，按需组装；缓存避免同频道重复读文件
+        Map<String, List<Tv.Programme>> shardCache = new HashMap<>();
         int bindCount = 0;
         for (Group group : live.getGroups()) {
             for (Channel ch : group.getChannel()) {
@@ -598,8 +775,21 @@ public class EpgParser {
                 if (lookupKey == null || lookupKey.isEmpty()) continue;
                 String rawLookup = lookupKey.trim();
                 String normLookup = normalizeChannelName(rawLookup);
+                if (normLookup.isEmpty()) continue;
 
-                List<Tv.Programme> progList = progIndex.get(normLookup);
+                List<Tv.Programme> progList = shardCache.get(normLookup);
+                if (progList == null) {
+                    progList = new ArrayList<>();
+                    synchronized (SYNC_LOCK) {
+                        try {
+                            progList = readChannelShard(normLookup);
+                        } catch (Exception e) {
+                            SpiderDebug.log(TAG, "加载分片失败 " + normLookup + "：" + e.toString());
+                        }
+                    }
+                    shardCache.put(normLookup, progList);
+                }
+
                 if (progList == null || progList.isEmpty()) continue;
 
                 List<Epg> epgList = new ArrayList<>();
