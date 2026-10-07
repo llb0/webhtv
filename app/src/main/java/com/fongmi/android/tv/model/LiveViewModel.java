@@ -80,7 +80,7 @@ public class LiveViewModel extends ViewModel {
     }
 
     public void parseXml(Live item) {
-        execute(TaskType.XML, () -> LiveApi.parseXml(item), xml::postValue, error -> xml.postValue(true));
+        execute(TaskType.XML, () -> LiveApi.parseXml(item), xml::postValue, error -> xml.postValue(false));
     }
 
     public void getEpg(Channel item) {
