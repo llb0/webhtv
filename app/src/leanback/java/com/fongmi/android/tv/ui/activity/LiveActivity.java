@@ -110,6 +110,8 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private View mFocus2;
     private boolean playbackCatchup;
     private boolean mEpgFirstOpen;
+    private boolean liveParsed;      // [NEW] parse(LIVE) 是否已完成（groups 结构已稳定）
+    private boolean epgRequested;    // [NEW] 本轮是否已触发过 parseXml，避免重复
     private int count;
 
     public static void start(Context context) {
@@ -278,11 +280,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mViewModel.url().observeForever(mObserveUrl);
         mViewModel.xml().observe(this, this::setEpg);
         mViewModel.epg().observeForever(mObserveEpg);
-        mViewModel.live().observe(this, live -> {
-            mViewModel.parseXml(live);
-            setGroup(live);
-            setWidth(live);
-        });
+        mViewModel.live().observe(this, this::onLiveParsed);
     }
 
     private void checkLive() {
@@ -308,20 +306,64 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void getLive() {
+        liveParsed = false;      // [NEW]
+        epgRequested = false;    // [NEW]
         mViewModel.parse(getHome());
         showProgress();
     }
 
+    /**
+     * [NEW] parse(LIVE) 完成后的回调：此时 LiveApi.parse 已跑完，groups 不再被改动，
+     * 才允许触发 EPG 解析。原来在 lambda 里无条件 parseXml，若仍有其它线程改 groups → CME。
+     */
+    private void onLiveParsed(Live live) {
+        liveParsed = true;
+        setGroup(live);
+        setWidth(live);
+        // parse 失败时 live 是 new Live()（groups 为空），回退到 getHome() 保证 EPG 仍会加载
+        Live target = (live != null && !live.getGroups().isEmpty()) ? live : getHome();
+        if (target != null && !target.getGroups().isEmpty()) startEpg(target);
+    }
+
+    /**
+     * [NEW] 触发 EPG 解析，本轮只触发一次。
+     */
+    private void startEpg(Live live) {
+        if (epgRequested) return;
+        epgRequested = true;
+        mViewModel.parseXml(live);
+    }
+
+    /**
+     * [NEW] 对 groups 做快照后再遍历。
+     * 主线程遍历 setGroup / setWidth 与后台修改同样会 CME，这里一并防住。
+     * 主线程不 sleep，失败直接重试。
+     */
+    private List<Group> snapshotGroups(Live live) {
+        List<Group> copy = new ArrayList<>();
+        if (live == null || live.getGroups() == null) return copy;
+        for (int i = 0; i < 3; i++) {
+            try {
+                copy.clear();
+                copy.addAll(new ArrayList<>(live.getGroups()));
+                return copy;
+            } catch (Throwable e) {
+                SpiderDebug.log("EpgParser", "snapshotGroups重试 " + (i + 1) + "：" + e);
+            }
+        }
+        return copy;
+    }
+
     private void setGroup(Live live) {
         List<Group> items = new ArrayList<>();
-        for (Group group : live.getGroups()) (group.isHidden() ? mHides : items).add(group);
+        for (Group group : snapshotGroups(live)) (group.isHidden() ? mHides : items).add(group);
         mGroupAdapter.addAll(items);
         setPosition(LiveConfig.get().findKeepPosition(items));
     }
 
     private void setWidth(Live live) {
         int padding = ResUtil.dp2px(52);
-        if (live.getWidth() == 0) for (Group item : live.getGroups()) live.setWidth(Math.max(live.getWidth(), ResUtil.getTextWidth(item.getName(), 16)));
+        if (live.getWidth() == 0) for (Group item : snapshotGroups(live)) live.setWidth(Math.max(live.getWidth(), ResUtil.getTextWidth(item.getName(), 16)));
         int width = live.getWidth() == 0 ? 0 : Math.min(live.getWidth() + padding, ResUtil.getScreenWidth() / 4);
         setWidth(mBinding.group, width);
     }
@@ -484,7 +526,11 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (mChannel == null) return;
         LiveEpgSetting.apply(getHome());
         if (!LiveEpgSetting.getXmlUrls(getHome()).isEmpty()) {
-            mViewModel.parseXml(getHome());
+            // [CHANGED] 走安全入口；若 parse 还没跑完，onLiveParsed 会自动补上
+            if (liveParsed) {
+                epgRequested = false;
+                startEpg(getHome());
+            }
         } else {
             mViewModel.getEpg(mChannel);
         }
@@ -925,10 +971,14 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         setMetadata();
     }
 
+    /**
+     * [CHANGED] notify 不再依赖 success：EPG 是增强信息，只要列表存在就刷新一次，
+     * 避免 parseXml 返回 false 时可见项一直不重绘（必须滚动才显示）。
+     */
     private void setEpg(boolean success) {
         SpiderDebug.log("EpgParser", "setEpg success=" + success + " adapterCount=" + (mChannelAdapter != null ? mChannelAdapter.getItemCount() : -1) + " firstChannelEpg=" + (mChannel != null ? mChannel.getDataList().size() : -1));
-        if (success) mChannelAdapter.notifyDataSetChanged();
-        if (mChannel != null && success) mViewModel.getEpg(mChannel);
+        mChannelAdapter.notifyDataSetChanged();
+        if (mChannel != null) mViewModel.getEpg(mChannel);
     }
 
     private void fetch(EpgData item) {
@@ -1011,6 +1061,8 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void resetAdapter() {
+        liveParsed = false;      // [NEW]
+        epgRequested = false;    // [NEW]
         mBinding.control.action.line.setVisibility(View.GONE);
         mBinding.widget.title.setText("");
         mEpgDataAdapter.clear();
