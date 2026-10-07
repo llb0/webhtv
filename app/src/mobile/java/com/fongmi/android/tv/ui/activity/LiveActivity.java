@@ -95,6 +95,7 @@ import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Traffic;
 import com.fongmi.android.tv.utils.Util;
+import com.github.catvod.crawler.SpiderDebug;
 
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -1227,6 +1228,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void setEpg(boolean success) {
+setEpg(boolean success) {
+        SpiderDebug.log("EpgParser", "setEpg success=" + success + " adapterCount=" + (mChannelAdapter != null ? mChannelAdapter.getItemCount() : -1) + " firstChannelEpg=" + (mChannel != null ? mChannel.getDataList().size() : -1));
         if (success) mChannelAdapter.notifyDataSetChanged();
         if (mChannel != null && success)
             mViewModel.getEpg(mChannel);
