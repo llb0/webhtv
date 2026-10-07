@@ -122,21 +122,7 @@ public class EpgParser {
             loadMergedIndex(live, zoneId);
             long age = System.currentTimeMillis() - meta.lastMergeRun;
             if (meta.lastMergeRun == 0 || age > UPDATE_INTERVAL_MS) {
-                new Thread(() -> {
-                    boolean updated = syncEpgSourcesInternal(live, zoneId);
-                    if (updated) {
-                        synchronized (SYNC_LOCK) {
-                            try {
-                                MergeMeta metaNew = loadMergeMeta();
-                                metaNew.lastMergeRun = System.currentTimeMillis();
-                                saveMergeMeta(metaNew);
-                                SpiderDebug.log(TAG, "远程Epg数据已更新写入磁盘分片。");
-                            } catch (Exception e) {
-                                SpiderDebug.log(TAG, "更新epg分片异常" + e.toString());
-                            }
-                        }
-                    }
-                }).start();
+                startBackgroundMerge(live, zoneId);
             }
         }
     }
