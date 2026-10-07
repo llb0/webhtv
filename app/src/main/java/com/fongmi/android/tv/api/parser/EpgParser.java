@@ -131,29 +131,43 @@ public class EpgParser {
         return new File(getEpgCacheDir(), Util.md5(url) + ".xml");
     }
 
-    public static void start(Live live) {
-        if (live == null || live.getGroups().isEmpty()) return;
-        ZoneId zoneId = zoneIdOf(live.getTimeZone());
-        MergeMeta meta = loadMergeMeta();
-        // 兼容旧版单文件总索引：若存在旧 merged_index.json 且无分片目录，则迁移为分片
-        File oldIndex = getOldIndexFile();
-        if (oldIndex.exists() && !hasAnyShard()) {
-            migrateOldIndexToShards();
-        }
-        if (!hasAnyShard()) {
-            SpiderDebug.log(TAG, "没有Epg持久索引，进入首次快速加载并持久化");
-            buildInitialEpgAndSave(live, zoneId);
-            startBackgroundMerge(live, zoneId);
-        } else {
-            SpiderDebug.log(TAG, "Epg持久化索引存在，正常加载");
-            long t0 = System.currentTimeMillis();
-            int n = loadMergedIndex(live, zoneId);   // [CHANGED] 返回绑定数，便于排查
-            SpiderDebug.log(TAG, "loadMergedIndex耗时=" + (System.currentTimeMillis() - t0) + "ms");
-            long age = System.currentTimeMillis() - meta.lastMergeRun;
-            if (meta.lastMergeRun == 0 || age > UPDATE_INTERVAL_MS) {
-                startBackgroundMerge(live, zoneId);
+    /**
+     * [CHANGED] 返回「成功绑定 EPG 的频道数」，且全程不再向外抛异常。
+     * 调用方应据此判断是否刷新 UI，而不是靠「有没有抛异常」。
+     */
+    public static int start(Live live) {
+        if (live == null || live.getGroups().isEmpty()) return 0;
+        int bindCount = 0;
+        try {
+            ZoneId zoneId = zoneIdOf(live.getTimeZone());
+            MergeMeta meta = loadMergeMeta();
+            // 兼容旧版单文件总索引：若存在旧 merged_index.json 且无分片目录，则迁移为分片
+            File oldIndex = getOldIndexFile();
+            if (oldIndex.exists() && !hasAnyShard()) {
+                migrateOldIndexToShards();
             }
+            if (!hasAnyShard()) {
+                SpiderDebug.log(TAG, "没有Epg持久索引，进入首次快速加载并持久化");
+                bindCount = buildInitialEpgAndSave(live, zoneId);
+                startBackgroundMerge(live, zoneId);
+            } else {
+                SpiderDebug.log(TAG, "Epg持久化索引存在，正常加载");
+                long t0 = System.currentTimeMillis();
+                bindCount = loadMergedIndex(live, zoneId);
+                SpiderDebug.log(TAG, "loadMergedIndex耗时=" + (System.currentTimeMillis() - t0) + "ms, bind=" + bindCount);
+                long age = System.currentTimeMillis() - meta.lastMergeRun;
+                if (meta.lastMergeRun == 0 || age > UPDATE_INTERVAL_MS) {
+                    startBackgroundMerge(live, zoneId);
+                }
+            }
+        } catch (Throwable e) {
+            // [CHANGED] 用 SpiderDebug 打全栈（原来的 e.printStackTrace() 按 "EpgParser" 过滤看不到）
+            SpiderDebug.log(TAG, "start()异常：" + e);
+            java.io.StringWriter sw = new java.io.StringWriter();
+            e.printStackTrace(new java.io.PrintWriter(sw));
+            SpiderDebug.log(TAG, "start()堆栈：" + sw);
         }
+        return bindCount;
     }
 
     private static boolean hasAnyShard() {
@@ -849,7 +863,16 @@ public class EpgParser {
         int count = 0;
         if (group == null || group.getChannel() == null) return 0;
         for (Channel ch : group.getChannel()) {
-            if (bindChannel(ch, zoneId)) count++;
+            try {
+                if (bindChannel(ch, zoneId)) count++;
+            } catch (Throwable e) {
+                // [CHANGED] 单个频道绑定失败不能中断整组加载
+                String name = ch == null ? "null" : String.valueOf(ch.getName());
+                SpiderDebug.log(TAG, "bindChannel异常 ch=" + name + "：" + e);
+                java.io.StringWriter sw = new java.io.StringWriter();
+                e.printStackTrace(new java.io.PrintWriter(sw));
+                SpiderDebug.log(TAG, "bindChannel堆栈：" + sw);
+            }
         }
         return count;
     }
