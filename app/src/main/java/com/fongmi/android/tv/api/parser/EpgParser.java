@@ -71,12 +71,7 @@ public class EpgParser {
     public static final String SHARDS_DIR_NAME = "shards";
     private static final Gson GSON = new Gson();
 
-    // ==================================================================
     // [NEW] 手写 TypeAdapter：去掉 Gson 对 Tv.Programme 的反射反序列化。
-    // 冷启动要反序列化上万个 Programme，反射路径是主要耗时来源。
-    // 注意：不需要改 Tv.java —— 这里用「缓存好的 Field 对象」直接赋值，
-    // 每个对象只做几次 field.set，比 Gson 的反射查找快数倍。
-    // ==================================================================
     private static final Field F_START;
     private static final Field F_STOP;
     private static final Field F_CHANNEL;
