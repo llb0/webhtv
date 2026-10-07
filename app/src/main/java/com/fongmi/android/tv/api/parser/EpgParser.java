@@ -76,9 +76,9 @@ public class EpgParser {
     private static final Lock SHARD_READ = SHARD_RW.readLock();
     private static final Lock SHARD_WRITE = SHARD_RW.writeLock();
 
-    // [CHANGED] 分片绑定并行化：频道多时按 Group 并发读文件，缩短首屏耗时
+    // [CHANGED] 分片绑定并行化：频道多时并发读文件，缩短首屏耗时
     private static final boolean PARALLEL_BIND = true;
-    private static final int MIN_PARALLEL_GROUPS = 4;
+    private static final int MIN_PARALLEL_CHANNELS = 24;
     private static final int BIND_THREADS = Math.max(2, Math.min(4, Runtime.getRuntime().availableProcessors()));
     private static final ExecutorService BIND_EXECUTOR = Executors.newFixedThreadPool(BIND_THREADS, r -> {
         Thread t = new Thread(r, "epg-bind");
@@ -810,8 +810,35 @@ public class EpgParser {
     }
 
     /**
-     * [CHANGED] 返回成功绑定 EPG 的频道数；按 Group 并发读分片，缩短首屏耗时。
+     * [CHANGED] 返回成功绑定 EPG 的频道数；内部先做频道快照再并发读分片，缩短首屏耗时。
      */
+    private static List<Channel> snapshotChannels(Live live) {
+        List<Channel> all = new ArrayList<>();
+        for (int attempt = 0; attempt < 3; attempt++) {
+            all.clear();
+            try {
+                for (Group group : new ArrayList<>(live.getGroups())) {
+                    if (group == null) continue;
+                    List<Channel> chs = group.getChannel();
+                    if (chs == null || chs.isEmpty()) continue;
+                    all.addAll(new ArrayList<>(chs));
+                }
+                return all;
+            } catch (ConcurrentModificationException e) {
+                SpiderDebug.log(TAG, "快照groups时并发修改，重试 " + (attempt + 1));
+                try {
+                    Thread.sleep(30);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+            } catch (Throwable e) {
+                SpiderDebug.log(TAG, "快照groups异常：" + e);
+                break;
+            }
+        }
+        return all;
+    }
+
     private static int loadMergedIndex(Live live, ZoneId zoneId) {
         if (!hasAnyShard()) {
             // 兼容：若只有旧版单文件索引，先迁移
@@ -821,26 +848,28 @@ public class EpgParser {
                 return 0;
             }
         }
-        List<Group> groups = live.getGroups();
-        if (groups.isEmpty()) return 0;
-
-        if (!PARALLEL_BIND || groups.size() < MIN_PARALLEL_GROUPS) {
-            int bindCount = 0;
-            for (Group group : groups) bindCount += bindGroup(group, zoneId);
-            return bindCount;
+        // [CHANGED] 用快照替代直接遍历 live.getGroups()，彻底规避 CME
+        List<Channel> channels = snapshotChannels(live);
+        if (channels.isEmpty()) {
+            SpiderDebug.log(TAG, "快照频道为空，无法绑定");
+            return 0;
         }
 
-        List<Future<Integer>> futures = new ArrayList<>(groups.size());
-        for (Group group : groups) {
-            final Group g = group;
+        if (!PARALLEL_BIND || channels.size() < MIN_PARALLEL_CHANNELS) {
+            return bindChunk(channels, 0, channels.size(), zoneId);
+        }
+
+        // 按线程数切块，每块一个任务；块内串行绑定同一频道的读写锁不冲突
+        int chunk = (channels.size() + BIND_THREADS - 1) / BIND_THREADS;
+        List<Future<Integer>> futures = new ArrayList<>(BIND_THREADS);
+        for (int start = 0; start < channels.size(); start += chunk) {
+            final int from = start;
+            final int to = Math.min(start + chunk, channels.size());
             try {
-                futures.add(BIND_EXECUTOR.submit((Callable<Integer>) () -> bindGroup(g, zoneId)));
-            } catch (Exception e) {
-                // 线程池拒绝时退化为串行，保证数据不丢
-                SpiderDebug.log(TAG, "并行绑定提交失败，退化为串行：" + e.toString());
-                int bindCount = 0;
-                for (Group item : groups) bindCount += bindGroup(item, zoneId);
-                return bindCount;
+                futures.add(BIND_EXECUTOR.submit((Callable<Integer>) () -> bindChunk(channels, from, to, zoneId)));
+            } catch (Throwable e) {
+                SpiderDebug.log(TAG, "并行绑定提交失败，退化为串行：" + e);
+                return bindChunk(channels, 0, channels.size(), zoneId);
             }
         }
         int bindCount = 0;
@@ -848,26 +877,27 @@ public class EpgParser {
             try {
                 Integer n = f.get();
                 if (n != null) bindCount += n;
-            } catch (Exception e) {
-                SpiderDebug.log(TAG, "并行绑定任务异常：" + e.toString());
+            } catch (Throwable e) {
+                SpiderDebug.log(TAG, "并行绑定任务异常：" + e);
             }
         }
-        SpiderDebug.log(TAG, "loadMergedIndex完成，绑定EPG频道数量：" + bindCount);
+        SpiderDebug.log(TAG, "loadMergedIndex完成，频道总数=" + channels.size() + " 绑定EPG频道数量=" + bindCount);
         return bindCount;
     }
 
     /**
-     * [CHANGED] 新增：绑定单个分组下所有频道的 EPG（并行任务单元）。
+     * [CHANGED] 绑定快照中 [from, to) 区间的频道（并行任务单元）。
+     * 每个频道单独 try-catch，单个失败不影响其它频道。
      */
-    private static int bindGroup(Group group, ZoneId zoneId) {
+    private static int bindChunk(List<Channel> channels, int from, int to, ZoneId zoneId) {
         int count = 0;
-        if (group == null || group.getChannel() == null) return 0;
-        for (Channel ch : group.getChannel()) {
+        for (int i = from; i < to; i++) {
+            Channel ch = channels.get(i);
+            if (ch == null) continue;
             try {
                 if (bindChannel(ch, zoneId)) count++;
             } catch (Throwable e) {
-                // [CHANGED] 单个频道绑定失败不能中断整组加载
-                String name = ch == null ? "null" : String.valueOf(ch.getName());
+                String name = String.valueOf(ch.getName());
                 SpiderDebug.log(TAG, "bindChannel异常 ch=" + name + "：" + e);
                 java.io.StringWriter sw = new java.io.StringWriter();
                 e.printStackTrace(new java.io.PrintWriter(sw));
