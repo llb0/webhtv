@@ -134,6 +134,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private int count;
     private PiP mPiP;
     private boolean liveMenuRendered;
+    private boolean liveParsed;      // [NEW] parse(LIVE) 是否已完成（groups 结构已稳定）
+    private boolean epgRequested;    // [NEW] 本轮是否已触发过 parseXml，避免重复
     private Boolean embeddedUiMode;
     private Channel lastLineClickChannel;
     private CustomTarget<Drawable> mArtworkTarget;
@@ -441,7 +443,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         mViewModel.url().observeForever(mObserveUrl);
         mViewModel.xml().observe(this, this::setEpg);
         mViewModel.epg().observeForever(mObserveEpg);
-        mViewModel.live().observe(this, this::renderLive);
+        mViewModel.live().observe(this, this::onLiveParsed);
     }
 
     private void checkLive() {
@@ -467,22 +469,66 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void getLive() {
+        liveParsed = false;
+        epgRequested = false;
         renderLive(getHome());
         mViewModel.parse(getHome());
         showProgress();
     }
 
+    /**
+     * [NEW] parse(LIVE) 完成后的回调：此时 groups 不再被修改，才允许跑 EPG。
+     * 原来 renderLive 里同步触发 parseXml，与后台 LiveApi.parse 并发改 groups → CME。
+     */
+    private void onLiveParsed(Live live) {
+        liveParsed = true;
+        renderLive(live);
+        // parse 失败时 live 是 new Live()（groups 为空），回退到 getHome() 保证 EPG 仍会加载
+        Live target = (live != null && !live.getGroups().isEmpty()) ? live : getHome();
+        if (target != null && !target.getGroups().isEmpty()) startEpg(target);
+    }
+
+    /**
+     * [NEW] 触发 EPG 解析，本轮只触发一次。
+     */
+    private void startEpg(Live live) {
+        if (epgRequested) return;
+        epgRequested = true;
+        mViewModel.parseXml(live);
+    }
+
+    /**
+     * [CHANGED] 去掉了 mViewModel.parseXml(live)，只负责渲染菜单。
+     */
     private void renderLive(Live live) {
         if (live == null || live.getGroups().isEmpty() || liveMenuRendered) return;
         liveMenuRendered = true;
-        mViewModel.parseXml(live);
         setGroup(live);
         setWidth(live);
     }
 
+    /**
+     * [NEW] 对 groups 做快照后再遍历。
+     * 主线程遍历 setGroup / setWidth 与后台 parse 修改同样会 CME，这里一并防住。
+     * 主线程不 sleep，失败直接重试。
+     */
+    private List<Group> snapshotGroups(Live live) {
+        List<Group> copy = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            try {
+                copy.clear();
+                copy.addAll(new ArrayList<>(live.getGroups()));
+                return copy;
+            } catch (Throwable e) {
+                SpiderDebug.log("EpgParser", "snapshotGroups重试 " + (i + 1) + "：" + e);
+            }
+        }
+        return copy;
+    }
+
     private void setGroup(Live live) {
         List<Group> items = new ArrayList<>();
-        for (Group group : live.getGroups()) (group.isHidden() ? mHides : items).add(group);
+        for (Group group : snapshotGroups(live)) (group.isHidden() ? mHides : items).add(group);
         mGroupAdapter.addAll(items);
         setPosition(LiveConfig.get().findKeepPosition(items));
     }
@@ -490,7 +536,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private void setWidth(Live live) {
         if (isEmbeddedLiveUi()) return;
         int padding = ResUtil.dp2px(48);
-        if (live.getWidth() == 0) for (Group item : live.getGroups()) live.setWidth(Math.max(live.getWidth(), ResUtil.getTextWidth(item.getName(), 14)));
+        if (live.getWidth() == 0) for (Group item : snapshotGroups(live)) live.setWidth(Math.max(live.getWidth(), ResUtil.getTextWidth(item.getName(), 14)));
         int width = live.getWidth() == 0 ? 0 : Math.min(live.getWidth() + padding, ResUtil.getScreenWidth() / 4);
         setWidth(mBinding.group, width);
     }
@@ -660,7 +706,6 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void checkPlay() {
         if (isWebViewChannel()) {
-            // WebView 频道：直接控制 WebView 内的 video 元素，并同步图标
             if (mWebViewPlayer.isWebPlaying()) {
                 mWebViewPlayer.pause();
                 mBinding.control.play.setImageResource(androidx.media3.ui.R.drawable.exo_icon_play);
@@ -915,7 +960,6 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         setR1Callback();
         hideInfo();
         hideWidgetOverlay();
-        // WebView 频道：显示控制栏时同步播放/暂停图标
         if (isWebViewChannel()) {
             mBinding.control.play.setImageResource(mWebViewPlayer.isWebPlaying()
                     ? androidx.media3.ui.R.drawable.exo_icon_pause
@@ -1042,7 +1086,6 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void selectChannel(Channel item, boolean syncPosition) {
-        // 小窗预览模式下点击正在播放的频道标题，直接进入全屏播放
         if (isEmbeddedLiveUi() && item.isSelected() && mChannel != null && mChannel.equals(item)) {
             enterFullscreenLive();
             return;
@@ -1227,11 +1270,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         }
     }
 
+    /**
+     * [CHANGED] notify 不再依赖 success：EPG 是增强信息，只要列表存在就刷新一次，
+     * 避免 parseXml 返回 false 时可见项一直不重绘（必须滚动才显示）。
+     */
     private void setEpg(boolean success) {
         SpiderDebug.log("EpgParser", "setEpg success=" + success + " adapterCount=" + (mChannelAdapter != null ? mChannelAdapter.getItemCount() : -1) + " firstChannelEpg=" + (mChannel != null ? mChannel.getDataList().size() : -1));
-        if (success) mChannelAdapter.notifyDataSetChanged();
-        if (mChannel != null && success)
-            mViewModel.getEpg(mChannel);
+        mChannelAdapter.notifyDataSetChanged();
+        if (mChannel != null) mViewModel.getEpg(mChannel);
     }
 
     private void fetch(EpgData item) {
@@ -1287,7 +1333,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private boolean isWebViewChannel() {
         return mChannel != null && mChannel.getCurrent().startsWith("webview://");
     }
- 
+
     private void startWebView(String url) {
         if (isFinishing() || isDestroyed()) return;
         if (service() != null) {
@@ -1300,23 +1346,21 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
             return true;
         };
         mWebViewPlayer.attach(this, mBinding.video, url, webTouchListener, playing -> {
-            // WebView 内 video 播放状态变化时，同步刷新控制栏播放/暂停图标
             mBinding.control.play.setImageResource(playing
                     ? androidx.media3.ui.R.drawable.exo_icon_pause
                     : androidx.media3.ui.R.drawable.exo_icon_play);
         });
         bringOverlaysToFront();
     }
- 
+
     private void bringOverlaysToFront() {
         if (mBinding.widget != null) mBinding.widget.getRoot().bringToFront();
         if (mBinding.control != null) mBinding.control.getRoot().bringToFront();
         if (mBinding.progress != null) mBinding.progress.getRoot().bringToFront();
         if (mBinding.osd != null) mBinding.osd.getRoot().bringToFront();
-        // 频道列表也要提到 WebView 之上，否则切台后左半屏调出的列表会被 WebView 遮挡
         if (mBinding.recycler != null) mBinding.recycler.bringToFront();
     }
- 
+
     private boolean isSameReloadUrl(String realUrl) {
         return !TextUtils.isEmpty(mPendingReloadUrl) && TextUtils.equals(mPendingReloadUrl, realUrl);
     }
@@ -1350,6 +1394,8 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     private void resetAdapter() {
         liveMenuRendered = false;
+        liveParsed = false;
+        epgRequested = false;
         mBinding.control.action.line.setVisibility(View.GONE);
         mBinding.control.title.setText("");
         mBinding.control.size.setText("");
@@ -1386,7 +1432,10 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         LiveEpgSetting.apply(getHome());
         pendingShowEpg = true;
         if (!LiveEpgSetting.getXmlUrls(getHome()).isEmpty()) {
-            mViewModel.parseXml(getHome());
+            if (liveParsed) {
+                epgRequested = false;
+                startEpg(getHome());
+            }
         } else {
             mViewModel.getEpg(mChannel);
         }
@@ -1876,7 +1925,6 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
 
     @Override
     public void onSingleTap(float x, float y, float width, float height) {
-        // 小窗预览模式：右上角单击直接旋转全屏，其余位置仍调出播放控制栏
         if (isEmbeddedLiveUi()) {
             if (width > 0 && height > 0 && x > width * 0.65f && y < height * 0.35f) {
                 enterFullscreenLive();
@@ -1885,7 +1933,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         }
         onSingleTap(x, width);
     }
- 
+
     @Override
     public void onDoubleTap() {
         if (isLock()) {
