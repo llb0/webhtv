@@ -54,6 +54,16 @@ import okhttp3.Response;
 
 public class EpgParser {
 
+    public interface EpgLoadCallback {
+        void onEpgReady();
+    }
+
+    private static EpgLoadCallback callback;
+
+    public static void setEpgLoadCallback(EpgLoadCallback cb) {
+        callback = cb;
+    }
+
     private static final String TAG = "EpgParser";
     public static final long UPDATE_INTERVAL_MS = TimeUnit.HOURS.toMillis(6);
     public static final int KEEP_DAYS = 7;
@@ -127,8 +137,13 @@ public class EpgParser {
                     if (updated) {
                         synchronized (SYNC_LOCK) {
                             try {
-                                saveMergeMeta(loadMergeMeta());
-                                if (zoneId != null) loadMergedIndex(live, zoneId);
+                                MergeMeta metaNew = loadMergeMeta();
+                                metaNew.lastMergeRun = System.currentTimeMillis();
+                                saveMergeMeta(metaNew);
+                                // =========【关键改动：删除后台更新后全局loadMergedIndex，不再全量覆盖内存Channel数据】=========
+                                SpiderDebug.log(TAG, "远程Epg数据已更新写入磁盘分片。");
+                                // 触发回调通知UI刷新屏幕可见条目
+                                if(callback != null) callback.onEpgReady();
                             } catch (Exception e) {
                                 SpiderDebug.log(TAG, "更新epg分片异常" + e.toString());
                             }
@@ -288,7 +303,7 @@ public class EpgParser {
             try {
                 Thread.sleep(1500);
             } catch (InterruptedException e) {
-                SpiderDebug.log(TAG, "迟延启动后台更新出错：" + e.toString());
+                SpiderDebug.log(TAG, "启动后台更新延迟出错：" + e.toString());
                 return;
             }
             boolean updated = syncEpgSourcesInternal(live, zoneId);
@@ -298,8 +313,9 @@ public class EpgParser {
                         MergeMeta meta = loadMergeMeta();
                         meta.lastMergeRun = System.currentTimeMillis();
                         saveMergeMeta(meta);
-                        if (zoneId != null) loadMergedIndex(live, zoneId);
+                        // 移除 loadMergedIndex(live, zoneId)
                         SpiderDebug.log(TAG, "远程Epg数据已更新至本地。");
+                        if(callback != null) callback.onEpgReady();
                     } catch (Exception e) {
                         SpiderDebug.log(TAG, "更新epg分片异常" + e.toString());
                     }
