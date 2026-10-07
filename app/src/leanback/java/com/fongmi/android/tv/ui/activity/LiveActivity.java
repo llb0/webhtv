@@ -399,8 +399,8 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
             ViewGroup.LayoutParams params = view.getLayoutParams();
             int minW = 0, maxW = 0;
             if (view == mBinding.channel) {
-                minW = ResUtil.dp2px(120);
-                maxW = ResUtil.dp2px(260);
+                minW = ResUtil.dp2px(180);
+                maxW = ResUtil.dp2px(360);
             } else if (view == mBinding.group) {
                 minW = ResUtil.dp2px(100);
                 maxW = ResUtil.dp2px(220);
