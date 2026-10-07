@@ -15,8 +15,11 @@ import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.setting.LiveEpgSetting;
 import com.fongmi.android.tv.utils.Formatters;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
@@ -30,12 +33,22 @@ public class LiveApi {
         LiveConfig.get().applyKeepsToGroups(item.getGroups());
     }
 
+    /**
+     * [CHANGED] 返回「是否至少绑定了一个频道的 EPG」，而不是「有没有抛异常」。
+     * 原来 EpgParser.start() 一旦中途抛异常，这里就 return false，
+     * 导致 LiveActivity.setEpg(false) 不执行 notifyDataSetChanged()——
+     * 数据其实已经写进 Channel.dataList 了，只是没通知 UI。
+     */
     public static boolean parseXml(@NonNull Live item) {
         try {
-            EpgParser.start(item);
-            return true;
-        } catch (Exception e) {
-            e.printStackTrace();
+            int bind = EpgParser.start(item);
+            SpiderDebug.log("EpgParser", "parseXml bind=" + bind);
+            return bind > 0;
+        } catch (Throwable e) {
+            // [CHANGED] 用 SpiderDebug 打全栈，原来的 e.printStackTrace() 按 "EpgParser" 过滤看不到
+            StringWriter sw = new StringWriter();
+            e.printStackTrace(new PrintWriter(sw));
+            SpiderDebug.log("EpgParser", "parseXml异常：" + sw);
             return false;
         }
     }
