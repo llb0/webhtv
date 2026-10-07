@@ -1228,7 +1228,6 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     }
 
     private void setEpg(boolean success) {
-setEpg(boolean success) {
         SpiderDebug.log("EpgParser", "setEpg success=" + success + " adapterCount=" + (mChannelAdapter != null ? mChannelAdapter.getItemCount() : -1) + " firstChannelEpg=" + (mChannel != null ? mChannel.getDataList().size() : -1));
         if (success) mChannelAdapter.notifyDataSetChanged();
         if (mChannel != null && success)
