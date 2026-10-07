@@ -69,17 +69,27 @@ public class EpgParser {
     public static final String SHARDS_DIR_NAME = "shards";
     private static final Gson GSON = new Gson();
 
-    // [CHANGED] 后台合并启动延迟：1.5s → 8s，避免冷启动时与首屏 loadMergedIndex 抢 IO / 抢锁
+    // 后台合并启动延迟：8s，避免冷启动时与首屏 loadMergedIndex 抢 IO / 抢锁
     private static final long BACKGROUND_MERGE_DELAY_MS = 8000L;
 
-    // [CHANGED] 分片读写锁：读并发、写独占，替代原来的全局 synchronized (SYNC_LOCK)
+    // 分片读写锁：读并发、写独占，替代原来的全局 synchronized (SYNC_LOCK)
     private static final ReentrantReadWriteLock SHARD_RW = new ReentrantReadWriteLock();
     private static final Lock SHARD_READ = SHARD_RW.readLock();
     private static final Lock SHARD_WRITE = SHARD_RW.writeLock();
 
-    // [CHANGED] 分片绑定并行化：频道多时并发读文件，缩短首屏耗时
+    // 分片绑定并行化：频道多时并发读文件，缩短首屏耗时
     private static final boolean PARALLEL_BIND = true;
     private static final int MIN_PARALLEL_CHANNELS = 24;
+
+    // 分片目录缓存：避免每个频道都 new File + exists() 走一次磁盘 stat
+    private static volatile File SHARDS_DIR;
+
+    // parseFull 失败日志计数器（只打前几条，避免日志 IO 拖慢首屏）
+    private static final java.util.concurrent.atomic.AtomicInteger PARSE_ERR_COUNT = new java.util.concurrent.atomic.AtomicInteger();
+
+    // 分片内存缓存：频道名 → 节目单。命中后零 IO、零 Gson 解析。
+    // 首次冷启动后，再次进入直播（含退出直播再进）直接命中，耗时降到毫秒级。
+    private static final java.util.concurrent.ConcurrentHashMap<String, List<Tv.Programme>> MEM = new java.util.concurrent.ConcurrentHashMap<>();
     private static final int BIND_THREADS = Math.max(2, Math.min(4, Runtime.getRuntime().availableProcessors()));
     private static final ExecutorService BIND_EXECUTOR = Executors.newFixedThreadPool(BIND_THREADS, r -> {
         Thread t = new Thread(r, "epg-bind");
@@ -105,8 +115,11 @@ public class EpgParser {
     }
 
     private static File getShardsDir() {
-        File dir = new File(getEpgCacheDir(), SHARDS_DIR_NAME);
+        File dir = SHARDS_DIR;
+        if (dir != null) return dir;
+        dir = new File(getEpgCacheDir(), SHARDS_DIR_NAME);
         if (!dir.exists()) dir.mkdirs();
+        SHARDS_DIR = dir;
         return dir;
     }
 
@@ -133,7 +146,7 @@ public class EpgParser {
     }
 
     /**
-     * [CHANGED] 返回「成功绑定 EPG 的频道数」，且全程不再向外抛异常。
+     * 返回「成功绑定 EPG 的频道数」，且全程不再向外抛异常。
      * 调用方应据此判断是否刷新 UI，而不是靠「有没有抛异常」。
      */
     public static int start(Live live) {
@@ -162,7 +175,6 @@ public class EpgParser {
                 }
             }
         } catch (Throwable e) {
-            // [CHANGED] 用 SpiderDebug 打全栈（原来的 e.printStackTrace() 按 "EpgParser" 过滤看不到）
             SpiderDebug.log(TAG, "start()异常：" + e);
             java.io.StringWriter sw = new java.io.StringWriter();
             e.printStackTrace(new java.io.PrintWriter(sw));
@@ -177,9 +189,6 @@ public class EpgParser {
         return files != null && files.length > 0;
     }
 
-    /**
-     * [CHANGED] 返回本次绑定到的频道数（原来为 void）
-     */
     private static int buildInitialEpgAndSave(Live live, ZoneId zoneId) {
         List<String> urls = LiveEpgSetting.getXmlUrls(live);
         if (urls.isEmpty()) return 0;
@@ -193,7 +202,7 @@ public class EpgParser {
                 }
                 Map<String, List<Tv.Programme>> indexMap = parseSourceByName(cacheFile, zoneId);
 
-                // [CHANGED] 写分片用写锁；meta 仍用 SYNC_LOCK；两者不再嵌套，避免锁序问题
+                // 写分片用写锁；meta 仍用 SYNC_LOCK；两者不再嵌套，避免锁序问题
                 writeShardedIndex(indexMap);
 
                 synchronized (SYNC_LOCK) {
@@ -219,7 +228,7 @@ public class EpgParser {
 
     /**
      * 全量写出索引（首次加载场景）：逐频道写分片，不构造超大中间字符串。
-     * [CHANGED] 每个频道的写锁在 writeChannelShard 内部逐把获取/释放，允许读操作穿插。
+     * 每个频道的写锁在 writeChannelShard 内部逐把获取/释放，允许读操作穿插。
      */
     private static void writeShardedIndex(Map<String, List<Tv.Programme>> indexMap) throws Exception {
         for (Map.Entry<String, List<Tv.Programme>> entry : indexMap.entrySet()) {
@@ -230,7 +239,7 @@ public class EpgParser {
     /**
      * 流式写入单个频道分片文件：内容为该频道的节目单数组。
      * tmp 文件名带线程 ID 后缀，避免多线程并发写同一 tmp 文件导致内容交错损坏。
-     * [CHANGED] 内部加写锁（可重入，外层 mergeSourceToShards 再加也不会死锁）。
+     * 内部加写锁（可重入，外层 mergeSourceToShards 再加也不会死锁）。
      */
     private static void writeChannelShard(String channelName, List<Tv.Programme> programmes) throws Exception {
         File shardFile = getShardFile(channelName);
@@ -257,6 +266,8 @@ public class EpgParser {
             } else {
                 if (tempFile.exists()) tempFile.delete();
             }
+            // 写成功则同步内存缓存，保证后续读到最新数据
+            MEM.put(channelName, programmes);
         } finally {
             SHARD_WRITE.unlock();
         }
@@ -269,6 +280,7 @@ public class EpgParser {
         File shardFile = getShardFile(channelName);
         SHARD_WRITE.lock();
         try {
+            MEM.remove(channelName);
             if (shardFile.exists()) shardFile.delete();
         } finally {
             SHARD_WRITE.unlock();
@@ -277,9 +289,13 @@ public class EpgParser {
 
     /**
      * 流式读取单个频道分片，返回该频道的节目单列表；不存在返回空列表。
-     * [CHANGED] 读锁：多个频道可并发读，不再与 UI 线程/合并线程互斥整块。
+     * 读锁：多个频道可并发读，不再与 UI 线程/合并线程互斥整块。
      */
     private static List<Tv.Programme> readChannelShard(String channelName) throws Exception {
+        // 内存缓存命中：零 IO、零 Gson，电视上这是最大的一次提速
+        List<Tv.Programme> cached = MEM.get(channelName);
+        if (cached != null) return cached;
+
         File shardFile = getShardFile(channelName);
         List<Tv.Programme> list = new ArrayList<>();
         if (!shardFile.exists() || shardFile.length() == 0) return list;
@@ -296,12 +312,14 @@ public class EpgParser {
         } finally {
             SHARD_READ.unlock();
         }
+        // 回填缓存
+        MEM.put(channelName, list);
         return list;
     }
 
     /**
      * 将旧版单文件总索引迁移为分片索引：流式边读边写，内存峰值 = 单个频道。
-     * [CHANGED] 不再外层加 SYNC_LOCK，写锁由 writeChannelShard 内部持有。
+     * 不再外层加 SYNC_LOCK，写锁由 writeChannelShard 内部持有。
      */
     private static void migrateOldIndexToShards() {
         File oldIndex = getOldIndexFile();
@@ -338,7 +356,6 @@ public class EpgParser {
     private static void startBackgroundMerge(Live live, ZoneId zoneId) {
         new Thread(() -> {
             try {
-                // [CHANGED] 1500ms → 8s：先让首屏 loadMergedIndex 跑完，再动磁盘
                 Thread.sleep(BACKGROUND_MERGE_DELAY_MS);
             } catch (InterruptedException e) {
                 SpiderDebug.log(TAG, "启动后台更新延迟出错：" + e.toString());
@@ -413,7 +430,7 @@ public class EpgParser {
             cleanStaleEpgCache(meta, urls);
             return false;
         }
-        // [CHANGED] 原来这里会 cleanAllShards() 全量重扫所有分片（最大的 IO 放大源）。
+
         // mergeSourceToShards 写回时已按 KEEP_DAYS 过滤，这里不再重复全扫。
         cleanStaleEpgCache(meta, urls);
         return true;
@@ -544,7 +561,7 @@ public class EpgParser {
     /**
      * 逐频道将单个源的数据合并写入分片：只读该频道旧分片，7天过滤后写回。
      * 内存峰值 = 单个频道的节目单列表。
-     * [CHANGED] 锁粒度收窄到 readChannelShard / writeChannelShard 内部，不再整块独占。
+     * 锁粒度收窄到 readChannelShard / writeChannelShard 内部，不再整块独占。
      */
     private static void mergeSourceToShards(Map<String, List<Tv.Programme>> sourceByName, ZoneId zoneId) throws Exception {
         LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
@@ -586,13 +603,15 @@ public class EpgParser {
 
     /**
      * 遍历全部分片，逐个执行7天过期过滤并写回；空分片删除。
-     * [CHANGED] 不再由 syncEpgSourcesInternal 自动调用（写回时已过滤），仅保留供手动/迁移后调用，
+     * 不再由 syncEpgSourcesInternal 自动调用（写回时已过滤），仅保留供手动/迁移后调用，
      * 避免每次合并都把几百个分片全量重写一遍。
      */
     private static void cleanAllShards(ZoneId zoneId) {
         LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
         File[] files = getShardsDir().listFiles((d, name) -> name.endsWith(".json"));
         if (files == null) return;
+        // [NEW] 按文件直接改分片，无法映射回频道名，内存缓存整体失效
+        MEM.clear();
         for (File f : files) {
             try {
                 List<Tv.Programme> progs = readChannelShardFile(f);
@@ -811,7 +830,7 @@ public class EpgParser {
     }
 
     /**
-     * [CHANGED] 返回成功绑定 EPG 的频道数；内部先做频道快照再并发读分片，缩短首屏耗时。
+     * 返回成功绑定 EPG 的频道数；内部先做频道快照再并发读分片，缩短首屏耗时。
      */
     private static List<Channel> snapshotChannels(Live live) {
         List<Channel> all = new ArrayList<>();
@@ -849,7 +868,7 @@ public class EpgParser {
                 return 0;
             }
         }
-        // [CHANGED] 用快照替代直接遍历 live.getGroups()，彻底规避 CME
+        // 用快照替代直接遍历 live.getGroups()，彻底规避 CME
         List<Channel> channels = snapshotChannels(live);
         if (channels.isEmpty()) {
             SpiderDebug.log(TAG, "快照频道为空，无法绑定");
@@ -874,25 +893,41 @@ public class EpgParser {
             }
         }
         int bindCount = 0;
+        boolean interrupted = false;
         for (Future<Integer> f : futures) {
             try {
                 Integer n = f.get();
                 if (n != null) bindCount += n;
+            } catch (InterruptedException e) {
+                SpiderDebug.log(TAG, "并行绑定被中断，已绑定=" + bindCount);
+                interrupted = true;
+                break;
             } catch (Throwable e) {
                 SpiderDebug.log(TAG, "并行绑定任务异常：" + e);
             }
+        }
+        if (interrupted) {
+            // 主动结束剩余任务，避免它们空跑占用 IO
+            for (Future<Integer> f : futures) f.cancel(true);
+            // 恢复中断标志，交由上层 Task 处理
+            Thread.currentThread().interrupt();
         }
         SpiderDebug.log(TAG, "loadMergedIndex完成，频道总数=" + channels.size() + " 绑定EPG频道数量=" + bindCount);
         return bindCount;
     }
 
     /**
-     * [CHANGED] 绑定快照中 [from, to) 区间的频道（并行任务单元）。
+     * 绑定快照中 [from, to) 区间的频道（并行任务单元）。
      * 每个频道单独 try-catch，单个失败不影响其它频道。
+     * 每 8 个频道检查一次中断标志，被 cancel 时快速退出，不空跑。
      */
     private static int bindChunk(List<Channel> channels, int from, int to, ZoneId zoneId) {
         int count = 0;
         for (int i = from; i < to; i++) {
+            if (((i - from) & 7) == 0 && Thread.currentThread().isInterrupted()) {
+                SpiderDebug.log(TAG, "bindChunk检测到中断，提前退出 " + from + "~" + to + " 已完成=" + count);
+                return count;
+            }
             Channel ch = channels.get(i);
             if (ch == null) continue;
             try {
@@ -909,7 +944,7 @@ public class EpgParser {
     }
 
     /**
-     * [CHANGED] 新增：读取某频道分片并组装 Epg 列表后 setDataList。
+     * 读取某频道分片并组装 Epg 列表后 setDataList。
      * 缓存避免同频道重复读文件。
      */
     private static boolean bindChannel(Channel ch, ZoneId zoneId) {
@@ -944,7 +979,7 @@ public class EpgParser {
                 epg = Epg.create(normLookup, dateStr);
                 dateGroup.put(dateStr, epg);
             }
-            epg.getList().add(getEpgData(programme, zoneId));
+            epg.getList().add(getEpgData(startDate, endDate, zoneId, programme));
         }
         epgList.addAll(dateGroup.values());
         ch.setDataList(epgList);
@@ -1022,7 +1057,9 @@ public class EpgParser {
                 return OffsetDateTime.parse(s, s.charAt(len - 3) == ':' ? Formatters.EPG_FULL_COLON : Formatters.EPG_FULL);
             return java.time.LocalDateTime.parse(len > 14 ? s.substring(0, 14) : s, Formatters.EPG_FULL_NO_TZ).atZone(zoneId).toOffsetDateTime();
         } catch (Exception e) {
-            SpiderDebug.log(TAG, "parseFull出错：" + e.toString());
+            if (PARSE_ERR_COUNT.incrementAndGet() <= 3) {
+                SpiderDebug.log(TAG, "parseFull出错 src=" + s + "：" + e.toString());
+            }
             return OffsetDateTime.ofInstant(Instant.EPOCH, ZoneOffset.UTC);
         }
     }
