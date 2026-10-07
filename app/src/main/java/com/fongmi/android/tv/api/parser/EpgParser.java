@@ -16,7 +16,9 @@ import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
 import com.google.gson.Gson;
+import com.google.gson.TypeAdapter;
 import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 import com.google.gson.stream.JsonWriter;
 
 import org.simpleframework.xml.core.Persister;
@@ -69,12 +71,142 @@ public class EpgParser {
     public static final String SHARDS_DIR_NAME = "shards";
     private static final Gson GSON = new Gson();
 
+    // ==================================================================
+    // [NEW] 手写 TypeAdapter：去掉 Gson 对 Tv.Programme 的反射反序列化。
+    // 冷启动要反序列化上万个 Programme，反射路径是主要耗时来源。
+    // 注意：不需要改 Tv.java —— 这里用「缓存好的 Field 对象」直接赋值，
+    // 每个对象只做几次 field.set，比 Gson 的反射查找快数倍。
+    // ==================================================================
+    private static final Field F_START;
+    private static final Field F_STOP;
+    private static final Field F_CHANNEL;
+    private static final Field F_TITLE;
+    private static final Field F_TITLE_TEXT;
+
+    static {
+        Field start = null, stop = null, channel = null, title = null, titleText = null;
+        try {
+            start = Tv.Programme.class.getDeclaredField("start");
+            stop = Tv.Programme.class.getDeclaredField("stop");
+            channel = Tv.Programme.class.getDeclaredField("channel");
+            title = Tv.Programme.class.getDeclaredField("title");
+            titleText = Tv.Title.class.getDeclaredField("text");
+            start.setAccessible(true);
+            stop.setAccessible(true);
+            channel.setAccessible(true);
+            title.setAccessible(true);
+            titleText.setAccessible(true);
+        } catch (Throwable e) {
+            SpiderDebug.log(TAG, "Programme字段初始化失败，将回退反射：" + e);
+        }
+        F_START = start;
+        F_STOP = stop;
+        F_CHANNEL = channel;
+        F_TITLE = title;
+        F_TITLE_TEXT = titleText;
+    }
+
+    private static void put(Field f, Object target, Object value) {
+        if (f == null) return;
+        try {
+            f.set(target, value);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static Tv.Title newTitle(String text) {
+        Tv.Title t = new Tv.Title();
+        put(F_TITLE_TEXT, t, text);
+        return t;
+    }
+
+    /**
+     * 手写读写，字段与原来 Gson 反射生成的 JSON 完全一致：
+     * {"start":"...","stop":"...","channel":"...","title":[{"text":"..."}]}
+     * 所以新旧分片文件互相兼容，不需要迁移。
+     */
+    private static final TypeAdapter<Tv.Programme> PROGRAMME_ADAPTER = new TypeAdapter<Tv.Programme>() {
+
+        @Override
+        public void write(JsonWriter out, Tv.Programme p) throws java.io.IOException {
+            if (p == null) {
+                out.nullValue();
+                return;
+            }
+            out.beginObject();
+            out.name("start").value(p.getStart());
+            out.name("stop").value(p.getStop());
+            out.name("channel").value(p.getChannel());
+            out.name("title");
+            out.beginArray();
+            // 只保留第一个标题：既缩小文件，也让 getTitle() 的 stream() 只在 1 个元素上跑
+            out.beginObject();
+            out.name("text").value(p.getTitle());
+            out.endObject();
+            out.endArray();
+            out.endObject();
+        }
+
+        @Override
+        public Tv.Programme read(JsonReader in) throws java.io.IOException {
+            if (in.peek() == JsonToken.NULL) {
+                in.nextNull();
+                return null;
+            }
+            Tv.Programme p = new Tv.Programme();
+            String start = null, stop = null, channel = null, title = null;
+            in.beginObject();
+            while (in.hasNext()) {
+                String name = in.nextName();
+                if ("start".equals(name)) {
+                    start = in.nextString();
+                } else if ("stop".equals(name)) {
+                    stop = in.nextString();
+                } else if ("channel".equals(name)) {
+                    channel = in.nextString();
+                } else if ("title".equals(name)) {
+                    // 只取第一个非空标题，其余跳过 —— 省掉 List + 多个 Title 对象的创建
+                    in.beginArray();
+                    while (in.hasNext()) {
+                        in.beginObject();
+                        while (in.hasNext()) {
+                            if ("text".equals(in.nextName())) {
+                                String v = in.nextString();
+                                if (title == null && v != null && !v.isEmpty()) title = v;
+                            } else {
+                                in.skipValue();
+                            }
+                        }
+                        in.endObject();
+                    }
+                    in.endArray();
+                } else {
+                    in.skipValue();
+                }
+            }
+            in.endObject();
+            put(F_START, p, start == null ? "" : start);
+            put(F_STOP, p, stop == null ? "" : stop);
+            put(F_CHANNEL, p, channel == null ? "" : channel);
+            if (title != null) {
+                List<Tv.Title> list = new ArrayList<>(1);
+                list.add(newTitle(title));
+                put(F_TITLE, p, list);
+            }
+            return p;
+        }
+    };
+
     // [CHANGED] 后台合并启动延迟：1.5s → 8s，避免冷启动时与首屏 loadMergedIndex 抢 IO / 抢锁
     private static final long BACKGROUND_MERGE_DELAY_MS = 25000L;
 
     // [NEW] 首屏绑定的自有截止时间。超过就把「已绑好的部分」先交给 UI，
     // 剩下的继续在后台跑（不取消），把 MEM 预热好，下次进入就是毫秒级。
     private static final long BIND_DEADLINE_MS = 40000L;
+
+    // [NEW] 首屏优先绑定的频道数：绑完这些就返回让 UI 刷新，其余后台补。
+    // 电视一屏最多可见 ~20 个频道，取 40 留足余量。
+    private static final int FAST_BIND_COUNT = 40;
 
     // [CHANGED] 分片读写锁：读并发、写独占，替代原来的全局 synchronized (SYNC_LOCK)
     private static final ReentrantReadWriteLock SHARD_RW = new ReentrantReadWriteLock();
@@ -265,7 +397,7 @@ public class EpgParser {
                 writer.setIndent("");
                 writer.beginArray();
                 for (Tv.Programme p : programmes) {
-                    GSON.toJson(p, Tv.Programme.class, writer);
+                    PROGRAMME_ADAPTER.write(writer, p);
                 }
                 writer.endArray();
                 writer.flush();
@@ -316,7 +448,7 @@ public class EpgParser {
              JsonReader reader = new JsonReader(isr)) {
             reader.beginArray();
             while (reader.hasNext()) {
-                list.add(GSON.fromJson(reader, Tv.Programme.class));
+                list.add(PROGRAMME_ADAPTER.read(reader));
             }
             reader.endArray();
         } finally {
@@ -346,7 +478,7 @@ public class EpgParser {
                 List<Tv.Programme> progs = new ArrayList<>();
                 reader.beginArray();
                 while (reader.hasNext()) {
-                    progs.add(GSON.fromJson(reader, Tv.Programme.class));
+                    progs.add(PROGRAMME_ADAPTER.read(reader));
                 }
                 reader.endArray();
                 if (!progs.isEmpty()) {
@@ -653,7 +785,7 @@ public class EpgParser {
              JsonReader reader = new JsonReader(isr)) {
             reader.beginArray();
             while (reader.hasNext()) {
-                list.add(GSON.fromJson(reader, Tv.Programme.class));
+                list.add(PROGRAMME_ADAPTER.read(reader));
             }
             reader.endArray();
         } finally {
@@ -676,7 +808,7 @@ public class EpgParser {
                 writer.setIndent("");
                 writer.beginArray();
                 for (Tv.Programme p : programmes) {
-                    GSON.toJson(p, Tv.Programme.class, writer);
+                    PROGRAMME_ADAPTER.write(writer, p);
                 }
                 writer.endArray();
                 writer.flush();
@@ -890,17 +1022,47 @@ public class EpgParser {
             return bindChunk(channels, 0, channels.size(), zoneId);
         }
 
-        // 按线程数切块，每块一个任务；块内串行绑定同一频道的读写锁不冲突
-        int chunk = (channels.size() + BIND_THREADS - 1) / BIND_THREADS;
-        List<Future<Integer>> futures = new ArrayList<>(BIND_THREADS);
-        for (int start = 0; start < channels.size(); start += chunk) {
-            final int from = start;
-            final int to = Math.min(start + chunk, channels.size());
+        int fastEnd = Math.min(channels.size(), FAST_BIND_COUNT);
+        int bindCount = fastEnd > 0 ? bindRange(channels, 0, fastEnd, zoneId) : 0;
+
+        if (fastEnd < channels.size()) {
+            final int restFrom = fastEnd;
+            final int restTo = channels.size();
             try {
-                futures.add(BIND_EXECUTOR.submit((Callable<Integer>) () -> bindChunk(channels, from, to, zoneId)));
+                BIND_EXECUTOR.submit(() -> {
+                    int n = bindRange(channels, restFrom, restTo, zoneId);
+                    SpiderDebug.log(TAG, "后台补绑剩余频道完成 " + restFrom + "~" + restTo + " 共" + n);
+                    return n;
+                });
             } catch (Throwable e) {
-                SpiderDebug.log(TAG, "并行绑定提交失败，退化为串行：" + e);
-                return bindChunk(channels, 0, channels.size(), zoneId);
+                SpiderDebug.log(TAG, "后台补绑提交失败：" + e);
+            }
+        }
+
+        SpiderDebug.log(TAG, "loadMergedIndex首屏完成，频道总数=" + channels.size() + " 首屏绑定=" + bindCount);
+        return bindCount;
+    }
+
+    /**
+     * 并行绑定 [from, to)，全部完成后返回绑定数。
+     * 外部中断不会打断任务本身（不 cancel），只影响等待。
+     */
+    private static int bindRange(List<Channel> channels, int from, int to, ZoneId zoneId) {
+        int size = to - from;
+        if (size <= 0) return 0;
+        if (size < MIN_PARALLEL_CHANNELS) return bindChunk(channels, from, to, zoneId);
+
+        // 按线程数切块，每块一个任务；块内串行绑定同一频道的读写锁不冲突
+        int chunk = (size + BIND_THREADS - 1) / BIND_THREADS;
+        List<Future<Integer>> futures = new ArrayList<>(BIND_THREADS);
+        for (int start = from; start < to; start += chunk) {
+            final int s = start;
+            final int e = Math.min(start + chunk, to);
+            try {
+                futures.add(BIND_EXECUTOR.submit((Callable<Integer>) () -> bindChunk(channels, s, e, zoneId)));
+            } catch (Throwable t) {
+                SpiderDebug.log(TAG, "并行绑定提交失败，退化为串行：" + t);
+                return bindChunk(channels, from, to, zoneId);
             }
         }
         int bindCount = 0;
@@ -927,7 +1089,6 @@ public class EpgParser {
         if (swallowInterrupt) {
             SpiderDebug.log(TAG, "已吞掉外部中断标志，避免污染线程池中的复用线程");
         }
-        SpiderDebug.log(TAG, "loadMergedIndex完成，频道总数=" + channels.size() + " 绑定EPG频道数量=" + bindCount);
         return bindCount;
     }
 
