@@ -373,7 +373,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         int padding = ResUtil.dp2px(64);
         if (group.isKeep()) group.setWidth(0);
         if (group.getWidth() == 0) for (Channel item : group.getChannel()) {
-            int nameWidth = (item.getLogo().isEmpty() ? 0 : logo) + ResUtil.getTextWidth(item.getNumber() + item.getName(), 16);
+            StringBuilder sb = new StringBuilder(item.getNumber()).append("MM");
+            if (!item.getLogo().isEmpty()) sb.append("M");
+            sb.append(item.getName());
+            int nameWidth = (item.getLogo().isEmpty() ? 0 : logo) + ResUtil.getTextWidth(sb.toString(), 16);
             int epgWidth = ResUtil.getTextWidth(item.getData().getCurrent().getTitle(), 13);
             group.setWidth(Math.max(group.getWidth(), Math.max(nameWidth, epgWidth)));
         }
