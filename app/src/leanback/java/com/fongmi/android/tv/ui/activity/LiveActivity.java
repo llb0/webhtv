@@ -925,6 +925,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void setEpg(boolean success) {
+        SpiderDebug.log("EpgParser", "setEpg success=" + success + " adapterCount=" + (mChannelAdapter != null ? mChannelAdapter.getItemCount() : -1) + " firstChannelEpg=" + (mChannel != null ? mChannel.getDataList().size() : -1));
         if (success) mChannelAdapter.notifyDataSetChanged();
         if (mChannel != null && success) mViewModel.getEpg(mChannel);
     }
