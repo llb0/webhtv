@@ -3,7 +3,9 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.KeyEvent;
 
+import androidx.fragment.app.Fragment;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
@@ -29,4 +31,14 @@ public class SettingPlayerActivity extends BaseActivity {
                 .replace(R.id.setting_player_container, SettingPlayerFragment.newInstance())
                 .commit();
     }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.setting_player_container);
+        if (fragment instanceof SettingPlayerFragment) {
+            boolean consume = ((SettingPlayerFragment) fragment).handleKeyEvent(event);
+            if (consume) return true;
+        }
+        return super.dispatchKeyEvent(event);
+     }
 }

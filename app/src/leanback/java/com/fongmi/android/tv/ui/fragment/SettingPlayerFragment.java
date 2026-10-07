@@ -473,6 +473,10 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         setPerformanceText();
     }
 
+    public boolean handleKeyEvent(KeyEvent event) {
+        return FocusLoop.handleChildGrid(mBinding.content, 1, FocusLoop.Mode.VERTICAL, event);
+    }
+
     private void onBackground(View view) {
         PlayerSetting.putBackground(PlayerSetting.isBackgroundOn() ? 0 : 1);
         mBinding.backgroundText.setText(getSwitch(PlayerSetting.isBackgroundOn()));

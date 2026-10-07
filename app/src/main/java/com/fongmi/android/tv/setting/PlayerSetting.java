@@ -244,7 +244,7 @@ public class PlayerSetting {
     }
 
     public static boolean isAutoChange() {
-        return Prefers.getBoolean("player_auto_change", true);
+        return Prefers.getBoolean("player_auto_change", false);
     }
 
     public static void putAutoChange(boolean autoChange) {

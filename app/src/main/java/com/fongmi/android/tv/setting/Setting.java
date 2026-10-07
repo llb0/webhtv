@@ -58,6 +58,7 @@ public class Setting {
     public static final int UI_SCALE_MORE_COMPACT = 5;
     private static final int[] UI_SCALE_OPTIONS = {UI_SCALE_FOLLOW_SYSTEM, UI_SCALE_MILD_RELAXED, UI_SCALE_WIDE_COMFORT, UI_SCALE_STANDARD, UI_SCALE_MILD_COMPACT, UI_SCALE_COMPACT, UI_SCALE_MORE_COMPACT, UI_SCALE_SMALLER};
 
+
     public static final int TITLE_LINES_OFF = 0;
     public static final int TITLE_LINES_2 = 1;
     public static final int TITLE_LINES_3 = 2;
@@ -479,8 +480,8 @@ public class Setting {
 
     private static float getUiScaleFactor(int scale) {
         return switch (scale) {
-            case UI_SCALE_WIDE_COMFORT -> 1.1f;
-            case UI_SCALE_MILD_RELAXED -> 1.05f;
+            case UI_SCALE_MILD_RELAXED -> 1.1f;
+            case UI_SCALE_WIDE_COMFORT -> 1.05f;
             case UI_SCALE_STANDARD -> 1.0f;
             case UI_SCALE_MILD_COMPACT -> 0.95f;
             case UI_SCALE_COMPACT -> 0.9f;

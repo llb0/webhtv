@@ -44,7 +44,9 @@ env:
   CNB_WEB_ENDPOINT: https://cnb.cool
   CNB_REPO_SLUG: fish2035/webhtv-release
   CNB_REPO_URL: https://cnb.cool/fish2035/webhtv-release.git
-
+  GRADLE_DAEMON_JVM_DOWNLOAD: false
+  GRADLE_OPTS: "-Dorg.gradle.java.installers.download=false"
+  
 jobs:
   release:
     name: Build and publish

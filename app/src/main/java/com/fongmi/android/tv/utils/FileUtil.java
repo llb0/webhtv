@@ -93,14 +93,20 @@ public class FileUtil {
         synchronized (EpgParser.SYNC_LOCK) {
             File epgDir = new File(Path.files(), "epg");
             if (!epgDir.exists()) return;
-            File[] files = epgDir.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    f.delete();
+            deleteRecursive(epgDir);
+        }
+    }
+
+    private static boolean deleteRecursive(File file) {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursive(child);
                 }
             }
-            epgDir.delete();
         }
+        return file.delete();
     }
 
     public static void getCacheSize(Callback callback) {
