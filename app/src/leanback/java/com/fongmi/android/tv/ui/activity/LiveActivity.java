@@ -824,27 +824,16 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     // ==================== [NEW] 悬浮日期条 ====================
 
-    /** 按当前滚动位置刷新吸顶日期：跨天时由下一条把日期条顶出去 */
+    /** [CHANGED] 悬浮日期跟随焦点所在的那条 */
     private void updateEpgSticky() {
         if (mBinding == null || isFinishing() || isDestroyed()) return;
-        if (mBinding.epgData.getLayoutManager() == null || mEpgDataAdapter.getItemCount() == 0) return;
-        RecyclerView.LayoutManager lm = mBinding.epgData.getLayoutManager();
-        int first = -1;
-        for (int i = 0; i < lm.getChildCount(); i++) {
-            View view = lm.getChildAt(i);
-            if (view == null) continue;
-            int position = lm.getPosition(view);
-            if (first == -1 || position < first) first = position;
-        }
-        if (first < 0) return;
-        mBinding.epgDate.setText(mEpgDataAdapter.getLabel(first));
-        float shift = 0;
-        int next = first + 1;
-        if (mEpgDataAdapter.isFirstOfDay(next)) {
-            View view = lm.findViewByPosition(next);
-            if (view != null && view.getTop() < mEpgHeaderHeight) shift = view.getTop() - mEpgHeaderHeight;
-        }
-        mBinding.epgDate.setTranslationY(shift);
+        if (mEpgDataAdapter == null || mEpgDataAdapter.getItemCount() == 0) return;
+        int position = mBinding.epgData.getSelectedPosition();
+        if (position < 0) position = 0;
+        String label = mEpgDataAdapter.getLabel(position);
+        if (label.equals(mBinding.epgDate.getText().toString())) return;
+        mBinding.epgDate.setTranslationY(0);
+        mBinding.epgDate.setText(label);
     }
 
     /**
