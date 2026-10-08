@@ -26,5 +26,6 @@
     <color name="white_70">#B3FFFFFF</color>
     <color name="white_80">#CCFFFFFF</color>
     <color name="white_90">#E6FFFFFF</color>
+    <color name="epg_date">#8AB4F8</color>
 
 </resources>
