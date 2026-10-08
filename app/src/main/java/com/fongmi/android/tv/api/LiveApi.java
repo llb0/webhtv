@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.api;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.LiveConfig;
@@ -20,6 +21,7 @@ import com.github.catvod.net.OkHttp;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
@@ -81,5 +83,26 @@ public class LiveApi {
         String url = item.getEpg().replace("{date}", date);
         boolean need = url.startsWith("http") && item.getDataList().stream().noneMatch(epg -> epg.equal(date));
         if (need) item.setData(Epg.objectFrom(OkHttp.string(url), item.getTvgId(), zoneId));
+    }
+
+    /**
+     * [NEW] 取指定偏移天数（相对今天，负数往日、正数明日）的节目单。
+     * 已经在内存里的直接返回，没有的按天单独拉取；解析结果不写回 Channel，
+     * 交由主线程落库，避免后台线程改 dataList 引发并发问题。
+     */
+    @Nullable
+    public static Epg getEpgDay(@NonNull Channel item, @NonNull ZoneId zoneId, int offset) {
+        String date = LocalDate.now(zoneId).plusDays(offset).format(Formatters.DATE);
+        for (Epg epg : new ArrayList<>(item.getDataList())) if (epg.equal(date) && !epg.getList().isEmpty()) return epg;
+        String url = item.getEpg().replace("{date}", date);
+        if (!url.startsWith("http")) return null;
+        try {
+            Epg epg = Epg.objectFrom(OkHttp.string(url), item.getTvgId(), zoneId);
+            epg.setDate(date);
+            return epg.getList().isEmpty() ? null : epg;
+        } catch (Throwable e) {
+            SpiderDebug.log("EpgParser", "getEpgDay offset=" + offset + " 异常：" + e);
+            return null;
+        }
     }
 }
