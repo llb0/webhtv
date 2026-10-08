@@ -807,6 +807,20 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     // ==================== [NEW] 节目单跨天无缝滚动 ====================
 
+    /**
+     * [NEW] 改 adapter 数据的操作一律避开布局阶段：
+     * onChildViewHolderSelected 是在 GridLayoutManager.onLayoutChildren 里回调的，
+     * 此时 notify 会抛 "Cannot call this method while RecyclerView is computing a layout or scrolling"。
+     */
+    private void runEpgSafe(Runnable task) {
+        if (mBinding == null || isFinishing() || isDestroyed()) return;
+        if (mBinding.epgData.isComputingLayout()) mBinding.epgData.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            task.run();
+        });
+        else task.run();
+    }
+
     private String getToday() {
         return LocalDate.now(mViewModel.getZoneId()).format(Formatters.DATE);
     }
@@ -861,6 +875,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     /** 焦点接近两头时提前填充相邻一天 */
     private void checkEpgPreload(int position) {
+        runEpgSafe(() -> checkEpgPreloadInternal(position));
+    }
+
+    private void checkEpgPreloadInternal(int position) {
         if (mEpgChannel == null || isFinishing() || isDestroyed()) return;
         int count = mEpgDataAdapter.getItemCount();
         if (count == 0) return;
@@ -889,8 +907,14 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         else appendDayBottom(offset, epg);
     }
 
+    /** 同一天只允许进列表一次，防止连续预加载重复插入 */
+    private boolean containsDay(Epg epg) {
+        for (Epg item : mEpgDays) if (item.equal(epg.getDate())) return true;
+        return false;
+    }
+
     private void insertDayTop(int offset, Epg epg) {
-        if (offset <= mEpgMinOffset && !mEpgDays.isEmpty() && mEpgDays.get(0) == epg) return;
+        if (containsDay(epg)) return;
         mEpgDays.add(0, epg);
         mEpgMinOffset = offset;
         int anchor = mBinding.epgData.getSelectedPosition();
@@ -905,7 +929,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void appendDayBottom(int offset, Epg epg) {
-        if (offset >= mEpgMaxOffset && !mEpgDays.isEmpty() && mEpgDays.get(mEpgDays.size() - 1) == epg) return;
+        if (containsDay(epg)) return;
         mEpgDays.add(epg);
         mEpgMaxOffset = offset;
         mEpgDataAdapter.appendDaysBottom(buildDays(Collections.singletonList(epg)));
@@ -927,12 +951,18 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (!epg.getKey().equals(mEpgChannel.getTvgId())) return;
         int offset = offsetOf(epg.getDate());
         if (offset != mEpgPendingOffset) return;
+        runEpgSafe(() -> setEpgDayInternal(epg, offset));
+    }
+
+    private void setEpgDayInternal(Epg epg, int offset) {
+        if (mEpgChannel == null || isFinishing() || isDestroyed()) return;
         try {
             mEpgChannel.setData(epg);
         } catch (Throwable e) {
             SpiderDebug.log("EpgParser", "setEpgDay 写入失败：" + e);
         }
         if (offset < 0) {
+            if (containsDay(epg)) return;
             int anchor = mBinding.epgData.getSelectedPosition();
             int anchorTop = getAnchorTop(anchor);
             int size = mEpgDataAdapter.insertDaysTop(buildDays(Collections.singletonList(epg)));
@@ -942,6 +972,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
             if (mEpgFromEdge) focusEpgPosition(size - 1);
             else mBinding.epgData.post(() -> keepAnchor(anchor + size, anchorTop));
         } else if (offset > 0) {
+            if (containsDay(epg)) return;
             int start = mEpgDataAdapter.appendDaysBottom(buildDays(Collections.singletonList(epg)));
             if (start < 0) return;
             mEpgDays.add(epg);
@@ -953,13 +984,18 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     /** 已经在最上面还往上 / 最下面还往下：接着展示前一天 / 后一天，没数据就停住 */
     private boolean expandEpgDay(int direction) {
-        if (mEpgChannel == null) return true;
+        runEpgSafe(() -> expandEpgDayInternal(direction));
+        return true;
+    }
+
+    private void expandEpgDayInternal(int direction) {
+        if (mEpgChannel == null) return;
         int offset = direction < 0 ? mEpgMinOffset - 1 : mEpgMaxOffset + 1;
-        if (offset < -EPG_DAY_LIMIT || offset > EPG_DAY_LIMIT) return true;
+        if (offset < -EPG_DAY_LIMIT || offset > EPG_DAY_LIMIT) return;
         int before = mEpgDataAdapter.getItemCount();
         int minBefore = mEpgMinOffset;
         int maxBefore = mEpgMaxOffset;
-        if (mEpgDayLoading) return true;
+        if (mEpgDayLoading) return;
         fillEpgDay(direction);
         int after = mEpgDataAdapter.getItemCount();
         if (after > before) {
@@ -971,11 +1007,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
             if (direction < 0 && mEpgPendingOffset < 0) mEpgFromEdge = true;
             if (direction > 0 && mEpgPendingOffset > 0) mEpgFromEdge = true;
         } else if (direction < 0 && mEpgMinOffset != minBefore) {
-            expandEpgDay(direction);
+            expandEpgDayInternal(direction);
         } else if (direction > 0 && mEpgMaxOffset != maxBefore) {
-            expandEpgDay(direction);
+            expandEpgDayInternal(direction);
         }
-        return true;
     }
 
     private int getAnchorTop(int position) {
@@ -1010,6 +1045,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     /** EPG 整体刷新后按当前已填充的天重建列表 */
     private void refreshEpgDays() {
+        runEpgSafe(this::refreshEpgDaysInternal);
+    }
+
+    private void refreshEpgDaysInternal() {
         if (mEpgChannel == null || mEpgDays.isEmpty()) return;
         List<Epg> days = new ArrayList<>();
         for (int offset = mEpgMinOffset; offset <= mEpgMaxOffset; offset++) {
