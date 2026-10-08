@@ -68,6 +68,7 @@ import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
 import com.fongmi.android.tv.utils.Clock;
+import com.fongmi.android.tv.utils.Formatters;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -77,9 +78,15 @@ import com.github.catvod.crawler.SpiderDebug;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 
 public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnClickListener, ChannelAdapter.OnClickListener, EpgDataAdapter.OnClickListener, CustomKeyDownLive.Listener, CustomLiveListView.Callback, TrackDialog.Listener, PassListener, ConfigListener, LiveListener, LiveEpgDialog.Listener {
 
@@ -113,6 +120,18 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private boolean liveParsed;      // [NEW] parse(LIVE) 是否已完成（groups 结构已稳定）
     private boolean epgRequested;    // [NEW] 本轮是否已触发过 parseXml，避免重复
     private int count;
+
+    // [NEW] 节目单跨天滚动
+    private static final int EPG_DAY_LIMIT = 7;     // 相对今天最多向前 / 向后扩展的天数
+    private static final int EPG_PRELOAD_NEAR = 3;  // 焦点距边缘几条时提前填充相邻一天
+    private int mEpgHeaderHeight;                   // 悬浮日期条高度，同时作为列表顶部留白
+    private Observer<Epg> mObserveDay;              // 按天加载回调
+    private final List<Epg> mEpgDays = new ArrayList<>(); // 已展示的节目单，按日期升序
+    private int mEpgMinOffset;                      // 已填充的最早一天（相对今天）
+    private int mEpgMaxOffset;                      // 已填充的最晚一天（相对今天）
+    private int mEpgPendingOffset;                  // 正在后台拉取的那一天
+    private boolean mEpgDayLoading;                 // 是否正在后台拉取
+    private boolean mEpgFromEdge;                   // 本次后台拉取是不是由边界按键触发
 
     public static void start(Context context) {
         context.startActivity(new Intent(context, LiveActivity.class).putExtra("empty", LiveConfig.isEmpty()));
@@ -175,6 +194,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mClock = Clock.create(mBinding.widget.clock);
         mKeyDown = CustomKeyDownLive.create(this);
         mObserveEpg = this::setEpg;
+        mObserveDay = this::setEpgDay;
         mObserveUrl = this::start;
         mHides = new ArrayList<>();
         mR0 = this::setSelected;
@@ -205,6 +225,31 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mBinding.group.setListener(this);
         mBinding.channel.setListener(this);
         mBinding.epgData.setListener(this);
+        // [NEW] 节目单不再头尾回绕：到顶继续播上一日、到底继续播下一日
+        mBinding.epgData.setEdgeListener(new CustomLiveListView.EdgeListener() {
+            @Override
+            public boolean onEdgeUp() {
+                return expandEpgDay(-1);
+            }
+
+            @Override
+            public boolean onEdgeDown() {
+                return expandEpgDay(1);
+            }
+        });
+        mBinding.epgData.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
+            @Override
+            public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
+                checkEpgPreload(position);
+                updateEpgSticky();
+            }
+        });
+        mBinding.epgData.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                updateEpgSticky();
+            }
+        });
         mBinding.program.setOnFocusChangeListener((v, hasFocus) -> onEpgFocusChange());
         mBinding.epgData.setOnFocusChangeListener((v, hasFocus) -> onEpgFocusChange());
         mBinding.channel.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
@@ -251,6 +296,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mBinding.group.setAdapter(mGroupAdapter = new GroupAdapter(this));
         mBinding.channel.setAdapter(mChannelAdapter = new ChannelAdapter(this));
         mBinding.epgData.setAdapter(mEpgDataAdapter = new EpgDataAdapter(this));
+        // [NEW] 顶部留出悬浮日期条的位置，避免它压住第一条节目
+        mEpgHeaderHeight = ResUtil.dp2px(34);
+        int pad = ResUtil.dp2px(12);
+        mBinding.epgData.setPadding(pad, pad + mEpgHeaderHeight, pad, pad);
     }
 
     private void setVideoView() {
@@ -280,6 +329,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mViewModel.url().observeForever(mObserveUrl);
         mViewModel.xml().observe(this, this::setEpg);
         mViewModel.epg().observeForever(mObserveEpg);
+        mViewModel.day().observeForever(mObserveDay);
         mViewModel.live().observe(this, this::onLiveParsed);
     }
 
@@ -735,38 +785,331 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     public void showEpg(Channel item) {
-        if (item == null || item.getData(mViewModel.getZoneId()).getList().isEmpty()) return;
+        if (item == null) return;
+        Epg today = item.getData(mViewModel.getZoneId());
+        if (today.getList().isEmpty()) return;
         mEpgChannel = item;
-        mEpgDataAdapter.addAll(item.getData(mViewModel.getZoneId()).getList());
+        mEpgDayLoading = false;
+        mEpgFromEdge = false;
+        mEpgPendingOffset = 0;
+        mEpgDays.clear();
+        mEpgDays.add(today);
+        mEpgMinOffset = 0;
+        mEpgMaxOffset = 0;
+        mEpgDataAdapter.setDays(buildDays(mEpgDays));
+        mBinding.epgDate.post(this::updateEpgSticky);
 
         int selectedPos;
-        if (item.getTvgId().equals(mChannel.getTvgId())) {
-            selectedPos = item.getData(mViewModel.getZoneId()).getSelected();
+        if (mChannel != null && item.getTvgId().equals(mChannel.getTvgId())) {
+            selectedPos = today.getSelected();
         } else {
-            selectedPos = 0;
-            List<EpgData> epgList = item.getData(mViewModel.getZoneId()).getList();
-            for (int i = 0; i < epgList.size(); i++) {
-                EpgData epgData = epgList.get(i);
-                if (epgData.isInRange()) {
-                    selectedPos = i;
-                    break;
-                }
-            }
+            selectedPos = today.getInRange();
         }
+        if (selectedPos < 0) selectedPos = 0;
 
         int finalPos = selectedPos;
         mBinding.epgData.post(() -> {
             if (isFinishing() || isDestroyed()) return;
             mBinding.epgData.setSelectedPosition(finalPos);
+            // [NEW] 首屏就把前后各一天填上，滚到今日两头时不会再等加载
+            checkEpgPreload(finalPos);
         });
         mBinding.epgData.setVisibility(View.VISIBLE);
+        mBinding.epgDate.setVisibility(View.VISIBLE);
+        mBinding.epgData.post(this::updateEpgSticky);
         App.removeCallbacks(mR4);
+    }
+
+    // ==================== [NEW] 节目单跨天无缝滚动 ====================
+
+    // ==================== [NEW] 悬浮日期条 ====================
+
+    /** [CHANGED] 悬浮日期跟随焦点所在的那条 */
+    private void updateEpgSticky() {
+        if (mBinding == null || isFinishing() || isDestroyed()) return;
+        if (mEpgDataAdapter == null || mEpgDataAdapter.getItemCount() == 0) return;
+        int position = mBinding.epgData.getSelectedPosition();
+        if (position < 0) position = 0;
+        String label = mEpgDataAdapter.getLabel(position);
+        if (label.equals(mBinding.epgDate.getText().toString())) return;
+        mBinding.epgDate.setTranslationY(0);
+        mBinding.epgDate.setText(label);
+    }
+
+    /**
+     * [NEW] 改 adapter 数据的操作一律避开布局阶段：
+     * onChildViewHolderSelected 是在 GridLayoutManager.onLayoutChildren 里回调的，
+     * 此时 notify 会抛 "Cannot call this method while RecyclerView is computing a layout or scrolling"。
+     */
+    private void runEpgSafe(Runnable task) {
+        if (mBinding == null || isFinishing() || isDestroyed()) return;
+        if (mBinding.epgData.isComputingLayout()) mBinding.epgData.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            task.run();
+        });
+        else task.run();
+    }
+
+    private String getToday() {
+        return LocalDate.now(mViewModel.getZoneId()).format(Formatters.DATE);
+    }
+
+    private String getDate(int offset) {
+        return LocalDate.now(mViewModel.getZoneId()).plusDays(offset).format(Formatters.DATE);
+    }
+
+    private int offsetOf(String date) {
+        try {
+            return (int) ChronoUnit.DAYS.between(LocalDate.parse(getToday(), Formatters.DATE), LocalDate.parse(date, Formatters.DATE));
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /**
+     * 每天第一条上方显示的日期标签。
+     * [CHANGED] 今天也显示（10-08 周三 · 今天），想让今天不显示就删掉下面 today 那一行的判断。
+     */
+    private String getDayLabel(String date) {
+        if (date.isEmpty()) return "";
+        try {
+            LocalDate local = LocalDate.parse(date, Formatters.DATE);
+            String text = local.format(DateTimeFormatter.ofPattern("MM-dd", Locale.ROOT)) + " " + local.getDayOfWeek().getDisplayName(TextStyle.SHORT, Locale.getDefault());
+            if (date.equals(getDate(-1))) return text + " · " + getString(R.string.live_epg_yesterday);
+            if (date.equals(getToday())) return text + " · " + getString(R.string.live_epg_today);
+            if (date.equals(getDate(1))) return text + " · " + getString(R.string.live_epg_tomorrow);
+            return text;
+        } catch (Exception e) {
+            return date;
+        }
+    }
+
+    private List<EpgDataAdapter.Day> buildDays(List<Epg> days) {
+        List<EpgDataAdapter.Day> result = new ArrayList<>();
+        for (Epg epg : days) result.add(new EpgDataAdapter.Day(epg, getDayLabel(epg.getDate())));
+        return result;
+    }
+
+    /** 取某一天的节目单，包含已解析但为空的（返回 null 表示这一整天还没数据） */
+    private Epg findDay(int offset) {
+        if (mEpgChannel == null) return null;
+        String date = getDate(offset);
+        for (int i = 0; i < 3; i++) {
+            try {
+                for (Epg epg : new ArrayList<>(mEpgChannel.getDataList())) if (epg.equal(date)) return epg;
+                return null;
+            } catch (Throwable e) {
+                SpiderDebug.log("EpgParser", "findDay重试 " + (i + 1) + "：" + e);
+            }
+        }
+        return null;
+    }
+
+    /** 焦点接近两头时提前填充相邻一天 */
+    private void checkEpgPreload(int position) {
+        runEpgSafe(() -> checkEpgPreloadInternal(position));
+    }
+
+    private void checkEpgPreloadInternal(int position) {
+        if (mEpgChannel == null || isFinishing() || isDestroyed()) return;
+        int count = mEpgDataAdapter.getItemCount();
+        if (count == 0) return;
+        if (position <= EPG_PRELOAD_NEAR) fillEpgDay(-1);
+        if (position >= count - 1 - EPG_PRELOAD_NEAR) fillEpgDay(1);
+    }
+
+    /** 填充相邻一天：direction = -1 往上（往日）、1 往下（明日） */
+    private void fillEpgDay(int direction) {
+        if (mEpgChannel == null) return;
+        int offset = direction < 0 ? mEpgMinOffset - 1 : mEpgMaxOffset + 1;
+        if (offset < -EPG_DAY_LIMIT || offset > EPG_DAY_LIMIT) return;
+        Epg epg = findDay(offset);
+        if (epg == null) {
+            if (!mEpgDayLoading) loadEpgDay(offset, false);
+            return;
+        }
+        if (epg.getList().isEmpty()) {
+            // 这天确实没节目，跳过它继续往更早 / 更晚找
+            if (direction < 0) mEpgMinOffset = offset;
+            else mEpgMaxOffset = offset;
+            fillEpgDay(direction);
+            return;
+        }
+        if (direction < 0) insertDayTop(offset, epg);
+        else appendDayBottom(offset, epg);
+    }
+
+    /** 同一天只允许进列表一次，防止连续预加载重复插入 */
+    private boolean containsDay(Epg epg) {
+        for (Epg item : mEpgDays) if (item.equal(epg.getDate())) return true;
+        return false;
+    }
+
+    private void insertDayTop(int offset, Epg epg) {
+        if (containsDay(epg)) return;
+        mEpgDays.add(0, epg);
+        mEpgMinOffset = offset;
+        int anchor = mBinding.epgData.getSelectedPosition();
+        int anchorTop = getAnchorTop(anchor);
+        int size = mEpgDataAdapter.insertDaysTop(buildDays(Collections.singletonList(epg)));
+        if (size == 0) return;
+        int target = anchor + size;
+        mBinding.epgData.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            keepAnchor(target, anchorTop);
+            updateEpgSticky();
+        });
+    }
+
+    private void appendDayBottom(int offset, Epg epg) {
+        if (containsDay(epg)) return;
+        mEpgDays.add(epg);
+        mEpgMaxOffset = offset;
+        mEpgDataAdapter.appendDaysBottom(buildDays(Collections.singletonList(epg)));
+        mBinding.epgData.post(this::updateEpgSticky);
+    }
+
+    private void loadEpgDay(int offset, boolean fromEdge) {
+        if (mEpgChannel == null || mEpgDayLoading) return;
+        mEpgDayLoading = true;
+        mEpgFromEdge = fromEdge;
+        mEpgPendingOffset = offset;
+        mViewModel.getEpgDay(mEpgChannel, offset);
+    }
+
+    private void setEpgDay(Epg epg) {
+        mEpgDayLoading = false;
+        if (mEpgChannel == null || epg == null) return;
+        if (isFinishing() || isDestroyed()) return;
+        if (epg.getDate().isEmpty() || epg.getList().isEmpty()) return;
+        if (!epg.getKey().equals(mEpgChannel.getTvgId())) return;
+        int offset = offsetOf(epg.getDate());
+        if (offset != mEpgPendingOffset) return;
+        runEpgSafe(() -> setEpgDayInternal(epg, offset));
+    }
+
+    private void setEpgDayInternal(Epg epg, int offset) {
+        if (mEpgChannel == null || isFinishing() || isDestroyed()) return;
+        try {
+            mEpgChannel.setData(epg);
+        } catch (Throwable e) {
+            SpiderDebug.log("EpgParser", "setEpgDay 写入失败：" + e);
+        }
+        if (offset < 0) {
+            if (containsDay(epg)) return;
+            int anchor = mBinding.epgData.getSelectedPosition();
+            int anchorTop = getAnchorTop(anchor);
+            int size = mEpgDataAdapter.insertDaysTop(buildDays(Collections.singletonList(epg)));
+            if (size == 0) return;
+            mEpgDays.add(0, epg);
+            mEpgMinOffset = offset;
+            if (mEpgFromEdge) focusEpgPosition(size - 1);
+            else mBinding.epgData.post(() -> {
+                keepAnchor(anchor + size, anchorTop);
+                updateEpgSticky();
+            });
+        } else if (offset > 0) {
+            if (containsDay(epg)) return;
+            int start = mEpgDataAdapter.appendDaysBottom(buildDays(Collections.singletonList(epg)));
+            if (start < 0) return;
+            mEpgDays.add(epg);
+            mEpgMaxOffset = offset;
+            mBinding.epgData.post(this::updateEpgSticky);
+            if (mEpgFromEdge) focusEpgPosition(start);
+        }
+        mEpgFromEdge = false;
+    }
+
+    /** 已经在最上面还往上 / 最下面还往下：接着展示前一天 / 后一天，没数据就停住 */
+    private boolean expandEpgDay(int direction) {
+        runEpgSafe(() -> expandEpgDayInternal(direction));
+        return true;
+    }
+
+    private void expandEpgDayInternal(int direction) {
+        if (mEpgChannel == null) return;
+        int offset = direction < 0 ? mEpgMinOffset - 1 : mEpgMaxOffset + 1;
+        if (offset < -EPG_DAY_LIMIT || offset > EPG_DAY_LIMIT) return;
+        int before = mEpgDataAdapter.getItemCount();
+        int minBefore = mEpgMinOffset;
+        int maxBefore = mEpgMaxOffset;
+        if (mEpgDayLoading) return;
+        fillEpgDay(direction);
+        int after = mEpgDataAdapter.getItemCount();
+        if (after > before) {
+            // 新一天已经填进来，焦点落在紧挨着的那一头，视觉上无缝衔接
+            if (direction < 0) focusEpgPosition(after - before - 1);
+            else focusEpgPosition(before);
+        } else if (mEpgDayLoading) {
+            // 这一边的数据正在后台拉取，回来后由 setEpgDay 接管焦点
+            if (direction < 0 && mEpgPendingOffset < 0) mEpgFromEdge = true;
+            if (direction > 0 && mEpgPendingOffset > 0) mEpgFromEdge = true;
+        } else if (direction < 0 && mEpgMinOffset != minBefore) {
+            expandEpgDayInternal(direction);
+        } else if (direction > 0 && mEpgMaxOffset != maxBefore) {
+            expandEpgDayInternal(direction);
+        }
+    }
+
+    private int getAnchorTop(int position) {
+        if (mBinding.epgData.getLayoutManager() == null) return 0;
+        View view = mBinding.epgData.getLayoutManager().findViewByPosition(position);
+        return view == null ? 0 : view.getTop();
+    }
+
+    /** 往日插到顶部后把画面拉回原位，避免内容整体下移 */
+    private void keepAnchor(int position, int anchorTop) {
+        if (isFinishing() || isDestroyed()) return;
+        if (mBinding.epgData.getLayoutManager() == null) return;
+        View view = mBinding.epgData.getLayoutManager().findViewByPosition(position);
+        if (view == null) return;
+        int delta = view.getTop() - anchorTop;
+        if (delta != 0) mBinding.epgData.scrollBy(0, delta);
+        if (mBinding.epgData.getSelectedPosition() != position) mBinding.epgData.setSelectedPosition(position);
+    }
+
+    private void focusEpgPosition(int position) {
+        mBinding.epgData.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            mBinding.epgData.setSelectedPosition(position);
+            mBinding.epgData.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (mBinding.epgData.getLayoutManager() == null) return;
+                View view = mBinding.epgData.getLayoutManager().findViewByPosition(position);
+                if (view != null) view.requestFocus();
+            });
+        });
+    }
+
+    /** EPG 整体刷新后按当前已填充的天重建列表 */
+    private void refreshEpgDays() {
+        runEpgSafe(this::refreshEpgDaysInternal);
+    }
+
+    private void refreshEpgDaysInternal() {
+        if (mEpgChannel == null || mEpgDays.isEmpty()) return;
+        List<Epg> days = new ArrayList<>();
+        for (int offset = mEpgMinOffset; offset <= mEpgMaxOffset; offset++) {
+            Epg epg = findDay(offset);
+            if (epg != null && !epg.getList().isEmpty()) days.add(epg);
+        }
+        if (days.isEmpty()) return;
+        mEpgDays.clear();
+        mEpgDays.addAll(days);
+        int position = mBinding.epgData.getSelectedPosition();
+        mEpgDataAdapter.setDays(buildDays(mEpgDays));
+        if (position >= 0 && position < mEpgDataAdapter.getItemCount()) mBinding.epgData.setSelectedPosition(position);
+        mBinding.epgData.post(this::updateEpgSticky);
     }
 
     @Override
     public void hideEpg() {
         mEpgChannel = null;
+        mEpgDayLoading = false;
+        mEpgFromEdge = false;
+        mEpgDays.clear();
         mBinding.epgData.setVisibility(View.GONE);
+        mBinding.epgDate.setVisibility(View.GONE);
         setUITimer();
     }
 
@@ -965,7 +1308,8 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         EpgData data = epg.getEpgData();
         boolean hasTitle = !data.getTitle().isEmpty();
         if (mEpgChannel == null || mEpgChannel.equals(mChannel)) {
-            mEpgDataAdapter.addAll(epg.getList());
+            // [CHANGED] 只换今日会丢掉已展开的往日 / 明日，改为按已填充的天整体重建
+            refreshEpgDays();
         }
         if (hasTitle) mBinding.widget.title.setText(getString(R.string.detail_title, mChannel.getShow(), data.getTitle()));
         mBinding.widget.name.setMaxEms(hasTitle ? 12 : 48);
@@ -1069,6 +1413,11 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mBinding.control.action.line.setVisibility(View.GONE);
         mBinding.widget.title.setText("");
         mEpgDataAdapter.clear();
+        mEpgDays.clear();
+        mEpgDayLoading = false;
+        mEpgFromEdge = false;
+        mEpgMinOffset = 0;
+        mEpgMaxOffset = 0;
         mChannelAdapter.clear();
         mGroupAdapter.clear();
         mHides.clear();
@@ -1396,6 +1745,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (mOsd != null) mOsd.release();
         mViewModel.url().removeObserver(mObserveUrl);
         mViewModel.epg().removeObserver(mObserveEpg);
+        if (mObserveDay != null) mViewModel.day().removeObserver(mObserveDay);
         super.onDestroy();
     }
 }

@@ -1641,4 +1641,7 @@
     <string name="push_info">Scan QR Code or enter the URL in browser\n<xliff:g name="name">%s</xliff:g></string>
     <string name="live_program">Program</string>
     <string name="live_program_current">Live</string>
+    <string name="live_epg_yesterday">Yesterday</string>
+    <string name="live_epg_tomorrow">Tomorrow</string>
+    <string name="live_epg_today">Today</string>
 </resources>

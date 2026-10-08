@@ -1633,4 +1633,7 @@
     <string name="push_info">使用手机扫描二维码，或于浏览器访问地址\n<xliff:g name="name">%s</xliff:g></string>
     <string name="live_program">节目单</string>
     <string name="live_program_current">直播中</string>
+    <string name="live_epg_yesterday">昨天</string>
+    <string name="live_epg_tomorrow">明天</string>
+    <string name="live_epg_today">今天</string>
 </resources>
