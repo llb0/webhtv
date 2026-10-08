@@ -115,17 +115,39 @@
  
         </androidx.appcompat.widget.LinearLayoutCompat>
  
-        <com.fongmi.android.tv.ui.custom.CustomLiveListView
-            android:id="@+id/epgData"
+        <FrameLayout
             android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:clipChildren="false"
-            android:clipToPadding="false"
-            android:nextFocusLeft="@id/program"
-            android:padding="12dp"
-            android:visibility="gone"
-            tools:itemCount="5"
-            tools:listitem="@layout/adapter_epg_data" />
+            android:layout_height="match_parent">
+
+            <com.fongmi.android.tv.ui.custom.CustomLiveListView
+                android:id="@+id/epgData"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:clipChildren="false"
+                android:nextFocusLeft="@id/program"
+                android:padding="12dp"
+                android:visibility="gone"
+                tools:itemCount="5"
+                tools:listitem="@layout/adapter_epg_data" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/epgDate"
+                android:layout_width="match_parent"
+                android:layout_height="34dp"
+                android:background="@drawable/shape_epg_date"
+                android:ellipsize="marquee"
+                android:focusable="false"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="12dp"
+                android:singleLine="true"
+                android:textColor="@color/epg_date"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:text="10-08 周三 · 今天"
+                tools:visibility="visible" />
+
+        </FrameLayout>
  
     </androidx.appcompat.widget.LinearLayoutCompat>
 </FrameLayout>
