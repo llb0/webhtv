@@ -1617,4 +1617,6 @@
     <string name="push_info">使用手機掃描 QR Code，或於瀏覽器輸入網址\n<xliff:g name="name">%s</xliff:g></string>
     <string name="live_program">節目單</string>
     <string name="live_program_current">直播中</string>
+    <string name="live_epg_yesterday">昨天</string>
+    <string name="live_epg_tomorrow">明天</string>
 </resources>
