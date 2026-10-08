@@ -41,11 +41,13 @@ public class EpgDataAdapter extends RecyclerView.Adapter<EpgDataAdapter.ViewHold
     private static class Item {
 
         final EpgData data;
-        final String label;
+        final String label;      // 所属那天的日期标签，同一天每条都一样
+        final boolean firstOfDay; // 是不是这天的第一条，用于吸顶切换
 
-        Item(EpgData data, String label) {
+        Item(EpgData data, String label, boolean firstOfDay) {
             this.data = data;
             this.label = label;
+            this.firstOfDay = firstOfDay;
         }
     }
 
@@ -88,14 +90,26 @@ public class EpgDataAdapter extends RecyclerView.Adapter<EpgDataAdapter.ViewHold
             if (day == null || day.epg == null) continue;
             List<EpgData> list = day.epg.getList();
             if (list.isEmpty()) continue;
-            for (int i = 0; i < list.size(); i++) target.add(new Item(list.get(i), i == 0 ? day.label : ""));
+            for (int i = 0; i < list.size(); i++) target.add(new Item(list.get(i), day.label, i == 0));
         }
     }
 
     public void addAll(List<EpgData> items) {
         mItems.clear();
-        for (EpgData item : items) mItems.add(new Item(item, ""));
+        for (EpgData item : items) mItems.add(new Item(item, "", false));
         notifyDataSetChanged();
+    }
+
+    /** [NEW] 某一条属于哪一天，给吸顶用 */
+    public String getLabel(int position) {
+        if (position < 0 || position >= mItems.size()) return "";
+        return mItems.get(position).label;
+    }
+
+    /** [NEW] 这条是不是新一天的第一条 */
+    public boolean isFirstOfDay(int position) {
+        if (position < 0 || position >= mItems.size()) return false;
+        return mItems.get(position).firstOfDay;
     }
 
     public void clear() {
@@ -130,14 +144,6 @@ public class EpgDataAdapter extends RecyclerView.Adapter<EpgDataAdapter.ViewHold
         holder.binding.time.setText(data.getTime());
         holder.binding.title.setText(data.getTitle());
         holder.binding.getRoot().setSelected(data.isSelected());
-
-        // [NEW] 每天第一条上方显示日期，今天不显示
-        if (item.label == null || item.label.isEmpty()) {
-            holder.binding.date.setVisibility(View.GONE);
-        } else {
-            holder.binding.date.setVisibility(View.VISIBLE);
-            holder.binding.date.setText(item.label);
-        }
 
         if (data.isInRange()) {
             holder.binding.tvLiveTag.setVisibility(View.VISIBLE);
