@@ -87,11 +87,9 @@ public class EpgParser {
     private static final String TAG = "EpgParser";
     public static final long UPDATE_INTERVAL_MS = TimeUnit.HOURS.toMillis(6);
     public static final int KEEP_DAYS = 7;
-    public static final String INDEX_FILE_NAME = "merged_index.json";   // 旧版单文件总索引（迁移用）
     public static final String MERGED_META_NAME = "merged_meta.json";
-    public static final String SHARDS_DIR_NAME = "shards";              // 旧版分片目录（迁移用）
 
-    // [NEW] 新版：单数据文件 + 偏移量索引
+    // 新版：单数据文件 + 偏移量索引
     public static final String DATA_FILE_NAME = "shards.dat";
     public static final String IDX_FILE_NAME = "shards.idx";
 
@@ -102,10 +100,6 @@ public class EpgParser {
 
     // 首屏绑定的自有截止时间（兜底）
     private static final long BIND_DEADLINE_MS = 40000L;
-
-    // [NEW] 一次性迁移的截止时间。超时/被中断则放弃本次迁移，下次启动重试，
-    // 绝不生成不完整的 dat（否则 hasData()==true 后会永久缺频道）。
-    private static final long MIGRATE_DEADLINE_MS = 60000L;
 
     // 首屏优先绑定的频道数：绑完这些就返回让 UI 刷新，其余后台补
     private static final int FAST_BIND_COUNT = 40;
@@ -125,18 +119,18 @@ public class EpgParser {
     public static final Object SYNC_LOCK = new Object();
 
     /**
-     * [NEW] 数据文件写入互斥（首次写入 / 后台合并 / 整理，都会整体重写 dat）
+     * 数据文件写入互斥（首次写入 / 后台合并 / 整理，都会整体重写 dat）
      */
     private static final Object DATA_LOCK = new Object();
 
     /**
-     * [NEW] 索引缓存：频道名 → {offset, length}
+     * 索引缓存：频道名 → {offset, length}
      */
     private static volatile Map<String, long[]> IDX_CACHE;
     private static final Object IDX_LOCK = new Object();
 
     /**
-     * [NEW] 分片内存缓存：频道名 → 节目单。命中后零 IO、零解析。
+     * 分片内存缓存：频道名 → 节目单。命中后零 IO、零解析。
      * 一个频道的节目单通常几十 KB，几百个频道也就几 MB，不会 OOM。
      */
     private static final ConcurrentHashMap<String, List<Tv.Programme>> MEM =
@@ -146,7 +140,7 @@ public class EpgParser {
     private static final AtomicInteger PARSE_ERR_COUNT = new AtomicInteger();
 
     // ==================================================================
-    // [NEW] 手写 TypeAdapter：去掉 Gson 对 Tv.Programme 的反射反序列化。
+    // 手写 TypeAdapter：去掉 Gson 对 Tv.Programme 的反射反序列化。
     // 反射来自 Gson 的 ReflectiveTypeAdapterFactory，与 Tv.java 的注解无关，
     // 所以 Tv.java 一个字都不用改。
     // ==================================================================
@@ -193,9 +187,6 @@ public class EpgParser {
         return t;
     }
 
-    /**
-     * JSON 格式与原来 Gson 反射生成的完全一致，所以旧分片能直接迁移、新格式也能被旧逻辑读。
-     */
     private static final TypeAdapter<Tv.Programme> PROGRAMME_ADAPTER = new TypeAdapter<Tv.Programme>() {
 
         @Override
@@ -286,23 +277,10 @@ public class EpgParser {
         return new File(getEpgCacheDir(), IDX_FILE_NAME);
     }
 
-    private static File getShardsDir() {
-        return new File(getEpgCacheDir(), SHARDS_DIR_NAME);
-    }
-
-    /** 旧版分片文件名（迁移用） */
-    private static File getShardFile(String channelName) {
-        return new File(getShardsDir(), Util.md5(channelName) + ".json");
-    }
-
     private static File getMergeMetaFile() {
         File dir = new File(Path.files(), "epg");
         if (!dir.exists()) dir.mkdirs();
         return new File(dir, MERGED_META_NAME);
-    }
-
-    private static File getOldIndexFile() {
-        return new File(getEpgCacheDir(), INDEX_FILE_NAME);
     }
 
     private static File getCacheFile(String url) {
@@ -316,7 +294,7 @@ public class EpgParser {
     }
 
     /**
-     * [CHANGED] 返回「成功绑定 EPG 的频道数」，且全程不再向外抛异常。
+     * 返回「成功绑定 EPG 的频道数」，且全程不再向外抛异常。
      */
     public static int start(Live live) {
         if (live == null || live.getGroups().isEmpty()) return 0;
@@ -324,13 +302,14 @@ public class EpgParser {
         try {
             ZoneId zoneId = zoneIdOf(live.getTimeZone());
             MergeMeta meta = loadMergeMeta();
-            if (!hasData()) migrateLegacy(live, zoneId);
-            if (!hasData()) {
-                SpiderDebug.log(TAG, "没有Epg持久数据，进入首次快速加载并持久化");
+            boolean moreDay = System.currentTimeMillis() - meta.lastMergeRun >= TimeUnit.HOURS.toMillis(24);
+            if (!hasData() || moreDay) {
+                SpiderDebug.log(TAG, (moreDay ? "本地Epg数据已过期" : "没有本地Epg数据") + "，快速初始化并后台更新");
+                FileUtil.deleteEpgDir();
                 bindCount = buildInitialEpgAndSave(live, zoneId);
                 startBackgroundMerge(live, zoneId);
             } else {
-                SpiderDebug.log(TAG, "Epg持久化数据存在，正常加载");
+                SpiderDebug.log(TAG, "存在本地Epg数据且未过期，正常加载");
                 long t0 = System.currentTimeMillis();
                 bindCount = loadMergedIndex(live, zoneId);
                 SpiderDebug.log(TAG, "loadMergedIndex耗时=" + (System.currentTimeMillis() - t0) + "ms, bind=" + bindCount);
@@ -534,202 +513,6 @@ public class EpgParser {
         }
         writeIdx(newIdx);
         MEM.keySet().retainAll(newIdx.keySet());
-    }
-
-    // ==================================================================
-    // 旧数据迁移（旧版分片目录 / 旧版单文件总索引 → 新版 dat+idx）
-    // ==================================================================
-
-    private static void migrateLegacy(Live live, ZoneId zoneId) {
-        if (migrateFromOldIndex(zoneId)) return;
-        migrateFromShards(live, zoneId);
-    }
-
-    /** 旧版单文件总索引：流式逐频道读 → 逐频道写，内存只占单频道 */
-    private static boolean migrateFromOldIndex(ZoneId zoneId) {
-        File oldIndex = getOldIndexFile();
-        if (!oldIndex.exists()) return false;
-        SpiderDebug.log(TAG, "检测到旧版总索引，开始迁移为单文件数据...");
-        LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
-        File dat = getDataFile();
-        File tmp = new File(dat.getParent(), DATA_FILE_NAME + ".tmp.mig");
-        Map<String, long[]> idx = new LinkedHashMap<>();
-        long pos = 0;
-        try (FileInputStream fis = new FileInputStream(oldIndex);
-             BufferedInputStream bis = new BufferedInputStream(fis);
-             InputStreamReader isr = new InputStreamReader(bis, StandardCharsets.UTF_8);
-             JsonReader reader = new JsonReader(isr);
-             FileOutputStream fos = new FileOutputStream(tmp);
-             BufferedOutputStream bos = new BufferedOutputStream(fos, 1 << 16)) {
-            reader.beginObject();
-            while (reader.hasNext()) {
-                String name = reader.nextName();
-                List<Tv.Programme> progs = new ArrayList<>();
-                reader.beginArray();
-                while (reader.hasNext()) progs.add(PROGRAMME_ADAPTER.read(reader));
-                reader.endArray();
-                Set<String> seen = new HashSet<>();
-                List<Tv.Programme> out = new ArrayList<>();
-                collectByDate(progs, zoneId, keepFrom, seen, out, true, name);
-                if (out.isEmpty()) continue;
-                byte[] bytes = toJsonBytes(out);
-                bos.write(bytes);
-                idx.put(name, new long[]{pos, bytes.length});
-                pos += bytes.length;
-            }
-            reader.endObject();
-        } catch (Exception e) {
-            SpiderDebug.log(TAG, "旧总索引迁移失败：" + e);
-            if (tmp.exists()) tmp.delete();
-            return false;
-        }
-        synchronized (DATA_LOCK) {
-            if (dat.exists()) dat.delete();
-            tmp.renameTo(dat);
-        }
-        try {
-            writeIdx(idx);
-        } catch (Exception e) {
-            SpiderDebug.log(TAG, "迁移后写索引失败：" + e);
-        }
-        oldIndex.delete();
-        SpiderDebug.log(TAG, "旧总索引迁移完成，共 " + idx.size() + " 个频道");
-        return true;
-    }
-
-    /** 旧版分片目录：文件名是 md5，反查不到频道名，所以借 live 的频道列表定位 */
-    private static void migrateFromShards(Live live, ZoneId zoneId) {
-        File dir = getShardsDir();
-        File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
-        if (files == null || files.length == 0) return;
-        SpiderDebug.log(TAG, "检测到旧版分片目录，开始迁移为单文件数据...");
-        LocalDate keepFrom = LocalDate.now().minusDays(KEEP_DAYS);
-
-        // 先收集「要迁移哪些频道」，顺带跳过重复与不存在的分片
-        List<String> names = new ArrayList<>();
-        Map<String, File> shardOf = new HashMap<>();
-        for (Channel ch : snapshotChannels(live)) {
-            String norm = normKeyOf(ch);
-            if (norm.isEmpty() || shardOf.containsKey(norm)) continue;
-            File shard = getShardFile(norm);
-            if (shard.exists() && shard.length() > 0) {
-                shardOf.put(norm, shard);
-                names.add(norm);
-            }
-        }
-        if (names.isEmpty()) return;
-
-        SpiderDebug.log(TAG, "开始迁移旧分片，共 " + names.size() + " 个频道");
-        long t0 = System.currentTimeMillis();
-        File dat = getDataFile();
-        File tmp = new File(dat.getParent(), DATA_FILE_NAME + ".tmp.mig");
-        Map<String, long[]> idx = new LinkedHashMap<>();
-        long pos = 0;
-        boolean aborted = false;
-
-        try (FileOutputStream fos = new FileOutputStream(tmp);
-             BufferedOutputStream bos = new BufferedOutputStream(fos, 1 << 16)) {
-            // 分批并行读「原始字节」：让随机小文件读并行化（eMMC/SD 上能快数倍），
-            // 但内存峰值只有一批（默认 8~16 个频道），不会 OOM。
-            // 解析与写回仍在主线程顺序做，保证 offset 递增。
-            int batch = Math.max(4, Math.min(16, BIND_THREADS * 4));
-            long deadline = System.currentTimeMillis() + MIGRATE_DEADLINE_MS;
-            for (int s = 0; s < names.size() && !aborted; s += batch) {
-                int e = Math.min(s + batch, names.size());
-                int n = e - s;
-                byte[][] raw = new byte[n][];
-                List<Future<?>> fs = new ArrayList<>(n);
-                for (int i = 0; i < n; i++) {
-                    final int ii = i;
-                    final File f = shardOf.get(names.get(s + i));
-                    try {
-                        fs.add(BIND_EXECUTOR.submit(() -> {
-                            try {
-                                raw[ii] = readAllBytes(f);
-                            } catch (Exception ignored) {
-                            }
-                            return null;
-                        }));
-                    } catch (Throwable t) {
-                        // 线程池拒绝时在线程内直接读，保证不丢频道
-                        try {
-                            raw[ii] = readAllBytes(f);
-                        } catch (Exception ignored) {
-                        }
-                    }
-                }
-                for (Future<?> f : fs) {
-                    long remain = deadline - System.currentTimeMillis();
-                    if (remain <= 0) {
-                        aborted = true;
-                        break;
-                    }
-                    try {
-                        f.get(remain, TimeUnit.MILLISECONDS);
-                    } catch (InterruptedException ie) {
-                        // 被外部超时中断：中断标志已被清除。
-                        // 不能生成不完整的 dat，否则下次 hasData()==true 会永久缺频道。
-                        aborted = true;
-                        SpiderDebug.log(TAG, "迁移被中断，放弃本次迁移，下次重试");
-                        break;
-                    } catch (java.util.concurrent.TimeoutException te) {
-                        aborted = true;
-                        SpiderDebug.log(TAG, "迁移超时，放弃本次迁移，下次重试");
-                        break;
-                    } catch (Throwable ignored) {
-                    }
-                }
-                if (aborted) break;
-
-                for (int i = 0; i < n; i++) {
-                    byte[] b = raw[i];
-                    if (b == null || b.length == 0) continue;
-                    String norm = names.get(s + i);
-                    List<Tv.Programme> progs;
-                    try {
-                        progs = parseProgrammes(b);
-                    } catch (Exception ex) {
-                        SpiderDebug.log(TAG, "迁移分片解析失败 " + norm + "：" + ex);
-                        continue;
-                    }
-                    Set<String> seen = new HashSet<>();
-                    List<Tv.Programme> out = new ArrayList<>();
-                    collectByDate(progs, zoneId, keepFrom, seen, out, true, norm);
-                    if (out.isEmpty()) continue;
-                    byte[] bytes = toJsonBytes(out);
-                    bos.write(bytes);
-                    idx.put(norm, new long[]{pos, bytes.length});
-                    pos += bytes.length;
-                }
-            }
-        } catch (Exception e) {
-            SpiderDebug.log(TAG, "旧分片迁移失败：" + e);
-            aborted = true;
-        }
-
-        if (aborted || idx.isEmpty()) {
-            // 不生成 dat，下次启动重新迁移（旧分片仍在，数据不丢）
-            if (tmp.exists()) tmp.delete();
-            SpiderDebug.log(TAG, "迁移未完成，已回退，下次启动重试");
-            return;
-        }
-        synchronized (DATA_LOCK) {
-            if (dat.exists()) dat.delete();
-            tmp.renameTo(dat);
-        }
-        try {
-            writeIdx(idx);
-        } catch (Exception e) {
-            SpiderDebug.log(TAG, "迁移后写索引失败：" + e);
-            // 索引没写成 → hasData() 仍为 false → 下次重新迁移，安全
-            return;
-        }
-        // 迁移成功后清掉旧分片，回收空间
-        for (File f : files) f.delete();
-        File dirEmpty = getShardsDir();
-        if (dirEmpty.exists()) dirEmpty.delete();
-        SpiderDebug.log(TAG, "旧分片迁移完成，共 " + idx.size() + " 个频道，耗时="
-                + (System.currentTimeMillis() - t0) + "ms");
     }
 
     private static byte[] readAllBytes(File f) throws Exception {
@@ -1008,8 +791,7 @@ public class EpgParser {
         for (String url : validUrls) validUrlMd5Set.add(Util.md5(url));
         for (File f : allFiles) {
             String name = f.getName();
-            if (name.equals(SHARDS_DIR_NAME) || name.equals(MERGED_META_NAME) || name.equals(INDEX_FILE_NAME)
-                    || name.equals(DATA_FILE_NAME) || name.equals(IDX_FILE_NAME) || name.endsWith(".tmp")) {
+            if (name.equals(MERGED_META_NAME) || name.equals(DATA_FILE_NAME) || name.equals(IDX_FILE_NAME) || name.endsWith(".tmp")) {
                 continue;
             }
             if (f.isDirectory()) continue;
