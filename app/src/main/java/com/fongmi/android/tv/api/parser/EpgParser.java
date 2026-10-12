@@ -302,14 +302,15 @@ public class EpgParser {
         try {
             ZoneId zoneId = zoneIdOf(live.getTimeZone());
             MergeMeta meta = loadMergeMeta();
+            boolean hasData = hasData();
             boolean moreDay = System.currentTimeMillis() - meta.lastMergeRun >= TimeUnit.HOURS.toMillis(24);
-            if (!hasData() || moreDay) {
-                SpiderDebug.log(TAG, (moreDay ? "本地Epg数据已过期" : "没有本地Epg数据") + "，快速初始化并后台更新");
+            if (!hasData || moreDay) {
+                SpiderDebug.log(TAG, (!hasData ? "没有本地Epg数据" : "本地Epg数据已过期") + "，快速初始化并后台更新");
                 FileUtil.deleteEpgDir();
                 bindCount = buildInitialEpgAndSave(live, zoneId);
                 startBackgroundMerge(live, zoneId);
             } else {
-                SpiderDebug.log(TAG, "存在本地Epg数据且未过期，正常加载");
+                SpiderDebug.log(TAG, "本地Epg数据未过期，正常加载");
                 long t0 = System.currentTimeMillis();
                 bindCount = loadMergedIndex(live, zoneId);
                 SpiderDebug.log(TAG, "loadMergedIndex耗时=" + (System.currentTimeMillis() - t0) + "ms, bind=" + bindCount);
