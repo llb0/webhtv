@@ -310,6 +310,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private MpvPlayer mCustomButtonPlayer;
     private final Runnable mCustomButtonStateListener = this::updateCustomButtonStates;
     private final Runnable mDiscMenuStateListener = this::updateDiscMenuAction;
+    private final String[] labels = {"0°", "90°", "180°", "270°"};
 
     private final ActivityResultLauncher<Intent> mLutDir = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
         if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) return;
@@ -705,6 +706,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.opening.setDownListener(this::onOpeningSub);
         mBinding.control.action.subHead.setUpListener(this::onSubHeadAdd);
         mBinding.control.action.subHead.setDownListener(this::onSubHeadSub);
+        mBinding.control.action.rotate.setUpListener(this::onRotateAdd);
+        mBinding.control.action.rotate.setDownListener(this::onRotateSub);
         mBinding.control.action.subTail.setUpListener(this::onSubTailAdd);
         mBinding.control.action.subTail.setDownListener(this::onSubTailSub);
         mBinding.control.action.text.setUpListener(this::onSubtitleClick);
@@ -766,6 +769,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.shortDisplay.setOnClickListener(view -> onShortDisplay());
         setupAudioStageFocusFeedback();
         mBinding.control.action.speed.setOnLongClickListener(view -> onSpeedLong());
+        mBinding.control.action.rotate.setOnLongClickListener(view -> onRotateReset());
         mBinding.control.action.reset.setOnLongClickListener(view -> onResetToggle());
         mBinding.control.action.ending.setOnLongClickListener(view -> onEndingReset());
         mBinding.control.action.opening.setOnLongClickListener(view -> onOpeningReset());
@@ -3161,11 +3165,34 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         setScale(index == array.length - 1 ? 0 : ++index);
     }
 
-    private void onRotate() {
-        int next = (getVideoRotation() + 90) % 360;
+    private void rotate(boolean z) {
+        int next;
+        int current = getVideoRotation();
+        if (z) {
+            next = (current + 90) % 360;
+        } else {
+            next = (current - 90 + 360) % 360;
+        }
         setVideoRotation(next);
-        String[] labels = {"0°", "90°", "180°", "270°"};
         mBinding.control.action.rotate.setText(labels[next / 90]);
+    }
+
+    private void onRotate() {
+        onRotateAdd();
+    }
+
+    private void onRotateAdd() {
+        rotate(true);
+    }
+
+    private void onRotateSub() {
+        rotate(false);
+    }
+
+    private boolean onRotateReset() {
+        setVideoRotation(0);
+        mBinding.control.action.rotate.setText(getString(R.string.play_rotate));
+        return true;
     }
 
     private void onLut() {
