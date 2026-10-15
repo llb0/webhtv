@@ -608,6 +608,11 @@ public class HomeWebController {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (request == null || request.getUrl() == null) return false;
+                String target = request.getUrl().toString();
+                String page = view == null ? homePage : view.getUrl();
+                // JS 能隐藏 <a>，但挡不住 location.href= / meta refresh / 脚本重定向，这一层兜底
+                if (WebHomeAdBlocker.get().shouldBlockNavigation(page, target)) return true;
                 return false;
             }
 
@@ -640,6 +645,26 @@ public class HomeWebController {
 
     private WebChromeClient chrome() {
         return new WebChromeClient() {
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+                if (!Setting.isWebHomeAdblock()) return false;
+                // 这里拿不到弹窗目标 URL（onCreateWindow 回调不带），
+                // 所以用「是否用户手势」判断：
+                //   非用户手势的自动弹窗 —— 几乎 100% 是广告，直接拦
+                //   用户手势触发的      —— 交给 JS 层（已隐藏外跳链接），严格模式另行拦截
+                if (!isUserGesture || Setting.isWebHomeAdblockPopup()) {
+                    SpiderDebug.log("webhome-adblock", "blocked popup gesture=%s dialog=%s", isUserGesture, isDialog);
+                    if (resultMsg != null) {
+                        if (resultMsg.obj instanceof WebView.WebViewTransport) {
+                            ((WebView.WebViewTransport) resultMsg.obj).setWebView(null);
+                        }
+                        resultMsg.sendToTarget();
+                    }
+                    return true;
+                }
+                return false;
+            }
+
             @Override
             public boolean onConsoleMessage(ConsoleMessage message) {
                 if (message != null) {
