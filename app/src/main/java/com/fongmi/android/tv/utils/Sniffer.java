@@ -33,6 +33,11 @@ public class Sniffer {
     }
 
     public static boolean isVideoFormat(String url) {
+        // 资源网关地址形如 http://127.0.0.1:9978/webResource?url=<encoded>&headers=...
+        // 真实地址藏在被编码的 url 参数里，直接匹配正则必然失败，
+        // 会导致播放页把默认线路排成"嗅探"。
+        String inner = gatewayTarget(url);
+        if (!TextUtils.isEmpty(inner)) url = inner;
         Rule rule = getRule(UrlUtil.uri(url));
         for (String exclude : rule.getExclude()) if (url.contains(exclude)) return false;
         for (String exclude : rule.getExclude()) if (Pattern.compile(exclude).matcher(url).find()) return false;
@@ -40,6 +45,29 @@ public class Sniffer {
         for (String regex : rule.getRegex()) if (Pattern.compile(regex).matcher(url).find()) return true;
         if (url.contains("url=http") || url.contains("v=http") || url.contains(".html")) return false;
         return SNIFFER.matcher(url).find();
+    }
+
+    /** 取资源网关地址里被编码的真实地址；非网关地址返回空。 */
+    private static String gatewayTarget(String url) {
+        if (TextUtils.isEmpty(url) || !url.contains("/webResource")) return "";
+        try {
+            int idx = url.indexOf('?');
+            if (idx < 0) return "";
+            String query = url.substring(idx + 1);
+            for (String pair : query.split("&")) {
+                int eq = pair.indexOf('=');
+                if (eq <= 0) continue;
+                if (!"url".equals(pair.substring(0, eq))) continue;
+                String value = pair.substring(eq + 1);
+                try {
+                    value = java.net.URLDecoder.decode(value, "UTF-8");
+                } catch (Throwable ignored) {
+                }
+                return value.startsWith("http") ? value : "";
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
     }
 
     public static List<String> getScript(Uri uri) {
