@@ -616,6 +616,8 @@ public class HomeWebController {
                 String url = request.getUrl() == null ? "" : request.getUrl().toString();
                 Map<String, String> requestHeaders = request.getRequestHeaders();
                 listener.onWebRequest(request.getMethod(), url, request.isForMainFrame(), requestHeaders);
+                WebResourceResponse blocked = WebHomeAdBlocker.get().intercept(request);
+                if (blocked != null) return blocked;
                 pushSniffedMedia(url, request.getMethod(), requestHeaders);
                 WebResourceResponse raw = rawAdapter == null ? null : rawAdapter.intercept(request);
                 return raw == null ? super.shouldInterceptRequest(view, request) : raw;
