@@ -597,6 +597,14 @@ public class Setting {
         Prefers.put("web_home_sniffer", sniffer);
     }
 
+    public static boolean isWebHomeAdblock() {
+        return Prefers.getBoolean("web_home_adblock", true);
+    }
+    
+    public static void putWebHomeAdblock(boolean adblock) {
+        Prefers.put("web_home_adblock", adblock);
+    }
+
     public static boolean isWebHomeFullscreen() {
         return Prefers.getBoolean("web_home_fullscreen", true);
     }
