@@ -600,9 +600,34 @@ public class Setting {
     public static boolean isWebHomeAdblock() {
         return Prefers.getBoolean("web_home_adblock", true);
     }
-    
+
     public static void putWebHomeAdblock(boolean adblock) {
         Prefers.put("web_home_adblock", adblock);
+    }
+
+    /**
+     * 激进外跳拦截：连"普通跨域外跳"一起拦。
+     * 默认关——点播放跳到外站 CDN 属于正常行为，一刀切会误伤。
+     * 只拦命中广告域名清单或跳板的目标，由 WebHomeAdBlocker 默认完成。
+     */
+    public static boolean isWebHomeAdblockNav() {
+        return Prefers.getBoolean("web_home_adblock_nav", false);
+    }
+
+    public static void putWebHomeAdblockNav(boolean nav) {
+        Prefers.put("web_home_adblock_nav", nav);
+    }
+
+    /**
+     * 严格弹窗拦截：连用户手势触发的弹窗也拦。
+     * 默认关——非手势的自动弹窗始终拦截，无需此开关。
+     */
+    public static boolean isWebHomeAdblockPopup() {
+        return Prefers.getBoolean("web_home_adblock_popup", false);
+    }
+
+    public static void putWebHomeAdblockPopup(boolean popup) {
+        Prefers.put("web_home_adblock_popup", popup);
     }
 
     public static boolean isWebHomeFullscreen() {
