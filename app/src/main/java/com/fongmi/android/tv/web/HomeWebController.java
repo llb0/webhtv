@@ -34,6 +34,7 @@ import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.Sniffer;
 import com.fongmi.android.tv.utils.UrlUtil;
 import com.fongmi.android.tv.utils.Util;
 import com.fongmi.android.tv.utils.WebViewUtil;
@@ -41,6 +42,8 @@ import com.fongmi.android.tv.web.ext.WebHomeExtension;
 import com.fongmi.android.tv.web.ext.WebHomeExtensionRegistry;
 import com.google.common.net.HttpHeaders;
 import com.google.gson.JsonObject;
+
+import org.json.JSONObject;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -61,6 +64,7 @@ public class HomeWebController {
     private final Listener listener;
     private final Activity activity;
     private final Set<String> injectedExtensions;
+    private final Set<String> sniffedUrls;
     private final Runnable extensionReloadRunnable;
     private final boolean debugTools;
     private WebView webView;
@@ -94,6 +98,7 @@ public class HomeWebController {
         this.debugTools = debugTools;
         this.density = activity.getResources().getDisplayMetrics().density;
         this.injectedExtensions = new HashSet<>();
+        this.sniffedUrls = new HashSet<>();
         this.extensionReloadRunnable = this::consumeExtensionReload;
         active = this;
         init();
@@ -608,7 +613,10 @@ public class HomeWebController {
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                listener.onWebRequest(request.getMethod(), request.getUrl().toString(), request.isForMainFrame(), request.getRequestHeaders());
+                String url = request.getUrl() == null ? "" : request.getUrl().toString();
+                Map<String, String> requestHeaders = request.getRequestHeaders();
+                listener.onWebRequest(request.getMethod(), url, request.isForMainFrame(), requestHeaders);
+                pushSniffedMedia(url, request.getMethod(), requestHeaders);
                 WebResourceResponse raw = rawAdapter == null ? null : rawAdapter.intercept(request);
                 return raw == null ? super.shouldInterceptRequest(view, request) : raw;
             }
@@ -661,8 +669,74 @@ public class HomeWebController {
         });
     }
 
+    /**
+     * 原生层媒体嗅探：把 shouldInterceptRequest 命中媒体的请求推给 WebHome 页面。
+     * 只推送不拦截，对页面零副作用；JS 侧由 __fmNativeSniff / __fmNativeSniffQ 接收。
+     */
+    private void pushSniffedMedia(String url, String method, Map<String, String> requestHeaders) {
+        if (!Setting.isWebHomeSniffer()) return;
+        if (TextUtils.isEmpty(url) || !Sniffer.isVideoFormat(url)) return;
+        if (!sniffedUrls.add(url)) return;
+        if (webView == null) return;
+        try {
+            JSONObject headers = new JSONObject();
+            if (requestHeaders != null) {
+                for (Map.Entry<String, String> entry : requestHeaders.entrySet()) {
+                    String key = entry.getKey();
+                    String value = entry.getValue();
+                    if (key == null || value == null) continue;
+                    String lower = key.toLowerCase();
+                    // Cookie 交给播放侧 credentials:include 补齐，避免重复携带
+                    if ("cookie".equals(lower) || "host".equals(lower) || "content-length".equals(lower)) continue;
+                    headers.put(key, value);
+                }
+            }
+            JSONObject payload = new JSONObject();
+            payload.put("url", url);
+            payload.put("method", method == null ? "GET" : method);
+            payload.put("headers", headers);
+            String script = "(function(){try{var p=" + payload + ";"
+                    + "if(window.__fmNativeSniff){window.__fmNativeSniff(p);}"
+                    + "else{(window.__fmNativeSniffQ=window.__fmNativeSniffQ||[]).push(p);}"
+                    + "}catch(e){}})()";
+            webView.post(() -> {
+                try {
+                    webView.evaluateJavascript(script, null);
+                } catch (Throwable ignored) {
+                }
+            });
+            SpiderDebug.log("webhome-sniffer", "hit url=%s method=%s", url, method);
+        } catch (Throwable e) {
+            SpiderDebug.log("webhome-sniffer", "push failed url=%s error=%s", url, e.getMessage());
+        }
+    }
+
+    /**
+     * 页面切换时清空去重集合，避免跨页漏报。
+     */
+    private void resetSniffedMedia() {
+        try {
+            sniffedUrls.clear();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 在每个文档最开始预置接收队列，避免扩展脚本注入前的请求丢失。
+     */
+    private void registerSniffQueueScript() {
+        if (webView == null || !isDocumentStartSupported()) return;
+        try {
+            WebViewCompat.addDocumentStartJavaScript(webView, "window.__fmNativeSniffQ=window.__fmNativeSniffQ||[];", Collections.singleton("*"));
+        } catch (Throwable e) {
+            SpiderDebug.log("webhome-sniffer", "queue script register failed error=%s", e.getMessage());
+        }
+    }
+
     private void registerDocumentStartScripts() {
         removeDocumentStartScripts();
+        resetSniffedMedia();
+        registerSniffQueueScript();
         if (site == null || !isDocumentStartSupported()) return;
         String script = documentStartScript();
         if (TextUtils.isEmpty(script)) return;
