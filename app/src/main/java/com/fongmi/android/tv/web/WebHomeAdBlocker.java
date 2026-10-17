@@ -370,15 +370,7 @@ public class WebHomeAdBlocker {
         } catch (Throwable ignored) { }
     }
 
-    private static String hostOf(String url) {
-        if (TextUtils.isEmpty(url)) return "";
-        try {
-            String h = Uri.parse(url).getHost();
-            return h == null ? "" : h.toLowerCase(Locale.ROOT);
-        } catch (Throwable e) {
-            return "";
-        }
-    }
+    // ⚠️ v3.47：hostOf 原本就有（上方），这里不再重复定义。
 
     /**
      * 取当前页生效配置：站点级优先 → 全局 → 默认。
