@@ -369,23 +369,77 @@ public class WebHomeAdBlocker {
         return false;
     }
 
+    // ── 回退保护 ───────────────────────────────────────────────
+    // goBack() 会重新加载上一页，而上一页的广告脚本又会再次自动跳转 ——
+    // 形成「拦 → 回退 → 再跳 → 再拦」的死循环，表现就是页面一直转圈。
+    // 所以必须限流：同一目标在窗口期内只回退一次，且总次数设上限。
+    private static final long GO_BACK_WINDOW_MS = 3000L;
+    private static final int GO_BACK_MAX = 3;
+
+    private String lastGoBackUrl = "";
+    private long lastGoBackAt = 0;
+    private int goBackCount = 0;
+    private long goBackWindowStart = 0;
+
     /**
      * 拦截后是否需要回退。
      *
      * shouldOverrideUrlLoading 返回 true 时页面停在原处，通常无需回退；
      * 但若 onPageStarted 已经触发（跳转走到了一半，页面变空白），
-     * 需要显式 goBack 把用户拉回跳转前的页面 —— 否则会卡在空白页。
+     * 需要把用户拉回跳转前的页面 —— 否则会卡在空白页。
+     *
+     * ⚠️ 注意：goBack() 会重新加载上一页，若上一页脚本又自动跳转，
+     *   会陷入死循环（一直转圈）。这里用三重限流挡住：
+     *     ① 同一 URL 在 3 秒窗口内只回退一次
+     *     ② 窗口内总回退次数上限 3 次
+     *     ③ 超限后不再回退（只 stopLoading），避免无限循环
      */
     public boolean needGoBack(WebView view, String targetUrl) {
         if (view == null) return false;
         try {
             String cur = view.getUrl();
             if (TextUtils.isEmpty(cur) || TextUtils.isEmpty(targetUrl)) return false;
-            // 当前页已经变成被拦的目标（说明跳转已部分生效）→ 回退
-            return cur.equals(targetUrl) && view.canGoBack();
+            // 当前页已经变成被拦的目标（说明跳转已部分生效）才需要回退
+            if (!cur.equals(targetUrl)) return false;
+            if (!view.canGoBack()) return false;
+
+            long now = System.currentTimeMillis();
+
+            // ① 同一 URL 窗口期内只回退一次
+            if (targetUrl.equals(lastGoBackUrl) && now - lastGoBackAt < GO_BACK_WINDOW_MS) {
+                return false;
+            }
+
+            // 窗口重置
+            if (now - goBackWindowStart > GO_BACK_WINDOW_MS * 4) {
+                goBackWindowStart = now;
+                goBackCount = 0;
+            }
+            // ② 总次数上限
+            if (goBackCount >= GO_BACK_MAX) {
+                SpiderDebug.log("webhome-adblock", "goBack limit reached, skip (avoid loop) url=%s", targetUrl);
+                return false;
+            }
+
+            goBackCount++;
+            lastGoBackUrl = targetUrl;
+            lastGoBackAt = now;
+            return true;
         } catch (Throwable e) {
             return false;
         }
+    }
+
+    /** 供控制器在拦截后调用：先停掉正在进行的加载，再按需回退。 */
+    public void onNavigationBlocked(WebView view, String targetUrl) {
+        if (view == null) return;
+        try {
+            // stopLoading 优先：阻止当前这次加载继续，避免页面停在半成品状态
+            view.stopLoading();
+        } catch (Throwable ignored) { }
+        try {
+            if (needGoBack(view, targetUrl)) view.goBack();
+        } catch (Throwable ignored) { }
     }
 
     /**
