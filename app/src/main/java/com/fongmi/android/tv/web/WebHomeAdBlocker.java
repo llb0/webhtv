@@ -275,7 +275,7 @@ public class WebHomeAdBlocker {
      * 海报常放在 CDN 上，一刀切会误杀（这点 JS 层同理）。
      */
     public WebResourceResponse intercept(WebResourceRequest request) {
-        if (!Setting.isWebHomeAdblock()) return null;
+        if (!jsEnabled) return null;
         if (request == null || request.getUrl() == null) return null;
         String url = request.getUrl().toString();
         if (!isAdDomain(url)) return null;
@@ -289,6 +289,51 @@ public class WebHomeAdBlocker {
     // JS 脚本 boot 时会把当前站点主域同步过来，用于更准的同站判定。
     // 为空则退回用 pageUrl 推导（原有逻辑）。
     private volatile String siteHost = "";
+
+    // ⚠️ v3.44：JS 面板里的开关必须同步到这里并【优先于 Setting 的默认值】。
+    // 之前只同步了 siteHost / blacklist，开关值没被使用 ——
+    // shouldBlockNavigation 一直读 Setting.isWebHomeAdblockNav()（默认 true），
+    // 结果就是用户在面板里关掉「拦跨域跳转」依然被拦（"开关没用"）。
+    // ⚠️ v3.45：唯一开关来源 —— 只认 JS 面板同步过来的值。
+    // 不再读 Setting：那套默认值是"另一个真相源"，面板改了它不变，
+    // 结果就是"开关没用"。现在规则就一句：关了放行，开了拦截。
+    private volatile boolean jsSynced = false;          // 是否收到过 JS 同步
+    private volatile boolean jsEnabled = true;          // 总开关
+    private volatile boolean jsBlockAllCrossNav = true; // 拦跨域跳转
+    private volatile boolean jsAllowCrossNav = false;   // 放行跨域
+
+    /**
+     * 接收 JS 面板同步的完整配置。
+     *
+     * payload: {
+     *   "enabled":true, "siteHost":"a6.com",
+     *   "blockAllCrossNav":true, "allowCrossNav":false,
+     *   "whitelist":["..."], "blacklist":["..."]
+     * }
+     */
+    public synchronized void applyJsConfig(boolean enabled, String host,
+                                           boolean blockAllCrossNav, boolean allowCrossNav,
+                                           java.util.List<String> white,
+                                           java.util.List<String> black) {
+        jsSynced = true;
+        jsEnabled = enabled;
+        jsBlockAllCrossNav = blockAllCrossNav;
+        jsAllowCrossNav = allowCrossNav;
+        if (!TextUtils.isEmpty(host)) siteHost = host.trim().toLowerCase(Locale.ROOT);
+        if (white != null) {
+            for (String d : white) {
+                if (!TextUtils.isEmpty(d)) whitelist(d.trim());
+            }
+        }
+        if (black != null) {
+            for (String d : black) {
+                if (!TextUtils.isEmpty(d)) addBlockedDomain(d);
+            }
+        }
+        SpiderDebug.log("webhome-adblock", "jsConfig enabled=%s host=%s blockAllCrossNav=%s allowCrossNav=%s white=%s black=%s",
+                enabled, siteHost, blockAllCrossNav, allowCrossNav,
+                white == null ? 0 : white.size(), black == null ? 0 : black.size());
+    }
 
     /** 供 JS 通过 addJavascriptInterface 调用，同步站点主域。 */
     @android.webkit.JavascriptInterface
@@ -344,7 +389,8 @@ public class WebHomeAdBlocker {
      *   媒体直链由 isMediaUrl 放行，不会误伤。
      */
     public boolean shouldBlockNavigation(String pageUrl, String targetUrl) {
-        if (!Setting.isWebHomeAdblock()) return false;
+        // v3.45：只读 JS 同步值（不再读 Setting —— 那是另一个真相源）
+        if (!jsEnabled) return false;
         if (TextUtils.isEmpty(targetUrl)) return false;
         if (isWhitelisted(targetUrl)) return false;
         if (isMediaUrl(targetUrl)) return false;
@@ -356,8 +402,8 @@ public class WebHomeAdBlocker {
             return true;
         }
 
-        // 2) v3.42 默认开：拦掉所有跨域文档导航
-        if (Setting.isWebHomeAdblockNav()) {
+        // 2) 拦掉所有跨域文档导航 —— 只读 JS 面板开关
+        if (jsBlockAllCrossNav) {
             // 只拦"文档类"目标：带页面后缀，或无后缀的目录/根路径。
             // 这样 .mp4/.m3u8/.jpg 等媒体直链（上面已放行）与其他资源不受影响。
             if (!isDocUrl(targetUrl)) return false;
@@ -447,7 +493,7 @@ public class WebHomeAdBlocker {
      * 返回 true 表示拦截该弹窗。广告弹窗目标几乎必然是外站。
      */
     public boolean shouldBlockPopup(String pageUrl, String targetUrl) {
-        if (!Setting.isWebHomeAdblock()) return false;
+        if (!jsEnabled) return false;
         if (isWhitelisted(targetUrl)) return false;
         if (isMediaUrl(targetUrl)) return false;
         boolean hit = isAdDomain(targetUrl) || isRedirectUrl(targetUrl) || isOutbound(pageUrl, targetUrl);
