@@ -105,6 +105,25 @@ public class HomeWebBridge {
         if (future != null) future.complete(payload);
     }
 
+    /**
+     * v3.42：接收 JS 广告过滤脚本同步的配置。
+     * payload: {"siteHost":"a6.com","blockAllCrossNav":true,"allowCrossNav":false,
+     *           "blacklist":["ec766.com","ucloudqn.unipus.cn"]}
+     */
+    private String adblockConfig(JsonObject payload) {
+        try {
+            String host = Json.safeString(payload, "siteHost");
+            if (!host.isEmpty()) WebHomeAdBlocker.get().setSiteHost(host);
+            com.google.gson.JsonArray arr = payload.getAsJsonArray("blacklist");
+            if (arr != null) {
+                for (int i = 0; i < arr.size(); i++) {
+                    WebHomeAdBlocker.get().addBlockedDomain(arr.get(i).getAsString());
+                }
+            }
+        } catch (Throwable ignored) { }
+        return quote("ok");
+    }
+
     private void handle(String requestId, String method, JsonObject payload) {
         try {
             SpiderDebug.log("webhome", "invoke method=%s payload=%s", method, payload);
@@ -131,6 +150,9 @@ public class HomeWebBridge {
                 case "device.info" -> device();
                 case "site.info" -> site();
                 case "config.info" -> config();
+                // v3.42：JS 广告过滤脚本同步站点主域与黑名单到原生层，
+                // 让 shouldOverrideUrlLoading 能据此拦跨域导航
+                case "adblock.config" -> adblockConfig(payload);
                 case "ext.info" -> extInfo();
                 case "ext.log" -> extLog(payload);
                 case "ext.toast" -> extToast(payload);
