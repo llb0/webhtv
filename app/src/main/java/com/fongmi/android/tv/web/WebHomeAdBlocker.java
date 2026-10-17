@@ -1,11 +1,15 @@
 package com.fongmi.android.tv.web;
 
+import android.net.Uri;
 import android.text.TextUtils;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 
 import com.fongmi.android.tv.setting.Setting;
+import com.github.catvod.utils.Prefers;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.io.ByteArrayInputStream;
@@ -116,6 +120,10 @@ public class WebHomeAdBlocker {
     }
 
     private WebHomeAdBlocker() {
+        // v3.46：启动时先读 Java 层持久化配置。
+        // 页面 302 / 切站源时 JS 可能还没同步，靠这份值才不会退回默认(开)。
+        loadPersisted();
+    }
         // 默认白名单：本地网关与嗅探播放必须放行
         whitelist.add("127.0.0.1");
         whitelist.add("localhost");
@@ -275,7 +283,8 @@ public class WebHomeAdBlocker {
      * 海报常放在 CDN 上，一刀切会误杀（这点 JS 层同理）。
      */
     public WebResourceResponse intercept(WebResourceRequest request) {
-        if (!jsEnabled) return null;
+        boolean[] cfg = cfgFor(request == null ? "" : String.valueOf(request.getUrl()));
+        if (!cfg[0]) return null;
         if (request == null || request.getUrl() == null) return null;
         String url = request.getUrl().toString();
         if (!isAdDomain(url)) return null;
@@ -302,6 +311,95 @@ public class WebHomeAdBlocker {
     private volatile boolean jsBlockAllCrossNav = true; // 拦跨域跳转
     private volatile boolean jsAllowCrossNav = false;   // 放行跨域
 
+    // ── v3.46 持久化 ────────────────────────────────────────────
+    // 关掉「拦跨域跳转」后切站源会 302 到新域，新域上悬浮球还没加载出来，
+    // JS 来不及同步 → Java 回到默认(开) → 又被拦。
+    // 所以开关必须存在 Java 层（Prefers），与 JS 双向同步：
+    //   JS 改 → 写 Prefers；Java 判定 → 读 Prefers。
+    private static final String CFG_KEY = "web_home_adblock_cfg";
+    /** 全放行：脚本未启用时用它，三处判定都会直接放行。 */
+    private static final boolean[] PASS_ALL = new boolean[]{false, false, false};
+    private final java.util.Map<String, boolean[]> siteCfg =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private void loadPersisted() {
+        try {
+            String raw = Prefers.getString(CFG_KEY);
+            if (TextUtils.isEmpty(raw)) return;
+            JsonObject o = new Gson().fromJson(raw, JsonObject.class);
+            if (o == null) return;
+            JsonObject g = o.getAsJsonObject("global");
+            if (g != null) {
+                jsSynced = true;
+                jsEnabled = g.has("enabled") ? g.get("enabled").getAsBoolean() : jsEnabled;
+                jsBlockAllCrossNav = g.has("blockAllCrossNav") ? g.get("blockAllCrossNav").getAsBoolean() : jsBlockAllCrossNav;
+                jsAllowCrossNav = g.has("allowCrossNav") ? g.get("allowCrossNav").getAsBoolean() : jsAllowCrossNav;
+            }
+            JsonObject st = o.getAsJsonObject("sites");
+            if (st != null) {
+                for (String h : st.keySet()) {
+                    JsonObject c = st.getAsJsonObject(h);
+                    if (c == null) continue;
+                    siteCfg.put(h, new boolean[]{
+                            c.has("enabled") ? c.get("enabled").getAsBoolean() : true,
+                            c.has("blockAllCrossNav") ? c.get("blockAllCrossNav").getAsBoolean() : true,
+                            c.has("allowCrossNav") ? c.get("allowCrossNav").getAsBoolean() : false
+                    });
+                }
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    private void persist() {
+        try {
+            JsonObject o = new JsonObject();
+            JsonObject g = new JsonObject();
+            g.addProperty("enabled", jsEnabled);
+            g.addProperty("blockAllCrossNav", jsBlockAllCrossNav);
+            g.addProperty("allowCrossNav", jsAllowCrossNav);
+            o.add("global", g);
+            JsonObject st = new JsonObject();
+            for (java.util.Map.Entry<String, boolean[]> e : siteCfg.entrySet()) {
+                JsonObject c = new JsonObject();
+                c.addProperty("enabled", e.getValue()[0]);
+                c.addProperty("blockAllCrossNav", e.getValue()[1]);
+                c.addProperty("allowCrossNav", e.getValue()[2]);
+                st.add(e.getKey(), c);
+            }
+            o.add("sites", st);
+            Prefers.put(CFG_KEY, o.toString());
+        } catch (Throwable ignored) { }
+    }
+
+    private static String hostOf(String url) {
+        if (TextUtils.isEmpty(url)) return "";
+        try {
+            String h = Uri.parse(url).getHost();
+            return h == null ? "" : h.toLowerCase(Locale.ROOT);
+        } catch (Throwable e) {
+            return "";
+        }
+    }
+
+    /**
+     * 取当前页生效配置：站点级优先 → 全局 → 默认。
+     *
+     * ⚠️ v3.47 总闸：用户在设置里【未启用】广告过滤脚本时，全部放行、什么都不做。
+     * 注意区分两种"JS 没同步"：
+     *   ① 未启用脚本（web_home_adblock=false）→ 必须全放行，Java 不介入
+     *   ② 已启用但 JS 还没 boot（如 302 切站源）→ 读 Java 层持久化配置，不能退回默认
+     * 之前把 Setting 一律移除，①②被混为一谈，① 场景下 Java 仍在拦。
+     */
+    private boolean[] cfgFor(String pageUrl) {
+        if (!Setting.isWebHomeAdblock()) return PASS_ALL;
+        String h = hostOf(pageUrl);
+        if (!TextUtils.isEmpty(h)) {
+            boolean[] c = siteCfg.get(h);
+            if (c != null) return c;
+        }
+        return new boolean[]{jsEnabled, jsBlockAllCrossNav, jsAllowCrossNav};
+    }
+
     /**
      * 接收 JS 面板同步的完整配置。
      *
@@ -315,10 +413,28 @@ public class WebHomeAdBlocker {
                                            boolean blockAllCrossNav, boolean allowCrossNav,
                                            java.util.List<String> white,
                                            java.util.List<String> black) {
+        applyJsConfig(enabled, host, blockAllCrossNav, allowCrossNav, white, black, "global");
+    }
+
+    /**
+     * scope="site" → 只存到该站点；scope="global" → 存为全局。
+     * 两种都会立刻写 Prefers，保证下次启动/302 后仍在。
+     */
+    public synchronized void applyJsConfig(boolean enabled, String host,
+                                           boolean blockAllCrossNav, boolean allowCrossNav,
+                                           java.util.List<String> white,
+                                           java.util.List<String> black, String scope) {
         jsSynced = true;
+        boolean[] v = new boolean[]{enabled, blockAllCrossNav, allowCrossNav};
+        // ⚠️ v3.46：无论站点还是全局，都【同时更新全局】。
+        // 只存站点的话，切站源 302 到新域后按域查不到配置 → 退回默认(开) → 又被拦
+        // （正是用户报的现象）。跨域拦截本就该全局一致。
         jsEnabled = enabled;
         jsBlockAllCrossNav = blockAllCrossNav;
         jsAllowCrossNav = allowCrossNav;
+        if ("site".equals(scope) && !TextUtils.isEmpty(host)) {
+            siteCfg.put(host.trim().toLowerCase(Locale.ROOT), v);
+        }
         if (!TextUtils.isEmpty(host)) siteHost = host.trim().toLowerCase(Locale.ROOT);
         if (white != null) {
             for (String d : white) {
@@ -330,9 +446,10 @@ public class WebHomeAdBlocker {
                 if (!TextUtils.isEmpty(d)) addBlockedDomain(d);
             }
         }
-        SpiderDebug.log("webhome-adblock", "jsConfig enabled=%s host=%s blockAllCrossNav=%s allowCrossNav=%s white=%s black=%s",
+        SpiderDebug.log("webhome-adblock", "jsConfig enabled=%s host=%s blockAllCrossNav=%s allowCrossNav=%s white=%s black=%s scope=%s",
                 enabled, siteHost, blockAllCrossNav, allowCrossNav,
-                white == null ? 0 : white.size(), black == null ? 0 : black.size());
+                white == null ? 0 : white.size(), black == null ? 0 : black.size(), scope);
+        persist();   // v3.46：立刻落盘，302/切站源后仍生效
     }
 
     /** 供 JS 通过 addJavascriptInterface 调用，同步站点主域。 */
@@ -389,8 +506,9 @@ public class WebHomeAdBlocker {
      *   媒体直链由 isMediaUrl 放行，不会误伤。
      */
     public boolean shouldBlockNavigation(String pageUrl, String targetUrl) {
-        // v3.45：只读 JS 同步值（不再读 Setting —— 那是另一个真相源）
-        if (!jsEnabled) return false;
+        // v3.46：读持久化配置（站点级优先 → 全局），不再读 Setting
+        boolean[] cfg = cfgFor(pageUrl);
+        if (!cfg[0]) return false;
         if (TextUtils.isEmpty(targetUrl)) return false;
         if (isWhitelisted(targetUrl)) return false;
         if (isMediaUrl(targetUrl)) return false;
@@ -402,8 +520,8 @@ public class WebHomeAdBlocker {
             return true;
         }
 
-        // 2) 拦掉所有跨域文档导航 —— 只读 JS 面板开关
-        if (jsBlockAllCrossNav) {
+        // 2) 拦掉所有跨域文档导航 —— 读持久化配置
+        if (cfg[1]) {
             // 只拦"文档类"目标：带页面后缀，或无后缀的目录/根路径。
             // 这样 .mp4/.m3u8/.jpg 等媒体直链（上面已放行）与其他资源不受影响。
             if (!isDocUrl(targetUrl)) return false;
@@ -493,7 +611,8 @@ public class WebHomeAdBlocker {
      * 返回 true 表示拦截该弹窗。广告弹窗目标几乎必然是外站。
      */
     public boolean shouldBlockPopup(String pageUrl, String targetUrl) {
-        if (!jsEnabled) return false;
+        boolean[] cfg = cfgFor(pageUrl);
+        if (!cfg[0]) return false;
         if (isWhitelisted(targetUrl)) return false;
         if (isMediaUrl(targetUrl)) return false;
         boolean hit = isAdDomain(targetUrl) || isRedirectUrl(targetUrl) || isOutbound(pageUrl, targetUrl);
