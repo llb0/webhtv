@@ -122,7 +122,8 @@ public class HomeWebBridge {
             boolean allowCross = payload.has("allowCrossNav") ? payload.get("allowCrossNav").getAsBoolean() : false;
             java.util.List<String> white = asList(payload, "whitelist");
             java.util.List<String> black = asList(payload, "blacklist");
-            WebHomeAdBlocker.get().applyJsConfig(enabled, host, blockAll, allowCross, white, black);
+            String scope = payload.has("scope") ? payload.get("scope").getAsString() : "global";
+            WebHomeAdBlocker.get().applyJsConfig(enabled, host, blockAll, allowCross, white, black, scope);
         } catch (Throwable ignored) { }
         return quote("ok");
     }
