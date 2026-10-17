@@ -105,6 +105,40 @@ public class HomeWebBridge {
         if (future != null) future.complete(payload);
     }
 
+    /**
+     * v3.42：接收 JS 广告过滤脚本同步的配置。
+     * payload: {"siteHost":"a6.com","blockAllCrossNav":true,"allowCrossNav":false,
+     *           "blacklist":["ec766.com","ucloudqn.unipus.cn"]}
+     */
+    private String adblockConfig(JsonObject payload) {
+        try {
+            // v3.44：完整接收开关 + 白名单 + 黑名单。
+            // 之前只取 siteHost / blacklist，开关值没传给 Java ——
+            // shouldBlockNavigation 只能读 Setting 默认值，
+            // 面板里改开关不生效。
+            boolean enabled = payload.has("enabled") ? payload.get("enabled").getAsBoolean() : true;
+            String host = Json.safeString(payload, "siteHost");
+            boolean blockAll = payload.has("blockAllCrossNav") ? payload.get("blockAllCrossNav").getAsBoolean() : true;
+            boolean allowCross = payload.has("allowCrossNav") ? payload.get("allowCrossNav").getAsBoolean() : false;
+            java.util.List<String> white = asList(payload, "whitelist");
+            java.util.List<String> black = asList(payload, "blacklist");
+            String scope = payload.has("scope") ? payload.get("scope").getAsString() : "global";
+            WebHomeAdBlocker.get().applyJsConfig(enabled, host, blockAll, allowCross, white, black, scope);
+        } catch (Throwable ignored) { }
+        return quote("ok");
+    }
+
+    private static java.util.List<String> asList(JsonObject obj, String key) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            com.google.gson.JsonArray arr = obj.getAsJsonArray(key);
+            if (arr != null) {
+                for (int i = 0; i < arr.size(); i++) out.add(arr.get(i).getAsString());
+            }
+        } catch (Throwable ignored) { }
+        return out;
+    }
+
     private void handle(String requestId, String method, JsonObject payload) {
         try {
             SpiderDebug.log("webhome", "invoke method=%s payload=%s", method, payload);
@@ -131,6 +165,9 @@ public class HomeWebBridge {
                 case "device.info" -> device();
                 case "site.info" -> site();
                 case "config.info" -> config();
+                // v3.42：JS 广告过滤脚本同步站点主域与黑名单到原生层，
+                // 让 shouldOverrideUrlLoading 能据此拦跨域导航
+                case "adblock.config" -> adblockConfig(payload);
                 case "ext.info" -> extInfo();
                 case "ext.log" -> extLog(payload);
                 case "ext.toast" -> extToast(payload);

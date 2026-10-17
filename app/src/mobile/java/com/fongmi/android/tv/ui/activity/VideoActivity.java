@@ -163,6 +163,7 @@ import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.Timer;
 import com.fongmi.android.tv.utils.Traffic;
 import com.fongmi.android.tv.utils.Util;
+import com.fongmi.android.tv.web.WebHomeInlineVodStore;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -1267,7 +1268,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void checkId() {
         if (getId().startsWith("push://")) getIntent().putExtra("key", SiteApi.PUSH).putExtra("id", getId().substring(7));
         if (getId().isEmpty() || getId().startsWith("msearch:")) setEmpty(false);
-        else if (!TextUtils.isEmpty(getKey()) && VodConfig.get().getSite(getKey()).isEmpty() && !SiteApi.PUSH.equals(getKey())) startCastSearch(getName());
+        else if (!TextUtils.isEmpty(getKey()) && VodConfig.get().getSite(getKey()).isEmpty() && !SiteApi.PUSH.equals(getKey()) && !WebHomeInlineVodStore.KEY.equals(getKey())) startCastSearch(getName());
         else getDetail();
     }
 

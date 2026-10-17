@@ -589,6 +589,57 @@ public class Setting {
         Prefers.put("web_home_extension", extension);
     }
 
+    public static boolean isWebHomeSniffer() {
+        return Prefers.getBoolean("web_home_sniffer", true);
+    }
+
+    public static void putWebHomeSniffer(boolean sniffer) {
+        Prefers.put("web_home_sniffer", sniffer);
+    }
+
+    public static boolean isWebHomeAdblock() {
+        return Prefers.getBoolean("web_home_adblock", true);
+    }
+
+    public static void putWebHomeAdblock(boolean adblock) {
+        Prefers.put("web_home_adblock", adblock);
+    }
+
+    /**
+     * v3.42：拦掉所有跨域导航。默认【开】。
+     *
+     * 依据：WebHome 不是浏览器，跨域导航没有合法用途 ——
+     * 看片、播视频、翻页全部在本站内完成，播放资源也是跨域「取」而非跨域「跳」。
+     * 所以默认拦掉一切跨域导航，比跟广告在 JS 层赛跑（锁时间窗 / 认热区 /
+     * 掐事件传播）既可靠又省性能。
+     *
+     * 不误伤的部分（WebHomeAdBlocker 已处理）：
+     *   · 媒体直链 .mp4/.m3u8/.jpg/... —— 是跨域「取资源」，放行
+     *   · 白名单（127.0.0.1 / localhost / 用户加白）—— 放行
+     *   · 同站跳转 —— 本来就不拦
+     *
+     * 若某个站确实需要跨域跳转（少见），在广告过滤面板里关掉此项即可。
+     */
+    public static boolean isWebHomeAdblockNav() {
+        return Prefers.getBoolean("web_home_adblock_nav", true);
+    }
+
+    public static void putWebHomeAdblockNav(boolean nav) {
+        Prefers.put("web_home_adblock_nav", nav);
+    }
+
+    /**
+     * 严格弹窗拦截：连用户手势触发的弹窗也拦。
+     * 默认关——非手势的自动弹窗始终拦截，无需此开关。
+     */
+    public static boolean isWebHomeAdblockPopup() {
+        return Prefers.getBoolean("web_home_adblock_popup", false);
+    }
+
+    public static void putWebHomeAdblockPopup(boolean popup) {
+        Prefers.put("web_home_adblock_popup", popup);
+    }
+
     public static boolean isWebHomeFullscreen() {
         return Prefers.getBoolean("web_home_fullscreen", true);
     }

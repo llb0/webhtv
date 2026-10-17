@@ -8,6 +8,7 @@ import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.player.Source;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Json;
+import com.github.catvod.utils.Prefers;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -22,6 +23,10 @@ public class WebHomeInlineVodStore {
 
     public static final String KEY = "webhome_inline";
     private static final String HLS_FORMAT = "application/x-mpegURL";
+    // 持久化：ITEMS 只是内存 Map，进程被回收后（隔久了从历史点开）必然
+    // 报 "WebHome inline VOD not found"。把条目写进 Prefers 才能跨进程存活。
+    private static final String PREF_KEY = "webhome_inline_vods";
+    private static final int MAX_PERSIST = 40;
 
     private static final Map<String, Entry> ITEMS = new ConcurrentHashMap<>();
     private static final Map<String, HeaderSpec> URL_HEADERS = new ConcurrentHashMap<>();
@@ -44,11 +49,13 @@ public class WebHomeInlineVodStore {
         if (vod.getPlayFrom().isEmpty()) vod.setPlayFrom(first(Json.safeString(payload, "vodPlayFrom"), Json.safeString(payload, "playFrom"), "WebHome"));
         if (vod.getPlayUrl().isEmpty()) vod.setPlayUrl(playUrl);
         ITEMS.put(id, new Entry(App.gson().toJson(vod), headerSpec, resolver));
+        persist(id, ITEMS.get(id));
         return id;
     }
 
     public static Result detail(String id) {
         Entry entry = ITEMS.get(id);
+        if (entry == null) entry = loadPersisted(id);
         if (entry == null || TextUtils.isEmpty(entry.vod)) return Result.error("WebHome inline VOD not found");
         SpiderDebug.log("webhome-inline", "detail id=%s found=%s", id, true);
         return Result.vod(Vod.objectFrom(entry.vod));
@@ -56,6 +63,7 @@ public class WebHomeInlineVodStore {
 
     public static Result player(String flag, String id) throws Exception {
         Entry entry = ITEMS.get(id);
+        if (entry == null) entry = loadPersisted(id);
         HeaderSpec headerSpec = URL_HEADERS.get(id);
         EpisodeSpec episodeSpec = URL_EPISODES.get(id);
         String url = id;
@@ -81,6 +89,79 @@ public class WebHomeInlineVodStore {
         result.setUrl(Source.get().fetch(result));
         SpiderDebug.log("webhome-inline", "player fetch ok cost=%sms id=%s url=%s", System.currentTimeMillis() - start, id, result.getUrl().v());
         return result;
+    }
+
+    /** 写进 Prefers。Resolver 是接口实例，无法序列化，用不到就留空。 */
+    private static void persist(String id, Entry entry) {
+        if (entry == null || TextUtils.isEmpty(entry.vod)) return;
+        try {
+            JsonObject all = allPersisted();
+            JsonObject one = new JsonObject();
+            one.addProperty("vod", entry.vod);
+            one.addProperty("headers", App.gson().toJson(entry.headerSpec.headers));
+            one.addProperty("cookies", entry.headerSpec.includeCookies);
+            one.addProperty("time", System.currentTimeMillis());
+            all.add(id, one);
+            trim(all);
+            Prefers.put(PREF_KEY, all.toString());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static Entry loadPersisted(String id) {
+        try {
+            JsonObject all = allPersisted();
+            JsonElement e = all.get(id);
+            if (e == null || !e.isJsonObject()) return null;
+            JsonObject o = e.getAsJsonObject();
+            String vod = Json.safeString(o, "vod");
+            if (TextUtils.isEmpty(vod)) return null;
+            Map<String, String> headers = new HashMap<>();
+            String raw = Json.safeString(o, "headers");
+            if (!TextUtils.isEmpty(raw)) {
+                try {
+                    java.lang.reflect.Type type = new com.google.gson.reflect.TypeToken<Map<String, String>>() {
+                    }.getType();
+                    Map<String, String> parsed = App.gson().fromJson(raw, type);
+                    if (parsed != null) headers = parsed;
+                } catch (Throwable ignored) {
+                }
+            }
+            Entry entry = new Entry(vod, new HeaderSpec(headers, o.has("cookies") && o.get("cookies").getAsBoolean()), null);
+            ITEMS.put(id, entry);
+            return entry;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static JsonObject allPersisted() {
+        String raw = Prefers.getString(PREF_KEY, "");
+        if (TextUtils.isEmpty(raw)) return new JsonObject();
+        try {
+            JsonObject o = Json.parse(raw).getAsJsonObject();
+            return o == null ? new JsonObject() : o;
+        } catch (Throwable ignored) {
+            return new JsonObject();
+        }
+    }
+
+    /** 只保留最近 MAX_PERSIST 条，避免 Prefers 无限增长。 */
+    private static void trim(JsonObject all) {
+        if (all.size() <= MAX_PERSIST) return;
+        java.util.List<String> keys = new java.util.ArrayList<>();
+        for (String k : all.keySet()) keys.add(k);
+        keys.sort((a, b) -> Long.compare(time(all, a), time(all, b)));
+        while (keys.size() > MAX_PERSIST) all.remove(keys.remove(0));
+    }
+
+    private static long time(JsonObject all, String key) {
+        try {
+            JsonElement e = all.get(key);
+            if (e != null && e.isJsonObject() && e.getAsJsonObject().has("time")) return e.getAsJsonObject().get("time").getAsLong();
+        } catch (Throwable ignored) {
+        }
+        return 0L;
     }
 
     private static Map<String, String> headers(String url, HeaderSpec headerSpec) {
