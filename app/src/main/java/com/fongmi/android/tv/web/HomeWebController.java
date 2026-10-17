@@ -612,7 +612,14 @@ public class HomeWebController {
                 String target = request.getUrl().toString();
                 String page = view == null ? homePage : view.getUrl();
                 // JS 能隐藏 <a>，但挡不住 location.href= / meta refresh / 脚本重定向，这一层兜底
-                if (WebHomeAdBlocker.get().shouldBlockNavigation(page, target)) return true;
+                if (WebHomeAdBlocker.get().shouldBlockNavigation(page, target)) {
+                    // 若跳转已部分生效（页面开始加载了目标地址），回退到跳转前，
+                    // 否则用户会卡在空白页
+                    try {
+                        if (WebHomeAdBlocker.get().needGoBack(view, target)) view.goBack();
+                    } catch (Throwable ignored) { }
+                    return true;
+                }
                 return false;
             }
 
