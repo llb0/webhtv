@@ -3,6 +3,7 @@ package com.fongmi.android.tv.web;
 import android.text.TextUtils;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
+import android.webkit.WebView;
 
 import com.fongmi.android.tv.setting.Setting;
 import com.github.catvod.crawler.SpiderDebug;
@@ -101,7 +102,18 @@ public class WebHomeAdBlocker {
 
     private final List<String> adDomains = new ArrayList<>(Arrays.asList(AD_DOMAINS));
     private final Set<String> whitelist = new HashSet<>();   // 用户/运行时加白
+    // 只用于去重日志。必须设上限 —— 广告每次跳的 URL 都带随机参数
+    // （?pb=f2279eb8...），无上限会一直增长直到 OOM。
     private final Set<String> logOnce = new HashSet<>();
+    private static final int LOG_ONCE_MAX = 300;
+
+    /** 去重日志（带上限保护）。 */
+    private void logOnce(String tag, String url) {
+        synchronized (logOnce) {
+            if (logOnce.size() > LOG_ONCE_MAX) logOnce.clear();
+            if (logOnce.add(url)) SpiderDebug.log("webhome-adblock", tag + "=%s", url);
+        }
+    }
 
     private WebHomeAdBlocker() {
         // 默认白名单：本地网关与嗅探播放必须放行
@@ -268,19 +280,68 @@ public class WebHomeAdBlocker {
         String url = request.getUrl().toString();
         if (!isAdDomain(url)) return null;
         if (isWhitelisted(url)) return null;
-        if (logOnce.add(url)) SpiderDebug.log("webhome-adblock", "blocked resource=%s", url);
+        logOnce("blocked resource", url);
         return new WebResourceResponse("text/plain", "UTF-8", new ByteArrayInputStream(new byte[0]));
+    }
+
+    // ---------------- 站点域（JS 层同步） ----------------
+
+    // JS 脚本 boot 时会把当前站点主域同步过来，用于更准的同站判定。
+    // 为空则退回用 pageUrl 推导（原有逻辑）。
+    private volatile String siteHost = "";
+
+    /** 供 JS 通过 addJavascriptInterface 调用，同步站点主域。 */
+    @android.webkit.JavascriptInterface
+    public void setSiteHost(String host) {
+        if (!TextUtils.isEmpty(host)) siteHost = host.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** 供 JS 调用：把 JS 面板里拉黑的域名同步到原生层。 */
+    @android.webkit.JavascriptInterface
+    public void addBlockedDomain(String domain) {
+        if (TextUtils.isEmpty(domain)) return;
+        String d = domain.trim().toLowerCase(Locale.ROOT);
+        synchronized (adDomains) {
+            if (!adDomains.contains(d)) adDomains.add(d);
+        }
+    }
+
+    // 导航类后缀：这些才是"要打开新页面"的目标，值得拦。
+    // （媒体直链由 isMediaUrl 放行，不在此列）
+    private static final String[] DOC_EXT = {
+            ".htm", ".html", ".shtml", ".php", ".asp", ".aspx", ".jsp", ".do"
+    };
+
+    private static boolean isDocUrl(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        String s = url.toLowerCase(Locale.ROOT);
+        int q = s.indexOf('?');
+        if (q > 0) s = s.substring(0, q);
+        int h = s.indexOf('#');
+        if (h > 0) s = s.substring(0, h);
+        for (String ext : DOC_EXT) {
+            if (s.endsWith(ext)) return true;
+        }
+        // 无后缀的目录型 URL（https://858012.xyz/ 、 https://255iqryr.com:1280/）
+        // 也算文档 —— 广告跳板大量是这种
+        int scheme = s.indexOf("://");
+        if (scheme < 0) return false;
+        String rest = s.substring(scheme + 3);
+        int slash = rest.indexOf('/');
+        if (slash < 0) return true;                       // 纯域名
+        String path = rest.substring(slash);
+        return path.equals("/") || !path.contains(".");   // 根路径或路径无点
     }
 
     /**
      * 导航层拦截：shouldOverrideUrlLoading 里调用。返回 true 表示已拦截（不跳转）。
      *
      * JS 能隐藏 &lt;a&gt;，但挡不住 location.href= / meta refresh / 脚本触发的重定向，
-     * 这一层专门兜底。
+     * 这一层专门兜底 —— 也正是 JS 层完全够不着的那部分。
      *
-     * 为避免误伤"点播放跳到外站 CDN"这类正常行为，
-     * 默认只拦【命中广告域名清单】或【跳板】的高置信目标；
-     * 想连普通跨域外跳一起拦，打开 Setting.isWebHomeAdblockNav()。
+     * v3.42：默认拦掉【所有跨域文档导航】。
+     *   WebHome 不需要跨域浏览，播放视频也是跨域「取资源」而非「跳转」，
+     *   媒体直链由 isMediaUrl 放行，不会误伤。
      */
     public boolean shouldBlockNavigation(String pageUrl, String targetUrl) {
         if (!Setting.isWebHomeAdblock()) return false;
@@ -288,19 +349,43 @@ public class WebHomeAdBlocker {
         if (isWhitelisted(targetUrl)) return false;
         if (isMediaUrl(targetUrl)) return false;
 
+        // 1) 高置信：广告域名清单 / 跳板 —— 无论开关一律拦
         boolean confirmed = isAdDomain(targetUrl) || isRedirectUrl(targetUrl);
         if (confirmed) {
-            if (logOnce.add(targetUrl)) SpiderDebug.log("webhome-adblock", "blocked nav=%s", targetUrl);
+            logOnce("blocked nav", targetUrl);
             return true;
         }
-        // 激进模式：所有跨域外跳都拦（可能拦掉跳外站播放的正常跳转）
+
+        // 2) v3.42 默认开：拦掉所有跨域文档导航
         if (Setting.isWebHomeAdblockNav()) {
+            // 只拦"文档类"目标：带页面后缀，或无后缀的目录/根路径。
+            // 这样 .mp4/.m3u8/.jpg 等媒体直链（上面已放行）与其他资源不受影响。
+            if (!isDocUrl(targetUrl)) return false;
             if (isOutbound(pageUrl, targetUrl)) {
-                if (logOnce.add(targetUrl)) SpiderDebug.log("webhome-adblock", "blocked nav(cross)=%s", targetUrl);
+                logOnce("blocked crossNav", targetUrl);
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * 拦截后是否需要回退。
+     *
+     * shouldOverrideUrlLoading 返回 true 时页面停在原处，通常无需回退；
+     * 但若 onPageStarted 已经触发（跳转走到了一半，页面变空白），
+     * 需要显式 goBack 把用户拉回跳转前的页面 —— 否则会卡在空白页。
+     */
+    public boolean needGoBack(WebView view, String targetUrl) {
+        if (view == null) return false;
+        try {
+            String cur = view.getUrl();
+            if (TextUtils.isEmpty(cur) || TextUtils.isEmpty(targetUrl)) return false;
+            // 当前页已经变成被拦的目标（说明跳转已部分生效）→ 回退
+            return cur.equals(targetUrl) && view.canGoBack();
+        } catch (Throwable e) {
+            return false;
+        }
     }
 
     /**
@@ -312,9 +397,7 @@ public class WebHomeAdBlocker {
         if (isWhitelisted(targetUrl)) return false;
         if (isMediaUrl(targetUrl)) return false;
         boolean hit = isAdDomain(targetUrl) || isRedirectUrl(targetUrl) || isOutbound(pageUrl, targetUrl);
-        if (hit && logOnce.add("popup:" + targetUrl)) {
-            SpiderDebug.log("webhome-adblock", "blocked popup=%s", targetUrl);
-        }
+        if (hit) logOnce("blocked popup", targetUrl);
         return hit;
     }
 }
