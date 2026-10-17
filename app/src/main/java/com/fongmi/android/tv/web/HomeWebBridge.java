@@ -112,16 +112,30 @@ public class HomeWebBridge {
      */
     private String adblockConfig(JsonObject payload) {
         try {
+            // v3.44：完整接收开关 + 白名单 + 黑名单。
+            // 之前只取 siteHost / blacklist，开关值没传给 Java ——
+            // shouldBlockNavigation 只能读 Setting 默认值，
+            // 面板里改开关不生效。
+            boolean enabled = payload.has("enabled") ? payload.get("enabled").getAsBoolean() : true;
             String host = Json.safeString(payload, "siteHost");
-            if (!host.isEmpty()) WebHomeAdBlocker.get().setSiteHost(host);
-            com.google.gson.JsonArray arr = payload.getAsJsonArray("blacklist");
-            if (arr != null) {
-                for (int i = 0; i < arr.size(); i++) {
-                    WebHomeAdBlocker.get().addBlockedDomain(arr.get(i).getAsString());
-                }
-            }
+            boolean blockAll = payload.has("blockAllCrossNav") ? payload.get("blockAllCrossNav").getAsBoolean() : true;
+            boolean allowCross = payload.has("allowCrossNav") ? payload.get("allowCrossNav").getAsBoolean() : false;
+            java.util.List<String> white = asList(payload, "whitelist");
+            java.util.List<String> black = asList(payload, "blacklist");
+            WebHomeAdBlocker.get().applyJsConfig(enabled, host, blockAll, allowCross, white, black);
         } catch (Throwable ignored) { }
         return quote("ok");
+    }
+
+    private static java.util.List<String> asList(JsonObject obj, String key) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            com.google.gson.JsonArray arr = obj.getAsJsonArray(key);
+            if (arr != null) {
+                for (int i = 0; i < arr.size(); i++) out.add(arr.get(i).getAsString());
+            }
+        } catch (Throwable ignored) { }
+        return out;
     }
 
     private void handle(String requestId, String method, JsonObject payload) {
