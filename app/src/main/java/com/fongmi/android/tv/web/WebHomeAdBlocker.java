@@ -123,7 +123,6 @@ public class WebHomeAdBlocker {
         // v3.46：启动时先读 Java 层持久化配置。
         // 页面 302 / 切站源时 JS 可能还没同步，靠这份值才不会退回默认(开)。
         loadPersisted();
-    }
         // 默认白名单：本地网关与嗅探播放必须放行
         whitelist.add("127.0.0.1");
         whitelist.add("localhost");
