@@ -606,12 +606,22 @@ public class Setting {
     }
 
     /**
-     * 激进外跳拦截：连"普通跨域外跳"一起拦。
-     * 默认关——点播放跳到外站 CDN 属于正常行为，一刀切会误伤。
-     * 只拦命中广告域名清单或跳板的目标，由 WebHomeAdBlocker 默认完成。
+     * v3.42：拦掉所有跨域导航。默认【开】。
+     *
+     * 依据：WebHome 不是浏览器，跨域导航没有合法用途 ——
+     * 看片、播视频、翻页全部在本站内完成，播放资源也是跨域「取」而非跨域「跳」。
+     * 所以默认拦掉一切跨域导航，比跟广告在 JS 层赛跑（锁时间窗 / 认热区 /
+     * 掐事件传播）既可靠又省性能。
+     *
+     * 不误伤的部分（WebHomeAdBlocker 已处理）：
+     *   · 媒体直链 .mp4/.m3u8/.jpg/... —— 是跨域「取资源」，放行
+     *   · 白名单（127.0.0.1 / localhost / 用户加白）—— 放行
+     *   · 同站跳转 —— 本来就不拦
+     *
+     * 若某个站确实需要跨域跳转（少见），在广告过滤面板里关掉此项即可。
      */
     public static boolean isWebHomeAdblockNav() {
-        return Prefers.getBoolean("web_home_adblock_nav", false);
+        return Prefers.getBoolean("web_home_adblock_nav", true);
     }
 
     public static void putWebHomeAdblockNav(boolean nav) {
