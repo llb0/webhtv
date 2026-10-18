@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Pattern;
 
 /**
  * WebHome 网页广告过滤（原生层）。
@@ -82,6 +83,46 @@ public class WebHomeAdBlocker {
             ".mp4", ".m3u8", ".mpd", ".mkv", ".flv", ".webm", ".m4a", ".mp3",
             ".ts", ".avi", ".mov", ".rmvb"
     };
+
+    private static final Set<String> MEDIA_EXT_SET = new HashSet<>(Arrays.asList(MEDIA_EXT));
+
+    // 纯流媒体分片/播放列表：绝不可能是广告创意（一部片几百上千个 .ts）
+    private static final Set<String> STREAM_EXT = new HashSet<>(Arrays.asList(
+            ".ts", ".m3u8", ".mpd"));
+
+    // IP 字面量正则预编译：String.matches 每次都会重新编译 Pattern，
+    // 而 coreDomain 在每次资源请求里都可能被调用，代价很高。
+    private static final Pattern IPV4 = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
+
+    /**
+     * 极低开销取后缀：不整串 toLowerCase（避免为长 URL 拷贝一份），
+     * 只看路径段末尾那几个字符。
+     */
+    private static String extOf(String url) {
+        if (TextUtils.isEmpty(url)) return "";
+        int end = url.length();
+        int q = url.indexOf('?');
+        if (q >= 0) end = q;
+        int h = url.indexOf('#');
+        if (h >= 0 && h < end) end = h;
+        if (end <= 0) return "";
+        int scheme = url.indexOf("://");
+        if (scheme >= 0) {
+            // 绝对 URL：必须有主机之后的 '/'（即路径），
+            // 否则那个点是主机名的一部分（https://a6.com → 不是 ".com"）
+            int slash = url.indexOf('/', scheme + 3);
+            if (slash < 0 || slash >= end) return "";
+        }
+        int sl = url.lastIndexOf('/', end - 1);
+        int d = url.lastIndexOf('.', end - 1);
+        if (d < 0 || d <= sl) return "";
+        return url.substring(d, end).toLowerCase(Locale.ROOT);
+    }
+
+    /** 是否流媒体分片/播放列表（.ts / .m3u8 / .mpd）。 */
+    private static boolean isStreamSegment(String url) {
+        return STREAM_EXT.contains(extOf(url));
+    }
 
     // 跳板特征：同域但明显是中转
     private static final String[] REDIRECT_HINT = {
@@ -168,7 +209,7 @@ public class WebHomeAdBlocker {
         if (TextUtils.isEmpty(host)) return "";
         String hostname = host.toLowerCase(Locale.ROOT);
         // 纯 IP / localhost 原样返回
-        if (hostname.matches("\\d{1,3}(\\.\\d{1,3}){3}")) return hostname;
+        if (IPV4.matcher(hostname).matches()) return hostname;
         if ("localhost".equals(hostname)) return hostname;
         for (String p : COMMON_PREFIX) {
             if (hostname.startsWith(p)) {
@@ -220,16 +261,8 @@ public class WebHomeAdBlocker {
 
     /** 是否图片/视频直链。 */
     public static boolean isMediaUrl(String url) {
-        if (TextUtils.isEmpty(url)) return false;
-        String s = url.toLowerCase(Locale.ROOT);
-        int q = s.indexOf('?');
-        if (q > 0) s = s.substring(0, q);
-        int h = s.indexOf('#');
-        if (h > 0) s = s.substring(0, h);
-        for (String ext : MEDIA_EXT) {
-            if (s.endsWith(ext)) return true;
-        }
-        return false;
+        // 原来是 20 次 endsWith 扫整串小写副本；改为只取后缀 + HashSet O(1)。
+        return MEDIA_EXT_SET.contains(extOf(url));
     }
 
     /** 是否跳板（同域中转外站）。 */
@@ -282,10 +315,15 @@ public class WebHomeAdBlocker {
      * 海报常放在 CDN 上，一刀切会误杀（这点 JS 层同理）。
      */
     public WebResourceResponse intercept(WebResourceRequest request) {
-        boolean[] cfg = cfgFor(request == null ? "" : String.valueOf(request.getUrl()));
-        if (!cfg[0]) return null;
         if (request == null || request.getUrl() == null) return null;
         String url = request.getUrl().toString();
+        // ★ 流媒体分片直接放行（放在最前，连 cfgFor 都不用跑）。
+        //   m3u8 一部片几百上千个 .ts，若不短路，每个分片都要：
+        //     整串 toLowerCase 拷贝 + ~90 次 adDomains contains + 正则/切分。
+        //   而 .ts/.m3u8/.mpd 是纯流媒体片段与播放列表，不可能是广告创意。
+        if (isStreamSegment(url)) return null;
+        boolean[] cfg = cfgFor(url);
+        if (!cfg[0]) return null;
         if (!isAdDomain(url)) return null;
         if (isWhitelisted(url)) return null;
         logOnce("blocked resource", url);
