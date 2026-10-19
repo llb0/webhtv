@@ -365,7 +365,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
                 break;
             case Setting.DEFAULT_LAUNCH_RECENT:
                 List<History> history = History.get();
-                if (!history.isEmpty()) VideoActivity.startFullscreen(this, history.get(0));
+                if (!history.isEmpty()) {
+                    History first = history.get(0);
+                    String siteKey = first.getSiteKey();
+                    Task.execute(() -> {
+                        Site site = VodConfig.get().getSite(siteKey);
+                        if (!site.isEmpty()) site.spider();
+                        App.post(() -> VideoActivity.startFullscreen(this, first));
+                    });
+                }
                 break;
             default:
                 break;

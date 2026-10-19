@@ -1058,6 +1058,7 @@
     <string name="player_video_decode">視訊軟解</string>
     <string name="player_aac_track">AAC優先</string>
     <string name="player_adblock">智慧去廣</string>
+    <string name="player_auto_fullscreen">播放自動全屏</string>
     <string name="player_tunnel">隧道模式</string>
     <string name="player_buffer">前向緩衝目標</string>
     <string name="player_buffer_bytes">記憶體緩衝上限</string>

@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.web;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.text.TextUtils;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
@@ -197,8 +198,25 @@ public class HomeWebBridge {
         final String playPic = pic;
         final String playWall = wall;
         final String playContent = content;
-        SpiderDebug.log("webhome", "player.playUrl title=%s url=%s", playTitle, playUrl);
-        App.post(() -> VideoActivity.start(activity, SiteApi.PUSH, playUrl, playTitle, playPic, null, playWall, playContent));
+        // 网关路径同样要带 webHomeSniffer 标记（JS 侧"自动播"勾选时 fullscreen=true）。
+        // 自己组 Intent 而不是调 VideoActivity.start(...)，理由同 playVodInline：
+        // 两端 start 签名不同，main 目录直接引用会让另一个 flavor 编译失败。
+        final boolean wantFullscreen = payload.has("fullscreen") && payload.get("fullscreen").getAsBoolean();
+        SpiderDebug.log("webhome", "player.playUrl title=%s url=%s fullscreen=%s", playTitle, playUrl, wantFullscreen);
+        App.post(() -> {
+            ImgUtil.preload(activity, playPic);
+            if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(playWall) && !TextUtils.equals(playWall, playPic)) ImgUtil.preload(activity, playWall);
+            Intent intent = new Intent(activity, VideoActivity.class);
+            intent.putExtra("key", SiteApi.PUSH);
+            intent.putExtra("id", playUrl);
+            intent.putExtra("name", playTitle);
+            intent.putExtra("pic", playPic);
+            intent.putExtra("wallPic", playWall);
+            intent.putExtra("content", playContent);
+            intent.putExtra("collect", false);
+            intent.putExtra("webHomeSniffer", wantFullscreen);
+            activity.startActivity(intent);
+        });
         return "{}";
     }
 
@@ -227,8 +245,33 @@ public class HomeWebBridge {
         final String playMark = mark;
         final String playWall = wall;
         final String playContent = content;
-        SpiderDebug.log("webhome", "player.playVodInline title=%s id=%s mark=%s", playTitle, vodId, playMark);
-        App.post(() -> VideoActivity.start(activity, WebHomeInlineVodStore.KEY, vodId, playTitle, playPic, playMark, playWall, playContent));
+        // 网页嗅探(JS) 侧发起的播放：JS 没有全屏接口，只能把 fullscreen 塞进 payload。
+        // 这里转成 Intent extra "webHomeSniffer" 交给 VideoActivity：
+        //   true  -> JS 明确要求全屏（面板"自动播"勾选时），无视"播放自动全屏"开关
+        //   false -> 手动点的，交给"播放自动全屏"开关决定
+        // 为什么不调 VideoActivity.start(..., fullscreen)：
+        //   mobile 是 10 参，leanback 是 11 参（多一个 boolean cast），
+        //   HomeWebBridge 在 main 目录，编译期只能看见当前 flavor 的签名，
+        //   直接引用必然让另一个 flavor 编译失败。自己组 Intent 就没这个问题。
+        // 也不再写 "startFullscreen"：那个 extra 在 onServiceConnected 里只判一次，
+        // 播放器还没就绪时会被 enterFullscreen() 开头的 service()==null 直接丢弃。
+        final boolean wantFullscreen = payload.has("fullscreen") && payload.get("fullscreen").getAsBoolean();
+        SpiderDebug.log("webhome", "player.playVodInline title=%s id=%s mark=%s fullscreen=%s", playTitle, vodId, playMark, wantFullscreen);
+        App.post(() -> {
+            ImgUtil.preload(activity, playPic);
+            if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(playWall) && !TextUtils.equals(playWall, playPic)) ImgUtil.preload(activity, playWall);
+            Intent intent = new Intent(activity, VideoActivity.class);
+            intent.putExtra("key", WebHomeInlineVodStore.KEY);
+            intent.putExtra("id", vodId);
+            intent.putExtra("name", playTitle);
+            intent.putExtra("pic", playPic);
+            intent.putExtra("mark", playMark);
+            intent.putExtra("wallPic", playWall);
+            intent.putExtra("content", playContent);
+            intent.putExtra("collect", false);
+            intent.putExtra("webHomeSniffer", wantFullscreen);
+            activity.startActivity(intent);
+        });
         JsonObject result = new JsonObject();
         result.addProperty("siteKey", WebHomeInlineVodStore.KEY);
         result.addProperty("vodId", vodId);
