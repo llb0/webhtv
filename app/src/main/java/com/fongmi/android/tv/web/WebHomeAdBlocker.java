@@ -347,6 +347,8 @@ public class WebHomeAdBlocker {
     private volatile boolean jsEnabled = true;          // 总开关
     private volatile boolean jsBlockAllCrossNav = true; // 拦跨域跳转
     private volatile boolean jsAllowCrossNav = false;   // 放行跨域
+    // v3.48：302/跳板重定向（脚本与点击都够不着，由 shouldOverrideUrlLoading 兜底）
+    private volatile boolean jsBlockNavJump = true;     // 拦广告域/跳板重定向
 
     // ── v3.46 持久化 ────────────────────────────────────────────
     // 关掉「拦跨域跳转」后切站源会 302 到新域，新域上悬浮球还没加载出来，
@@ -355,7 +357,7 @@ public class WebHomeAdBlocker {
     //   JS 改 → 写 Prefers；Java 判定 → 读 Prefers。
     private static final String CFG_KEY = "web_home_adblock_cfg";
     /** 全放行：脚本未启用时用它，三处判定都会直接放行。 */
-    private static final boolean[] PASS_ALL = new boolean[]{false, false, false};
+    private static final boolean[] PASS_ALL = new boolean[]{false, false, false, false};
     private final java.util.Map<String, boolean[]> siteCfg =
             new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -371,6 +373,7 @@ public class WebHomeAdBlocker {
                 jsEnabled = g.has("enabled") ? g.get("enabled").getAsBoolean() : jsEnabled;
                 jsBlockAllCrossNav = g.has("blockAllCrossNav") ? g.get("blockAllCrossNav").getAsBoolean() : jsBlockAllCrossNav;
                 jsAllowCrossNav = g.has("allowCrossNav") ? g.get("allowCrossNav").getAsBoolean() : jsAllowCrossNav;
+                jsBlockNavJump = g.has("blockNavJump") ? g.get("blockNavJump").getAsBoolean() : jsBlockNavJump;
             }
             JsonObject st = o.getAsJsonObject("sites");
             if (st != null) {
@@ -380,7 +383,8 @@ public class WebHomeAdBlocker {
                     siteCfg.put(h, new boolean[]{
                             c.has("enabled") ? c.get("enabled").getAsBoolean() : true,
                             c.has("blockAllCrossNav") ? c.get("blockAllCrossNav").getAsBoolean() : true,
-                            c.has("allowCrossNav") ? c.get("allowCrossNav").getAsBoolean() : false
+                            c.has("allowCrossNav") ? c.get("allowCrossNav").getAsBoolean() : false,
+                            c.has("blockNavJump") ? c.get("blockNavJump").getAsBoolean() : true
                     });
                 }
             }
@@ -394,6 +398,7 @@ public class WebHomeAdBlocker {
             g.addProperty("enabled", jsEnabled);
             g.addProperty("blockAllCrossNav", jsBlockAllCrossNav);
             g.addProperty("allowCrossNav", jsAllowCrossNav);
+            g.addProperty("blockNavJump", jsBlockNavJump);
             o.add("global", g);
             JsonObject st = new JsonObject();
             for (java.util.Map.Entry<String, boolean[]> e : siteCfg.entrySet()) {
@@ -401,6 +406,7 @@ public class WebHomeAdBlocker {
                 c.addProperty("enabled", e.getValue()[0]);
                 c.addProperty("blockAllCrossNav", e.getValue()[1]);
                 c.addProperty("allowCrossNav", e.getValue()[2]);
+                c.addProperty("blockNavJump", e.getValue().length > 3 ? e.getValue()[3] : true);
                 st.add(e.getKey(), c);
             }
             o.add("sites", st);
@@ -426,7 +432,7 @@ public class WebHomeAdBlocker {
             boolean[] c = siteCfg.get(h);
             if (c != null) return c;
         }
-        return new boolean[]{jsEnabled, jsBlockAllCrossNav, jsAllowCrossNav};
+        return new boolean[]{jsEnabled, jsBlockAllCrossNav, jsAllowCrossNav, jsBlockNavJump};
     }
 
     /**
@@ -440,9 +446,10 @@ public class WebHomeAdBlocker {
      */
     public synchronized void applyJsConfig(boolean enabled, String host,
                                            boolean blockAllCrossNav, boolean allowCrossNav,
+                                           boolean blockNavJump,
                                            java.util.List<String> white,
                                            java.util.List<String> black) {
-        applyJsConfig(enabled, host, blockAllCrossNav, allowCrossNav, white, black, "global");
+        applyJsConfig(enabled, host, blockAllCrossNav, allowCrossNav, blockNavJump, white, black, "global");
     }
 
     /**
@@ -451,16 +458,18 @@ public class WebHomeAdBlocker {
      */
     public synchronized void applyJsConfig(boolean enabled, String host,
                                            boolean blockAllCrossNav, boolean allowCrossNav,
+                                           boolean blockNavJump,
                                            java.util.List<String> white,
                                            java.util.List<String> black, String scope) {
         jsSynced = true;
-        boolean[] v = new boolean[]{enabled, blockAllCrossNav, allowCrossNav};
+        boolean[] v = new boolean[]{enabled, blockAllCrossNav, allowCrossNav, blockNavJump};
         // ⚠️ v3.46：无论站点还是全局，都【同时更新全局】。
         // 只存站点的话，切站源 302 到新域后按域查不到配置 → 退回默认(开) → 又被拦
         // （正是用户报的现象）。跨域拦截本就该全局一致。
         jsEnabled = enabled;
         jsBlockAllCrossNav = blockAllCrossNav;
         jsAllowCrossNav = allowCrossNav;
+        jsBlockNavJump = blockNavJump;
         if ("site".equals(scope) && !TextUtils.isEmpty(host)) {
             siteCfg.put(host.trim().toLowerCase(Locale.ROOT), v);
         }
@@ -475,8 +484,8 @@ public class WebHomeAdBlocker {
                 if (!TextUtils.isEmpty(d)) addBlockedDomain(d);
             }
         }
-        SpiderDebug.log("webhome-adblock", "jsConfig enabled=%s host=%s blockAllCrossNav=%s allowCrossNav=%s white=%s black=%s scope=%s",
-                enabled, siteHost, blockAllCrossNav, allowCrossNav,
+        SpiderDebug.log("webhome-adblock", "jsConfig enabled=%s host=%s blockAllCrossNav=%s allowCrossNav=%s blockNavJump=%s white=%s black=%s scope=%s",
+                enabled, siteHost, blockAllCrossNav, allowCrossNav, blockNavJump,
                 white == null ? 0 : white.size(), black == null ? 0 : black.size(), scope);
         persist();   // v3.46：立刻落盘，302/切站源后仍生效
     }
@@ -542,9 +551,11 @@ public class WebHomeAdBlocker {
         if (isWhitelisted(targetUrl)) return false;
         if (isMediaUrl(targetUrl)) return false;
 
-        // 1) 高置信：广告域名清单 / 跳板 —— 无论开关一律拦
+        // 1) 高置信：广告域名清单 / 跳板重定向
+        // v3.48：这一类（脚本与点击都够不着的 302/跳板）纳入「302/跳板跳转」
+        // 开关（cfg[3]）。关掉后同样放行。
         boolean confirmed = isAdDomain(targetUrl) || isRedirectUrl(targetUrl);
-        if (confirmed) {
+        if (confirmed && cfg[3]) {
             logOnce("blocked nav", targetUrl);
             return true;
         }
