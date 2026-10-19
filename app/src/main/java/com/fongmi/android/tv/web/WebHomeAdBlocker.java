@@ -324,6 +324,11 @@ public class WebHomeAdBlocker {
         if (isStreamSegment(url)) return null;
         boolean[] cfg = cfgFor(url);
         if (!cfg[0]) return null;
+        // ⚠️ v3.50：资源层拦截原来只认总开关(cfg[0]) —— 面板「全部关闭」时
+        // 总开关仍在，广告域资源照样被无条件断掉（"全关还在拦"的旁路之一）。
+        // 现在跟导航层一致：只有「拦跨域跳转」(cfg[1]) 或「302/跳板」(cfg[3])
+        // 任一开着时才断广告域资源；两者都关 = 什么都不拦。
+        if (!cfg[1] && !cfg[3]) return null;
         if (!isAdDomain(url)) return null;
         if (isWhitelisted(url)) return null;
         logOnce("blocked resource", url);
@@ -659,8 +664,29 @@ public class WebHomeAdBlocker {
     }
 
     /**
-     * 弹窗拦截：WebChromeClient.onCreateWindow 里调用。
-     * 返回 true 表示拦截该弹窗。广告弹窗目标几乎必然是外站。
+     * 弹窗拦截（手势版）：WebChromeClient.onCreateWindow 里调用。
+     *
+     * onCreateWindow 拿不到弹窗目标 URL，只能按「页面 + 是否用户手势」判定。
+     * ⚠️ v3.50：原先这里直接读 Setting.isWebHomeAdblock()/isWebHomeAdblockPopup()
+     * —— 那是 App 层的另一个真相源，与 JS 面板无关。结果：面板里把总开关、
+     * 「拦跨域跳转」全关掉，非手势的自动弹窗仍然被无条件拦下（"全关还在拦"）。
+     * 现在改为与导航/资源拦截一致：只认 JS 面板同步过来的配置。
+     *   未启用脚本(Setting)       → 放行
+     *   面板总开关关(cfg[0]=false) → 放行
+     *   自动弹窗(非手势) = 脚本发起的跨域导航 → 归「拦跨域跳转」(cfg[1]) 或
+     *                                            「302/跳板」(cfg[3]) 管
+     *   手势弹窗                   → 仅当 App 显式勾选「严格弹窗拦截」时才拦
+     */
+    public boolean shouldBlockPopupByGesture(String pageUrl, boolean isUserGesture) {
+        if (!Setting.isWebHomeAdblock()) return false;
+        boolean[] cfg = cfgFor(pageUrl);
+        if (!cfg[0]) return false;
+        if (isUserGesture) return Setting.isWebHomeAdblockPopup();
+        return cfg[1] || cfg[3];
+    }
+ 
+    /**
+     * 弹窗拦截：已知目标 URL 时使用（广告弹窗目标几乎必然是外站）。
      */
     public boolean shouldBlockPopup(String pageUrl, String targetUrl) {
         boolean[] cfg = cfgFor(pageUrl);
