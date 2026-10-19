@@ -349,6 +349,9 @@ public class WebHomeAdBlocker {
     private volatile boolean jsAllowCrossNav = false;   // 放行跨域
     // v3.48：302/跳板重定向（脚本与点击都够不着，由 shouldOverrideUrlLoading 兜底）
     private volatile boolean jsBlockNavJump = true;     // 拦广告域/跳板重定向
+    // v3.49：记住 JS 面板当前作用域。cfgFor 必须据此决定站点表是否参与判定——
+    // 「全局」作用域下若仍优先站点表，JS 改全局（含关总开关）就完全到不了原生层。
+    private volatile String jsScope = "global";
 
     // ── v3.46 持久化 ────────────────────────────────────────────
     // 关掉「拦跨域跳转」后切站源会 302 到新域，新域上悬浮球还没加载出来，
@@ -375,6 +378,7 @@ public class WebHomeAdBlocker {
                 jsAllowCrossNav = g.has("allowCrossNav") ? g.get("allowCrossNav").getAsBoolean() : jsAllowCrossNav;
                 jsBlockNavJump = g.has("blockNavJump") ? g.get("blockNavJump").getAsBoolean() : jsBlockNavJump;
             }
+            if (o.has("scope")) jsScope = "site".equals(o.get("scope").getAsString()) ? "site" : "global";
             JsonObject st = o.getAsJsonObject("sites");
             if (st != null) {
                 for (String h : st.keySet()) {
@@ -400,6 +404,7 @@ public class WebHomeAdBlocker {
             g.addProperty("allowCrossNav", jsAllowCrossNav);
             g.addProperty("blockNavJump", jsBlockNavJump);
             o.add("global", g);
+            o.addProperty("scope", jsScope);
             JsonObject st = new JsonObject();
             for (java.util.Map.Entry<String, boolean[]> e : siteCfg.entrySet()) {
                 JsonObject c = new JsonObject();
@@ -427,12 +432,18 @@ public class WebHomeAdBlocker {
      */
     private boolean[] cfgFor(String pageUrl) {
         if (!Setting.isWebHomeAdblock()) return PASS_ALL;
+        boolean[] global = new boolean[]{jsEnabled, jsBlockAllCrossNav, jsAllowCrossNav, jsBlockNavJump};
+        // ★ v3.49：只有当前处于「仅本站」作用域，站点覆盖才参与判定。
+        //   「全局」作用域下若仍优先站点表，JS 改全局（含关总开关）
+        //   就完全到不了原生层 —— 表现就是"全关还拦、总开关也没用"，
+        //   只有彻底不启用脚本（Setting 关）才放行。
+        if (!"site".equals(jsScope)) return global;
         String h = hostOf(pageUrl);
         if (!TextUtils.isEmpty(h)) {
             boolean[] c = siteCfg.get(h);
             if (c != null) return c;
         }
-        return new boolean[]{jsEnabled, jsBlockAllCrossNav, jsAllowCrossNav, jsBlockNavJump};
+        return global;
     }
 
     /**
@@ -470,6 +481,7 @@ public class WebHomeAdBlocker {
         jsBlockAllCrossNav = blockAllCrossNav;
         jsAllowCrossNav = allowCrossNav;
         jsBlockNavJump = blockNavJump;
+        jsScope = "site".equals(scope) ? "site" : "global";
         if ("site".equals(scope) && !TextUtils.isEmpty(host)) {
             siteCfg.put(host.trim().toLowerCase(Locale.ROOT), v);
         }
@@ -655,7 +667,11 @@ public class WebHomeAdBlocker {
         if (!cfg[0]) return false;
         if (isWhitelisted(targetUrl)) return false;
         if (isMediaUrl(targetUrl)) return false;
-        boolean hit = isAdDomain(targetUrl) || isRedirectUrl(targetUrl) || isOutbound(pageUrl, targetUrl);
+        // v3.49：与 shouldBlockNavigation 对齐 —— 广告域/跳板归「302/跳板跳转」(cfg[3])，
+        // 跨域外站归「拦跨域跳转」(cfg[1])。两者都关时不再拦弹窗，
+        // 避免出现"开关关了、弹窗仍被无条件拦"的旁路。
+        boolean confirmed = isAdDomain(targetUrl) || isRedirectUrl(targetUrl);
+        boolean hit = (confirmed && cfg[3]) || (cfg[1] && isOutbound(pageUrl, targetUrl));
         if (hit) logOnce("blocked popup", targetUrl);
         return hit;
     }
