@@ -656,6 +656,18 @@ public class Setting {
         Prefers.put("playback_artwork_wall", artworkWall);
     }
 
+    // 播放自动全屏（播放设置 → 播放自动全屏）。
+    // 只管 App(Java) 侧发起的播放；网页嗅探(JS) "自动播" 发起的播放无视这个开关，
+    // 由 Intent extra "webHomeSniffer" 单独识别，无条件全屏。
+    // 默认关：不改变既有习惯。
+    public static boolean isPlaybackAutoFullscreen() {
+        return Prefers.getBoolean("playback_auto_fullscreen", false);
+    }
+
+    public static void putPlaybackAutoFullscreen(boolean autoFullscreen) {
+        Prefers.put("playback_auto_fullscreen", autoFullscreen);
+    }
+
     public static boolean isCspWarmup() {
         return getCspWarmupMode() != CSP_WARMUP_DISABLED;
     }
