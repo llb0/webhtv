@@ -270,6 +270,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     private History mHistory;
     private boolean fullscreen;
     private boolean startFullscreen;
+    private boolean webHomeSniffer;
     private boolean mWasPlaying;
     private boolean initAuto;
     private boolean autoMode;
@@ -568,6 +569,26 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         return mBinding.control.seek;
     }
 
+    // 自动全屏：进播放页默认只是预览小窗，播放起来后补一次全屏。
+    // 触发条件二选一：
+    //   webHomeSniffer  -> 网页嗅探(JS) "自动播" 明确要求，无视"播放自动全屏"开关
+    //   Setting.isPlaybackAutoFullscreen() -> Java 侧发起的播放，受播放设置开关控制
+    // 延时重试是必须的：播放器还没就绪时 enterFullscreen() 可能被丢弃。
+    private final Runnable mAutoFullscreen = new Runnable() {
+        int retry = 0;
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed()) return;
+            if (isFullscreen()) return;
+            enterFullscreen();                    // 现成动作：和点小窗走的是同一个
+            if (!isFullscreen() && retry++ < 5) App.post(this, 800);
+        }
+    };
+
+    private void scheduleAutoFullscreen() {
+        if (webHomeSniffer || Setting.isPlaybackAutoFullscreen()) App.post(mAutoFullscreen, 1200);
+    }
+
     @Override
     protected void onServiceConnected() {
         SpiderDebug.log("video-flow", "service ready sinceLaunch=%dms key=%s id=%s", getLaunchCost(System.currentTimeMillis()), getKey(), getId());
@@ -576,6 +597,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         setDecode();
         setLut();
         if ((startFullscreen || isCast()) && !isFullscreen()) enterFullscreen();
+        scheduleAutoFullscreen();
         if (!detailRequested) checkId();
         if (mPendingDetail != null) {
             Result result = mPendingDetail;
@@ -610,6 +632,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         long start = System.currentTimeMillis();
         SpiderDebug.log("video-flow", "initView start sinceLaunch=%dms key=%s id=%s", getLaunchCost(start), getKey(), getId());
         startFullscreen = getIntent().getBooleanExtra("startFullscreen", false);
+        webHomeSniffer = getIntent().getBooleanExtra("webHomeSniffer", false);
         if (!isCast() && hasInitialPreview()) showInitialPreview();
         super.initView(savedInstanceState);
         SpiderDebug.log("video-flow", "initView after playback cost=%dms", System.currentTimeMillis() - start);
