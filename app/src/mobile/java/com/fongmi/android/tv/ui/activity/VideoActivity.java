@@ -298,6 +298,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private History mHistory;
     private boolean fullscreen;
     private boolean startFullscreen;
+    private boolean webHomeSniffer;
     private boolean initAuto;
     private boolean autoMode;
     private boolean revealManualSearch;
@@ -642,6 +643,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         super.initView(savedInstanceState);
         mRestoringConfigurationPlayback = savedInstanceState != null;
         startFullscreen = getIntent().getBooleanExtra("startFullscreen", false);
+        webHomeSniffer = getIntent().getBooleanExtra("webHomeSniffer", false);
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (v, insets) -> setStatusBar(insets));
         mKeyDown = CustomKeyDown.create(this, mBinding.exo);
         mFrameParams = mBinding.video.getLayoutParams();
@@ -1272,8 +1274,31 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         else getDetail();
     }
 
+    // 自动全屏：进播放页默认只是预览小窗，播放起来后补一次全屏。
+    // 为什么必须延时重试 —— enterFullscreen() 开头就是
+    //   if (service() == null) { log("... player-not-ready"); return; }
+    // 播放器还没就绪时调用会被直接丢弃，所以轮询到真正进入为止。
+    // 触发条件二选一：
+    //   webHomeSniffer  -> 网页嗅探(JS) "自动播" 明确要求，无视"播放自动全屏"开关
+    //   Setting.isPlaybackAutoFullscreen() -> Java 侧发起的播放，受播放设置开关控制
+    private final Runnable mAutoFullscreen = new Runnable() {
+        int retry = 0;
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed()) return;
+            if (isFullscreen()) return;
+            enterFullscreen();                    // 现成动作：和双击/点小窗走的是同一个
+            if (!isFullscreen() && retry++ < 5) App.post(this, 800);
+        }
+    };
+
+    private void scheduleAutoFullscreen() {
+        if (webHomeSniffer || Setting.isPlaybackAutoFullscreen()) App.post(mAutoFullscreen, 1200);
+    }
+
     private void checkLand() {
         if (startFullscreen || (isPort() && ResUtil.isLand(this))) enterFullscreen();
+        scheduleAutoFullscreen();
     }
 
     private void getDetail() {
