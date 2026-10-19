@@ -290,7 +290,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onServerEvent(ServerEvent event) {
-        if (event.type() == ServerEvent.Type.PUSH) VideoActivity.push(this, event.text());
+        if (event.type() == ServerEvent.Type.PUSH) VideoActivity.push(this, event.text(), event.name());
         if (event.type() == ServerEvent.Type.SEARCH) SearchActivity.start(this, event.text());
     }
 
