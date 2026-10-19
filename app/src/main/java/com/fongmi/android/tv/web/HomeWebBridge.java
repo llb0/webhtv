@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.web;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.text.TextUtils;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
@@ -227,8 +228,36 @@ public class HomeWebBridge {
         final String playMark = mark;
         final String playWall = wall;
         final String playContent = content;
-        SpiderDebug.log("webhome", "player.playVodInline title=%s id=%s mark=%s", playTitle, vodId, playMark);
-        App.post(() -> VideoActivity.start(activity, WebHomeInlineVodStore.KEY, vodId, playTitle, playPic, playMark, playWall, playContent));
+        // 自动播放想直接全屏：JS 侧没有全屏接口，只能把 fullscreen 塞进 payload 带过来。
+        // 两端 VideoActivity 都从 Intent 读 "startFullscreen" 并 enterFullscreen()：
+        //   mobile   读到后 -> 1276 行 if (startFullscreen || ...) enterFullscreen()
+        //   leanback 读到后 ->  578 行 if ((startFullscreen || isCast()) && !isFullscreen()) enterFullscreen()
+        // 为什么不调 VideoActivity.start(..., fullscreen)：
+        //   mobile 是 10 参，leanback 是 11 参（多一个 boolean cast），
+        //   HomeWebBridge 在 main 目录，编译期只能看见当前 flavor 的签名，
+        //   直接引用必然让另一个 flavor 编译失败。
+        // 直接自己组 Intent 就没这个问题 —— extra 名两端完全一致。
+        final boolean wantFullscreen = payload.has("fullscreen") && payload.get("fullscreen").getAsBoolean();
+        SpiderDebug.log("webhome", "player.playVodInline title=%s id=%s mark=%s fullscreen=%s", playTitle, vodId, playMark, wantFullscreen);
+        App.post(() -> {
+            if (!wantFullscreen) {
+                VideoActivity.start(activity, WebHomeInlineVodStore.KEY, vodId, playTitle, playPic, playMark, playWall, playContent);
+                return;
+            }
+            ImgUtil.preload(activity, playPic);
+            if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(playWall) && !TextUtils.equals(playWall, playPic)) ImgUtil.preload(activity, playWall);
+            Intent intent = new Intent(activity, VideoActivity.class);
+            intent.putExtra("key", WebHomeInlineVodStore.KEY);
+            intent.putExtra("id", vodId);
+            intent.putExtra("name", playTitle);
+            intent.putExtra("pic", playPic);
+            intent.putExtra("mark", playMark);
+            intent.putExtra("wallPic", playWall);
+            intent.putExtra("content", playContent);
+            intent.putExtra("collect", false);
+            intent.putExtra("startFullscreen", true);
+            activity.startActivity(intent);
+        });
         JsonObject result = new JsonObject();
         result.addProperty("siteKey", WebHomeInlineVodStore.KEY);
         result.addProperty("vodId", vodId);
