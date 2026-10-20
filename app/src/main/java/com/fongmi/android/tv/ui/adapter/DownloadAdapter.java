@@ -2,6 +2,7 @@ package com.fongmi.android.tv.ui.adapter;
 
 import android.content.Context;
 import android.view.LayoutInflater;
+import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
@@ -14,12 +15,15 @@ import com.fongmi.android.tv.download.DownloadTask;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 下载任务列表适配器：显示名称/进度/状态，并提供取消（进行中）或删除（已结束）按钮。 */
+/** 下载任务列表适配器：显示名称/进度/状态，并按任务状态提供 暂停/继续/重试/取消/删除 按钮。 */
 public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.ViewHolder> {
 
     public interface OnClickListener {
-        void onCancel(DownloadTask task);   // 取消进行中的任务
-        void onRemove(DownloadTask task);   // 删除已结束的任务记录
+        void onPause(DownloadTask task);    // 暂停进行中的任务，保留 .part 便于续传
+        void onResume(DownloadTask task);   // 继续已暂停的任务
+        void onRetry(DownloadTask task);    // 失败重试（优先续传）
+        void onCancel(DownloadTask task);   // 取消进行中的任务，清理分片
+        void onRemove(DownloadTask task);   // 删除任务记录及其成品文件
     }
 
     private final OnClickListener listener;
@@ -48,14 +52,44 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.ViewHo
         if (t.totalSize > 0) holder.binding.progress.setProgress((int) Math.min(100L, t.downloadedBytes * 100 / t.totalSize));
         else if (t.totalSegments > 0) holder.binding.progress.setProgress(Math.min(100, t.completedSegments * 100 / t.totalSegments));
         else holder.binding.progress.setProgress(0);
-        boolean running = t.status == DownloadTask.Status.RUNNING;
-        holder.binding.action.setText(running ? R.string.download_manager_cancel : R.string.download_manager_delete);
-        holder.binding.action.setOnClickListener(v -> {
-            if (running) listener.onCancel(t);
-            else listener.onRemove(t);
-        });
+        bindActions(holder, t);
     }
 
+    /** 按任务状态决定按钮：运行中[暂停/取消]、已暂停[继续/取消]、失败[重试/删除]、已完成[删除]。 */
+    private void bindActions(ViewHolder holder, DownloadTask t) {
+        switch (t.status) {
+            case RUNNING:
+            case PENDING:
+                setPrimary(holder, R.string.download_action_pause, v -> listener.onPause(t));
+                setSecondary(holder, R.string.download_manager_cancel, v -> listener.onCancel(t));
+                break;
+            case PAUSED:
+                setPrimary(holder, R.string.download_action_resume, v -> listener.onResume(t));
+                setSecondary(holder, R.string.download_manager_cancel, v -> listener.onCancel(t));
+                break;
+            case FAILED:
+                setPrimary(holder, R.string.download_action_retry, v -> listener.onRetry(t));
+                setSecondary(holder, R.string.download_manager_delete, v -> listener.onRemove(t));
+                break;
+            default:  // COMPLETED / CANCELLED
+                holder.binding.action.setVisibility(View.GONE);
+                setSecondary(holder, R.string.download_manager_delete, v -> listener.onRemove(t));
+                break;
+        }
+    }
+ 
+    private void setPrimary(ViewHolder holder, int text, View.OnClickListener click) {
+        holder.binding.action.setVisibility(View.VISIBLE);
+        holder.binding.action.setText(text);
+        holder.binding.action.setOnClickListener(click);
+    }
+ 
+    private void setSecondary(ViewHolder holder, int text, View.OnClickListener click) {
+        holder.binding.action2.setVisibility(View.VISIBLE);
+        holder.binding.action2.setText(text);
+        holder.binding.action2.setOnClickListener(click);
+    }
+ 
     private String describe(Context ctx, DownloadTask t) {
         String size = t.totalSize > 0
                 ? formatSize(t.downloadedBytes) + " / " + formatSize(t.totalSize)
@@ -66,6 +100,7 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.ViewHo
             case FAILED: status = ctx.getString(R.string.download_failed_notify_title); break;
             case CANCELLED: status = ctx.getString(R.string.download_manager_cancelled); break;
             case RUNNING: status = ctx.getString(R.string.download_notify_title); break;
+            case PAUSED: status = ctx.getString(R.string.download_status_paused); break;
             default: status = ctx.getString(R.string.download_manager_pending); break;
         }
         return status + " · " + size;
