@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.activity;
 
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -28,9 +29,13 @@ import com.fongmi.android.tv.utils.Notify;
 
 import java.util.List;
 
-/** 下载管理界面：任务列表（取消/删除）+ 存储路径设置；由状态栏下载通知点击进入。 */
+/** 下载管理界面：任务列表（暂停/继续/重试/取消/删除）+ 存储路径设置；由状态栏下载通知点击进入。 */
 public class DownloadManagerActivity extends BaseActivity implements DownloadAdapter.OnClickListener {
 
+    public static void start(Context context) {
+        context.startActivity(new Intent(context, DownloadManagerActivity.class));
+    }
+ 
     private final ActivityResultLauncher<Intent> dirLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), result -> {
                 if (result.getResultCode() != RESULT_OK || result.getData() == null) return;
@@ -98,6 +103,24 @@ public class DownloadManagerActivity extends BaseActivity implements DownloadAda
         handler.removeCallbacks(refresh);
     }
 
+    @Override
+    public void onPause(DownloadTask task) {
+        DownloadManager.get().pauseTask(task.id);
+        refreshList();
+    }
+ 
+    @Override
+    public void onResume(DownloadTask task) {
+        DownloadManager.get().resumeTask(task.id);
+        refreshList();
+    }
+ 
+    @Override
+    public void onRetry(DownloadTask task) {
+        DownloadManager.get().retryTask(task.id);
+        refreshList();
+    }
+ 
     @Override
     public void onCancel(DownloadTask task) {
         DownloadManager.get().cancelTask(task.id);
