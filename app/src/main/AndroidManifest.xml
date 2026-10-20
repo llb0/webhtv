@@ -151,6 +151,11 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
 
+        <activity
+            android:name=".ui.activity.DownloadManagerActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
