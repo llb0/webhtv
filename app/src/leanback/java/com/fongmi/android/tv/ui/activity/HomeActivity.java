@@ -561,7 +561,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
                 SearchActivity.start(this, event.text());
                 break;
             case PUSH:
-                VideoActivity.push(this, event.text());
+                VideoActivity.push(this, event.text(), event.name());
                 break;
         }
     }

@@ -121,10 +121,12 @@ public class HomeWebBridge {
             String host = Json.safeString(payload, "siteHost");
             boolean blockAll = payload.has("blockAllCrossNav") ? payload.get("blockAllCrossNav").getAsBoolean() : true;
             boolean allowCross = payload.has("allowCrossNav") ? payload.get("allowCrossNav").getAsBoolean() : false;
+            // v3.48：302/跳板重定向（原生兜底）开关，默认开
+            boolean blockNavJump = payload.has("blockNavJump") ? payload.get("blockNavJump").getAsBoolean() : true;
             java.util.List<String> white = asList(payload, "whitelist");
             java.util.List<String> black = asList(payload, "blacklist");
             String scope = payload.has("scope") ? payload.get("scope").getAsString() : "global";
-            WebHomeAdBlocker.get().applyJsConfig(enabled, host, blockAll, allowCross, white, black, scope);
+            WebHomeAdBlocker.get().applyJsConfig(enabled, host, blockAll, allowCross, blockNavJump, white, black, scope);
         } catch (Throwable ignored) { }
         return quote("ok");
     }

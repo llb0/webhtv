@@ -9,9 +9,11 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Class;
+import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.setting.PlayerSetting;
@@ -29,7 +31,9 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -239,11 +243,16 @@ public class SiteApi {
     }
 
     private static Vod buildPushVod(String id) {
+        // 推送串可能带请求头：url@Headers=<json>。真实地址与请求头在这里拆开，
+        // 请求头缓存起来（详情先于播放执行），播放时由 buildPushPlayer 注入 Result.header。
+        String base = Sniffer.pushUrl(id);
+        Map<String, String> headers = Sniffer.pushHeaders(id);
+        if (!headers.isEmpty()) rememberPushHeaders(base, headers);
         Vod vod = new Vod();
         vod.setId(id);
         vod.setPic(ResUtil.getString(R.string.push_image));
-        vod.setName(id.startsWith("file://") ? new java.io.File(id).getName() : "");
-        String url = id.startsWith("file://") ? toLanHttpUrl(id) : (id.contains("://") && id.contains("#") ? id.replace("#", "***") : id);
+        vod.setName(base.startsWith("file://") ? new java.io.File(base).getName() : "");
+        String url = base.startsWith("file://") ? toLanHttpUrl(base) : (base.contains("://") && base.contains("#") ? base.replace("#", "***") : base);
         if (isThunderUrl(url)) {
             vod.setPlayUrl(url);
             vod.setPlayFrom("迅雷");
@@ -292,6 +301,8 @@ public class SiteApi {
         if (id.contains("://") && id.contains("***")) id = id.replace("***", "#");
         result.setFlag(flag);
         result.setUrl(id);
+        Map<String, String> headers = recallPushHeaders(id);
+        if (!headers.isEmpty()) result.setHeader(headers);
         switch (flag) {
             case "直链" -> result.setParse(0);
             case "解析" -> result.setParse(1);
@@ -299,6 +310,40 @@ public class SiteApi {
             default -> result.setParse(0);
         }
         return result;
+    }
+ 
+    /**
+     * 投屏（/action?do=cast）只会把 History 发给远端，而 webhome_inline 的 VOD
+     * 存在发送端进程内，远端必然 "WebHome inline VOD not found"。
+     * 这里把本机直连的历史改写成自包含的 push_agent 推送串（真实地址 + 请求头），
+     * 远端用同一套 PUSH 链路即可直接播放。
+     */
+    public static History castHistory(History history, String url, Map<String, String> headers) {
+        if (history == null || !WebHomeInlineVodStore.KEY.equals(history.getSiteKey())) return history;
+        String base = Sniffer.gatewayTarget(url);
+        if (TextUtils.isEmpty(base)) base = url;
+        if (TextUtils.isEmpty(base)) return history;
+        History copy = History.objectFrom(history.toString());
+        if (copy == null) return history;
+        copy.setKey(PUSH + AppDatabase.SYMBOL + Sniffer.pushPayload(base, headers) + AppDatabase.SYMBOL + history.getCid());
+        return copy;
+    }
+ 
+    private static final Map<String, Map<String, String>> PUSH_HEADERS = Collections.synchronizedMap(new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Map<String, String>> eldest) {
+            return size() > 64;
+        }
+    });
+ 
+    private static void rememberPushHeaders(String url, Map<String, String> headers) {
+        if (TextUtils.isEmpty(url) || headers == null || headers.isEmpty()) return;
+        PUSH_HEADERS.put(url, new LinkedHashMap<>(headers));
+    }
+ 
+    private static Map<String, String> recallPushHeaders(String url) {
+        Map<String, String> headers = PUSH_HEADERS.get(url);
+        return headers == null ? Collections.emptyMap() : headers;
     }
  
     private static boolean isThunderUrl(String url) {

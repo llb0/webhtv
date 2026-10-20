@@ -655,22 +655,24 @@ public class HomeWebController {
         return new WebChromeClient() {
             @Override
             public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
-                if (!Setting.isWebHomeAdblock()) return false;
-                // 这里拿不到弹窗目标 URL（onCreateWindow 回调不带），
-                // 所以用「是否用户手势」判断：
-                //   非用户手势的自动弹窗 —— 几乎 100% 是广告，直接拦
-                //   用户手势触发的      —— 交给 JS 层（已隐藏外跳链接），严格模式另行拦截
-                if (!isUserGesture || Setting.isWebHomeAdblockPopup()) {
-                    SpiderDebug.log("webhome-adblock", "blocked popup gesture=%s dialog=%s", isUserGesture, isDialog);
-                    if (resultMsg != null) {
-                        if (resultMsg.obj instanceof WebView.WebViewTransport) {
-                            ((WebView.WebViewTransport) resultMsg.obj).setWebView(null);
-                        }
-                        resultMsg.sendToTarget();
-                    }
-                    return true;
+                // v3.50：改由 JS 面板配置判定（原先直接读 Setting，面板关了还拦）。
+                // 这里拿不到弹窗目标 URL（onCreateWindow 回调不带），所以按
+                // 「页面 + 是否用户手势」判定：
+                //   非用户手势的自动弹窗 —— 脚本发起的跨域导航，归面板的
+                //     「拦跨域跳转」/「302/跳板」开关管
+                //   用户手势触发的      —— 仅当 App 显式勾选「严格弹窗拦截」时才拦
+                String page = view == null ? null : view.getUrl();
+                if (!WebHomeAdBlocker.get().shouldBlockPopupByGesture(page, isUserGesture)) {
+                    return false;
                 }
-                return false;
+                SpiderDebug.log("webhome-adblock", "blocked popup gesture=%s dialog=%s", isUserGesture, isDialog);
+                if (resultMsg != null) {
+                    if (resultMsg.obj instanceof WebView.WebViewTransport) {
+                        ((WebView.WebViewTransport) resultMsg.obj).setWebView(null);
+                    }
+                    resultMsg.sendToTarget();
+                }
+                return true;
             }
 
             @Override

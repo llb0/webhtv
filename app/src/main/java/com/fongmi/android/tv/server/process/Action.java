@@ -120,7 +120,7 @@ public class Action implements Process {
     private void onPush(Map<String, String> params) {
         String url = params.get("url");
         if (TextUtils.isEmpty(url)) return;
-        ServerEvent.push(url);
+        ServerEvent.push(url, params.get("name"));
     }
 
     private void onSearch(Map<String, String> params) {

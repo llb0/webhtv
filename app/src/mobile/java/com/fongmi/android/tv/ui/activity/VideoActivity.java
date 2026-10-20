@@ -390,10 +390,21 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     });
 
     public static void push(FragmentActivity activity, String text) {
-        if (FileChooser.isValid(activity, Uri.parse(text))) file(activity, FileChooser.getPathFromUri(Uri.parse(text)));
-        else start(activity, Sniffer.getUrl(text));
+        push(activity, text, "");
     }
-
+ 
+    public static void push(FragmentActivity activity, String text, String name) {
+        if (TextUtils.isEmpty(text)) return;
+        if (FileChooser.isValid(activity, Uri.parse(text))) {
+            file(activity, FileChooser.getPathFromUri(Uri.parse(text)));
+            return;
+        }
+        // 带请求头的推送串（url@Headers=<json>）不能被正则截断，整串交给 PUSH 链路解析
+        String url = text.contains(Sniffer.HEADERS_TAG) ? text : Sniffer.getUrl(text);
+        if (TextUtils.isEmpty(url)) return;
+        start(activity, SiteApi.PUSH, url, TextUtils.isEmpty(name) ? Sniffer.pushUrl(url) : name);
+    }
+ 
     public static void file(FragmentActivity activity, String path) {
         if (TextUtils.isEmpty(path)) return;
         String name = new File(path).getName();
@@ -1938,7 +1949,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             return;
         }
         CastVideo video = new CastVideo(mBinding.name.getText().toString(), player().getUrl(), player().getPosition(), player().getHeaders());
-        CastDialog.create().history(mHistory).video(video).fm(true).show(this);
+        // webhome_inline 的 VOD 只在发送端内存里，远端拿 history 必然 not found；
+        // 改写成自包含的 push_agent 推送串（真实地址 + 请求头）后再发。
+        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders())).video(video).fm(true).show(this);
     }
 
     private void onInfo() {
