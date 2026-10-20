@@ -15,7 +15,7 @@ public class DownloadTask {
     public Type type;
     public String url;           // 原始播放地址
     public Map<String, String> headers = new HashMap<>();  // Referer/UA/Cookie 等反爬 header
-    public String ext = "mp4";   // 输出扩展名（直链: 原扩展名，hls: ts 或 mp4）
+    public String ext = "mp4";   // 输出扩展名（直链: 原扩展名，hls: mp4）
     public FileSegment[] segments;  // 分片列表（直链为 N 个 Range 分片，hls 为 N 个 ts 分片）
     public long totalSize;       // 预计总大小（直链从 Content-Length 拿，hls 累加各分片大小）
     public long downloadedBytes; // 已下载总字节
@@ -24,6 +24,7 @@ public class DownloadTask {
     public Status status = Status.PENDING;
     public String errorMsg;
     public String partDirPath;   // 该任务的分片临时目录（.parts_<id>），取消时用于清理
+    public String outputDir;     // 该任务的输出目录（创建时固化，之后修改全局设置不影响进行中的任务）
 
     public static class FileSegment {
         public int index;
