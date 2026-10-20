@@ -1,88 +1,99 @@
 package com.fongmi.android.tv.download;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+/** 最小化 m3u8 解析器：提取分片 URL 和 EXTINF duration；master playlist 自动选最高码率 variant。 */
 public class HlsParser {
 
-    public static class Variant {
-        public int bandwidth;
-        public String uri;
-        public Variant(int b, String u) { bandwidth = b; uri = u; }
+    /** 解析入口：fetch manifest；若为 master playlist 则选最高码率 variant 后递归解析。 */
+    public static Result parse(String manifestUrl, java.util.Map<String, String> headers) throws Exception {
+        String content = fetchText(manifestUrl, headers);
+        if (content == null || !content.contains("#EXTM3U")) {
+            throw new IllegalArgumentException("Not a valid m3u8 manifest");
+        }
+        if (content.contains("#EXT-X-STREAM-INF")) {
+            String variant = pickHighestBitrateVariant(content);
+            if (variant != null) return parse(toAbsolute(variant, manifestUrl), headers);
+        }
+        return parseMediaPlaylist(content, manifestUrl);
     }
 
-    public static class ParseResult {
-        public boolean isHls;
-        public boolean isMaster;
-        public List<String> segments = new ArrayList<>();
-        public String baseUrl;
+    private static Result parseMediaPlaylist(String content, String baseUrl) {
+        List<String> urls = new ArrayList<>();
+        List<Double> durations = new ArrayList<>();
+        double lastDuration = 0;
+        String segment = null;
+        for (String rawLine : content.split("\\r?\\n")) {
+            String line = rawLine.trim();
+            if (line.isEmpty() || line.startsWith("#")) {
+                if (line.startsWith("#EXTINF")) {
+                    try {
+                        Matcher m = Pattern.compile("EXTINF:([\\d.]+)").matcher(line);
+                        if (m.find()) lastDuration = Double.parseDouble(m.group(1));
+                    } catch (Exception ignored) {}
+                }
+                continue;
+            }
+            // 这一行就是分片 URL
+            String absolute = toAbsolute(line, baseUrl);
+            urls.add(absolute);
+            durations.add(lastDuration);
+        }
+        if (urls.isEmpty()) throw new IllegalStateException("No segments found in m3u8");
+        return new Result(urls, durations);
     }
 
-    public static ParseResult parse(String url, java.util.Map<String, String> headers) throws Exception {
-        ParseResult result = new ParseResult();
-        result.baseUrl = baseOf(url);
+    private static String pickHighestBitrateVariant(String content) {
+        Pattern streamInf = Pattern.compile("#EXT-X-STREAM-INF:[^\\n]*BANDWIDTH=(\\d+)[^\\n]*\\n(\\S+)");
+        Matcher m = streamInf.matcher(content);
+        long bestBw = -1;
+        String bestUrl = null;
+        while (m.find()) {
+            long bw = Long.parseLong(m.group(1));
+            if (bw > bestBw) { bestBw = bw; bestUrl = m.group(2); }
+        }
+        return bestUrl != null ? bestUrl : content;
+    }
 
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        if (headers != null) for (java.util.Map.Entry<String, String> e : headers.entrySet()) conn.setRequestProperty(e.getKey(), e.getValue());
+    private static String toAbsolute(String relOrAbs, String baseUrl) {
+        try {
+            URL url = new URL(baseUrl);
+            URI base = URI.create(url.getProtocol() + "://" + url.getHost() + (url.getPort() > 0 ? ":" + url.getPort() : "") + url.getPath());
+            return base.resolve(relOrAbs).toString();
+        } catch (Exception e) { return relOrAbs; }
+    }
+
+    private static String fetchText(String url, java.util.Map<String, String> headers) throws Exception {
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new URL(url).openConnection();
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(15000);
-        conn.connect();
-
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+        conn.setRequestMethod("GET");
+        if (headers != null) for (java.util.Map.Entry<String, String> e : headers.entrySet()) {
+            if (e.getKey() != null && e.getValue() != null) conn.setRequestProperty(e.getKey(), e.getValue());
+        }
+        try (InputStream is = conn.getInputStream();
+             BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
+            StringBuilder sb = new StringBuilder();
             String line;
-            while ((line = br.readLine()) != null) sb.append(line).append('\n');
-        }
-        String content = sb.toString();
-
-        if (!content.contains("#EXTM3U")) return result;
-        result.isHls = true;
-
-        if (content.contains("#EXT-X-STREAM-INF")) {
-            // master playlist — pick highest bandwidth
-            result.isMaster = true;
-            List<Variant> variants = new ArrayList<>();
-            String[] lines = content.split("\n");
-            int bw = 0;
-            for (String line : lines) {
-                if (line.startsWith("#EXT-X-STREAM-INF")) {
-                    String[] attrs = line.split(",");
-                    for (String a : attrs) if (a.trim().startsWith("BANDWIDTH=")) bw = Integer.parseInt(a.trim().split("=")[1]);
-                } else if (!line.startsWith("#") && !line.trim().isEmpty()) {
-                    variants.add(new Variant(bw, line.trim()));
-                    bw = 0;
-                }
-            }
-            Variant best = null;
-            for (Variant v : variants) if (best == null || v.bandwidth > best.bandwidth) best = v;
-            if (best != null) {
-                String child = absoluteUrl(url, best.uri);
-                return parse(child, headers); // recursive
-            }
-            return result;
-        }
-
-        // media playlist — collect segments
-        String[] lines = content.split("\n");
-        for (String line : lines) {
-            if (!line.startsWith("#") && !line.trim().isEmpty()) {
-                result.segments.add(absoluteUrl(url, line.trim()));
-            }
-        }
-        return result;
+            while ((line = br.readLine()) != null) sb.append(line).append("\n");
+            return sb.toString();
+        } finally { conn.disconnect(); }
     }
 
-    private static String baseOf(String url) {
-        int i = url.lastIndexOf('/');
-        return i >= 0 ? url.substring(0, i + 1) : url + "/";
-    }
-
-    private static String absoluteUrl(String parent, String child) {
-        if (child.startsWith("http://") || child.startsWith("https://")) return child;
-        return baseOf(parent) + child;
+    public static class Result {
+        public final List<String> segmentUrls;
+        public final List<Double> durations;
+        public Result(List<String> segmentUrls, List<Double> durations) {
+            this.segmentUrls = segmentUrls;
+            this.durations = durations;
+        }
     }
 }
