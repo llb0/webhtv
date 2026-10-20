@@ -149,7 +149,7 @@
             android:name=".download.DownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync"
-            android:stopWithTask="false" 
+            android:stopWithTask="false" />
 
         <meta-data
             android:name="com.google.android.gms.car.application"
