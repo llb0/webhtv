@@ -64,6 +64,11 @@
     <string name="play_lut">LUT</string>
     <string name="play_config">配置</string>
     <string name="play_cast">投屏</string>
+    <string name="play_download">下载</string>
+    <string name="download_notify_channel">下载通知</string>
+    <string name="download_notify_title">正在下载</string>
+    <string name="download_done_notify_title">下载完成</string>
+    <string name="download_failed_notify_title">下载失败</string>
     <string name="play_change">换源</string>
     <string name="play_short_display">短显</string>
     <string name="play_search">搜索</string>
