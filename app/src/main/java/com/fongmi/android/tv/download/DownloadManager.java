@@ -418,4 +418,5 @@ public class DownloadManager {
     private static final class Probe {
         long length = -1;  // 文件总大小，-1 未知
         boolean range;     // 服务器是否支持 HTTP Range（返回 206）
-   
+    }
+}
