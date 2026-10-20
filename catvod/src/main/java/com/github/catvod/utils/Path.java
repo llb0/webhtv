@@ -56,6 +56,16 @@ public class Path {
         return mkdir(new File(root() + File.separator + "TV"));
     }
 
+    // ===== 下载目录 =====
+    /** 优先读 App Setting 里用户自定义的路径，未设置时回退 tvbox/Download */
+    public static File download() {
+        try {
+            String custom = com.fongmi.android.tv.setting.Setting.getDownloadDir();
+            if (custom != null && !custom.trim().isEmpty()) return mkdir(new File(custom));
+        } catch (Throwable ignored) {}  // catvod 纯 jar 被单独引用时 Setting 不在 classpath，兜底默认
+        return mkdir(new File(root() + File.separator + "tvbox" + File.separator + "Download"));
+    }
+
     public static File so() {
         return mkdir(new File(files() + File.separator + "so"));
     }
