@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.SystemClock;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -24,6 +25,7 @@ public class DownloadService extends Service {
     private static final String CHANNEL = Notify.DEFAULT;  // 复用 Notify.createChannel() 已创建的 "default" 频道
 
     private final Map<String, Integer> taskNotifyIds = new HashMap<>();
+    private long lastNotifyTime;  // 进度通知节流时间戳
 
     public static void start(Context ctx, String name, String url, Map<String, String> headers) {
         Intent i = new Intent(ctx, DownloadService.class);
@@ -60,23 +62,27 @@ public class DownloadService extends Service {
         outputDir.mkdirs();
         DownloadManager.get().setListener(new DownloadManager.Listener() {
             @Override public void onTaskStarted(DownloadTask task) {
-                taskNotifyIds.put(task.id, NOTIFY_ID + task.id.hashCode() % 1000);
+                taskNotifyIds.put(task.id, NOTIFY_ID + Math.abs(task.id.hashCode()) % 1000);
                 updateNotification(task, getString(R.string.download_notify_title));
             }
             @Override public void onTaskProgress(DownloadTask task, long bytes, long total) {
+                // 分片每读 64KB 回调一次，这里节流，避免高频 notify 拖垮系统
+                long now = SystemClock.elapsedRealtime();
+                if (now - lastNotifyTime < 500) return;
+                lastNotifyTime = now;
                 updateNotification(task, getString(R.string.download_notify_title));
             }
             @Override public void onTaskCompleted(DownloadTask task, File output) {
                 task.status = DownloadTask.Status.COMPLETED;
                 showNotification(task, getString(R.string.download_done_notify_title), android.R.drawable.stat_sys_download_done);
-                stopSelf();
+                stopIfIdle();
             }
             @Override public void onTaskFailed(DownloadTask task, String msg) {
                 showNotification(task, getString(R.string.download_failed_notify_title), android.R.drawable.stat_notify_error);
-                stopSelf();
+                stopIfIdle();
             }
             @Override public void onTaskCancelled(DownloadTask task) {
-                stopSelf();
+                stopIfIdle();
             }
         });
 
@@ -84,6 +90,11 @@ public class DownloadService extends Service {
         return START_STICKY;
     }
 
+    /** 仅当没有正在进行的任务时才停服务，避免多任务并行时把别人的下载一起杀掉。 */
+    private void stopIfIdle() {
+        if (DownloadManager.get().getActiveCount() == 0) stopSelf();
+    }
+ 
     private void updateNotification(DownloadTask task, String title) {
         int nid = taskNotifyIds.getOrDefault(task.id, NOTIFY_ID);
         NotificationCompat.Builder nb = buildProgressNotification(title, task.name, task.downloadedBytes, task.totalSize);
