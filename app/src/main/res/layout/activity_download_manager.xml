@@ -12,7 +12,8 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         app:contentInsetEnd="16dp"
-        app:navigationIconTint="@android:color/white" />
+        app:navigationIconTint="@android:color/white"
+        app:titleTextAppearance="@style/ToolbarTextAppearance" />
 
     <LinearLayout
         android:id="@+id/pathRow"
@@ -31,6 +32,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/download_manager_path"
+            android:textColor="@color/white_70"
             android:textSize="14sp" />
 
         <com.google.android.material.textview.MaterialTextView
@@ -40,6 +42,7 @@
             android:layout_marginTop="2dp"
             android:ellipsize="middle"
             android:singleLine="true"
+            android:textColor="@color/white"
             android:textSize="13sp" />
 
     </LinearLayout>
@@ -64,6 +67,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:text="@string/download_manager_empty"
+            android:textColor="@color/white_70"
             android:visibility="gone" />
 
     </FrameLayout>
