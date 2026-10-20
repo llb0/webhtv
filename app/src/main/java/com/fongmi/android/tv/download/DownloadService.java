@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.download;
 
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -13,18 +14,18 @@ import androidx.core.app.NotificationCompat;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.ui.activity.DownloadManagerActivity;
 import com.fongmi.android.tv.utils.Notify;
 
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
-/** 后台下载服务：前台常驻，状态栏显示进度条。 */
+/** 后台下载服务：前台常驻，状态栏显示进度条；点击通知进入下载管理界面。 */
 public class DownloadService extends Service {
-    private static final int NOTIFY_ID = 8001;
+    private static final int NOTIFY_ID = 8001;  // 全服务共用一个通知 id，避免出现两条下载提示
     private static final String CHANNEL = Notify.DEFAULT;  // 复用 Notify.createChannel() 已创建的 "default" 频道
 
-    private final Map<String, Integer> taskNotifyIds = new HashMap<>();
     private long lastNotifyTime;  // 进度通知节流时间戳
 
     public static void start(Context ctx, String name, String url, Map<String, String> headers) {
@@ -38,7 +39,6 @@ public class DownloadService extends Service {
 
     public static void cancel(Context ctx, String taskId) {
         DownloadManager.get().cancelTask(taskId);
-        ctx.stopService(new Intent(ctx, DownloadService.class));
     }
 
     @Override public void onCreate() {
@@ -56,21 +56,20 @@ public class DownloadService extends Service {
         @SuppressWarnings("unchecked")
         Map<String, String> headers = (Map<String, String>) intent.getSerializableExtra("headers");
 
-        startForeground(NOTIFY_ID, buildProgressNotification(getString(R.string.download_notify_title), name, 0, 0).build());
+        startForeground(NOTIFY_ID, buildProgressNotification(getString(R.string.download_notify_title), name, 0, -1, 0, 0).build());
 
         File outputDir = new File(Setting.getDownloadDir());
         outputDir.mkdirs();
         DownloadManager.get().setListener(new DownloadManager.Listener() {
             @Override public void onTaskStarted(DownloadTask task) {
-                taskNotifyIds.put(task.id, NOTIFY_ID + Math.abs(task.id.hashCode()) % 1000);
-                updateNotification(task, getString(R.string.download_notify_title));
+                updateNotification();
             }
             @Override public void onTaskProgress(DownloadTask task, long bytes, long total) {
                 // 分片每读 64KB 回调一次，这里节流，避免高频 notify 拖垮系统
                 long now = SystemClock.elapsedRealtime();
                 if (now - lastNotifyTime < 500) return;
                 lastNotifyTime = now;
-                updateNotification(task, getString(R.string.download_notify_title));
+                updateNotification();
             }
             @Override public void onTaskCompleted(DownloadTask task, File output) {
                 task.status = DownloadTask.Status.COMPLETED;
@@ -82,6 +81,7 @@ public class DownloadService extends Service {
                 stopIfIdle();
             }
             @Override public void onTaskCancelled(DownloadTask task) {
+                updateNotification();
                 stopIfIdle();
             }
         });
@@ -94,41 +94,78 @@ public class DownloadService extends Service {
     private void stopIfIdle() {
         if (DownloadManager.get().getActiveCount() == 0) stopSelf();
     }
- 
-    private void updateNotification(DownloadTask task, String title) {
-        int nid = taskNotifyIds.getOrDefault(task.id, NOTIFY_ID);
-        NotificationCompat.Builder nb = buildProgressNotification(title, task.name, task.downloadedBytes, task.totalSize);
-        getSystemService(NotificationManager.class).notify(nid, nb.build());
+
+    /** 聚合所有进行中任务的总进度刷新同一条通知。 */
+    private void updateNotification() {
+        long bytes = 0;
+        long total = 0;
+        boolean totalKnown = true;
+        int running = 0;
+        int doneSeg = 0;
+        int allSeg = 0;
+        String firstName = null;
+        for (DownloadTask t : DownloadManager.get().getAllTasks()) {
+            if (t.status != DownloadTask.Status.RUNNING) continue;
+            running++;
+            if (firstName == null) firstName = t.name;
+            bytes += t.downloadedBytes;
+            if (t.totalSize > 0) total += t.totalSize;
+            else totalKnown = false;
+            doneSeg += t.completedSegments;
+            allSeg += t.totalSegments;
+        }
+        if (running == 0) return;
+        String display = running == 1 ? firstName : running + " 个任务";
+        NotificationCompat.Builder nb = buildProgressNotification(getString(R.string.download_notify_title), display, bytes, totalKnown ? total : -1, doneSeg, allSeg);
+        getSystemService(NotificationManager.class).notify(NOTIFY_ID, nb.build());
     }
 
     private void showNotification(DownloadTask task, String title, int icon) {
-        int nid = taskNotifyIds.getOrDefault(task.id, NOTIFY_ID);
         NotificationCompat.Builder nb = new NotificationCompat.Builder(this, CHANNEL)
                 .setSmallIcon(icon)
                 .setContentTitle(title)
                 .setContentText(task.name)
+                .setContentIntent(contentIntent())
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(false);
-        getSystemService(NotificationManager.class).notify(nid, nb.build());
+        getSystemService(NotificationManager.class).notify(NOTIFY_ID, nb.build());
     }
 
-    private NotificationCompat.Builder buildProgressNotification(String title, String name, long bytes, long total) {
-        int progress = total > 0 ? (int) (bytes * 100 / total) : 0;
+    private NotificationCompat.Builder buildProgressNotification(String title, String name, long bytes, long total, int doneSeg, int allSeg) {
+        int progress;
+        boolean determinate;
         String text;
         if (total > 0) {
-            text = String.format("%s  %d%%  %s / %s", name, progress, formatSize(bytes), formatSize(total));
+            // 直链：按字节百分比
+            progress = (int) (bytes * 100 / total);
+            determinate = true;
+            text = name + "  " + progress + "%  " + formatSize(bytes) + " / " + formatSize(total);
+        } else if (allSeg > 0) {
+            // HLS：总大小未知，按分片完成数百分比
+            progress = doneSeg * 100 / allSeg;
+            determinate = true;
+            text = name + "  " + progress + "%  " + doneSeg + "/" + allSeg + " 段  " + formatSize(bytes);
         } else {
-            text = String.format("%s  %s downloaded", name, formatSize(bytes));
+            progress = 0;
+            determinate = false;
+            text = name + "  " + formatSize(bytes);
         }
         NotificationCompat.Builder nb = new NotificationCompat.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(title)
                 .setContentText(text)
+                .setContentIntent(contentIntent())
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW);
-        if (total > 0) nb.setProgress(100, progress, false);
+        if (determinate) nb.setProgress(100, progress, false);
         else nb.setProgress(0, 0, true);
         return nb;
+    }
+
+    private PendingIntent contentIntent() {
+        Intent intent = new Intent(this, DownloadManagerActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     private static String formatSize(long bytes) {
