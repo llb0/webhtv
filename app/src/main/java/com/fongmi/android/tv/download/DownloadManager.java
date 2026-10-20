@@ -190,7 +190,7 @@ public class DownloadManager {
                 part.delete();
             }
             // 清理 partDir
-            new File(partDir(task, outputDir)).delete();
+            partDir(task, outputDir).delete();
             task.status = DownloadTask.Status.COMPLETED;
             if (listener != null) listener.onTaskCompleted(task, output);
         } catch (IOException e) {
