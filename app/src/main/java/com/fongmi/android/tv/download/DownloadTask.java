@@ -34,5 +34,7 @@ public class DownloadTask {
         public String partFile;     // 分片临时文件路径
         public boolean done;
         public String errorMsg;
+        public byte[] keyBytes;     // HLS AES-128 密钥（16 字节），无加密则 null
+        public byte[] keyIv;        // 该分片的 AES-128 IV（16 字节），无加密则 null
     }
 }
