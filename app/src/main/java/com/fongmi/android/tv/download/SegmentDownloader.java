@@ -2,6 +2,7 @@ package com.fongmi.android.tv.download;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -10,7 +11,11 @@ import java.net.URL;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** 单个分片下载器：支持 HTTP Range 断点续传 + 自定义 headers。 */
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+
+/** 单个分片下载器：支持 HTTP Range 断点续传、自定义 headers，以及 HLS AES-128 分片解密。 */
 public class SegmentDownloader {
 
     public interface Listener {
@@ -24,9 +29,11 @@ public class SegmentDownloader {
     public static void download(DownloadTask.FileSegment seg, Map<String, String> headers,
                                 AtomicBoolean cancelled, Listener listener) {
         try {
-            // 断点续传：如果 .part 文件已存在，读取当前大小作为续传偏移
             File part = new File(seg.partFile);
-            long resumeBytes = part.exists() ? part.length() : 0;
+            boolean encrypted = seg.keyBytes != null && seg.keyBytes.length > 0 && seg.keyIv != null && seg.keyIv.length == 16;
+            // 加密分片解密后长度会变化，按字节续传会错位，因此加密分片始终整片重下
+            long resumeBytes = (!encrypted && part.exists()) ? part.length() : 0;
+            if (encrypted && part.exists()) part.delete();
             long requestStart = seg.start + resumeBytes;
             long requestEnd = seg.end;
 
@@ -74,12 +81,33 @@ public class SegmentDownloader {
                     if (listener != null) listener.onProgress(seg, localDownloaded);
                 }
             }
-            seg.downloaded = (seg.end >= 0) ? (seg.end - seg.start + 1) : localDownloaded;
+
+            if (encrypted) {
+                decrypt(part, seg.keyBytes, seg.keyIv);
+                localDownloaded = part.length();
+                seg.downloaded = localDownloaded;
+            }
+            seg.downloaded = (seg.end >= 0 && !encrypted) ? (seg.end - seg.start + 1) : localDownloaded;
             seg.done = true;
             if (listener != null) listener.onComplete(seg);
         } catch (Exception e) {
             if (seg.errorMsg == null) seg.errorMsg = e.getMessage();
             if (listener != null) listener.onError(seg, e.getMessage());
+        }
+    }
+
+    /** HLS AES-128：CBC + PKCS7 填充，原地解密分片文件。 */
+    private static void decrypt(File part, byte[] key, byte[] iv) throws Exception {
+        byte[] data = new byte[(int) part.length()];
+        try (FileInputStream in = new FileInputStream(part)) {
+            int off = 0, r;
+            while (off < data.length && (r = in.read(data, off, data.length - off)) > 0) off += r;
+        }
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
+        byte[] plain = cipher.doFinal(data);
+        try (FileOutputStream out = new FileOutputStream(part)) {
+            out.write(plain);
         }
     }
 }
