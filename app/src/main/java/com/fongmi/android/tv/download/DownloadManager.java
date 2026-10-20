@@ -29,6 +29,7 @@ public class DownloadManager {
     public static DownloadManager get() { return Holder.INSTANCE; }
 
     private final Map<String, DownloadTask> tasks = new ConcurrentHashMap<>();
+    private final Map<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
     private final ExecutorService taskExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService segmentPool = Executors.newFixedThreadPool(DEFAULT_PARALLEL);
     private volatile Listener listener;
@@ -58,6 +59,7 @@ public class DownloadManager {
         task.type = looksLikeHls(url) ? DownloadTask.Type.HLS : DownloadTask.Type.DIRECT;
         task.ext = task.type == DownloadTask.Type.HLS ? "ts" : guessExt(url);
         tasks.put(task.id, task);
+        cancelFlags.put(task.id, new AtomicBoolean(false));
 
         // 异步初始化（解析 m3u8 / 获取直链大小 / 分片规划）
         taskExecutor.submit(() -> initAndStart(task, outputDir));
@@ -80,6 +82,7 @@ public class DownloadManager {
             Log.e(TAG, "init failed", e);
             task.status = DownloadTask.Status.FAILED;
             task.errorMsg = e.getMessage();
+            cancelFlags.remove(task.id);
             if (listener != null) listener.onTaskFailed(task, e.getMessage());
         }
     }
@@ -134,7 +137,7 @@ public class DownloadManager {
     }
 
     private void runSegments(DownloadTask task, File outputDir) {
-        AtomicBoolean cancelled = new AtomicBoolean(false);
+        AtomicBoolean cancelled = cancelFlags.computeIfAbsent(task.id, k -> new AtomicBoolean(false));
         final AtomicInteger finished = new AtomicInteger(0);   // 完成 + 失败总数，用于触发合并
         final AtomicInteger succeeded = new AtomicInteger(0);  // 成功数，用于进度展示
         for (final DownloadTask.FileSegment seg : task.segments) {
@@ -169,11 +172,13 @@ public class DownloadManager {
     }
 
     private void mergeSegments(DownloadTask task, File outputDir) {
+        if (task.status == DownloadTask.Status.CANCELLED) return;  // 已取消，不再上报结果
         boolean allDone = true;
         for (DownloadTask.FileSegment s : task.segments) if (!s.done) { allDone = false; break; }
         if (!allDone) {
             task.status = DownloadTask.Status.FAILED;
             task.errorMsg = "Some segments failed";
+            cancelFlags.remove(task.id);
             if (listener != null) listener.onTaskFailed(task, task.errorMsg);
             return;
         }
@@ -192,10 +197,12 @@ public class DownloadManager {
             // 清理 partDir
             partDir(task, outputDir).delete();
             task.status = DownloadTask.Status.COMPLETED;
+            cancelFlags.remove(task.id);
             if (listener != null) listener.onTaskCompleted(task, output);
         } catch (IOException e) {
             task.status = DownloadTask.Status.FAILED;
             task.errorMsg = e.getMessage();
+            cancelFlags.remove(task.id);
             if (listener != null) listener.onTaskFailed(task, e.getMessage());
         }
     }
@@ -204,6 +211,9 @@ public class DownloadManager {
         DownloadTask t = tasks.remove(taskId);
         if (t == null) return;
         t.status = DownloadTask.Status.CANCELLED;
+        // 通知各分片线程尽快退出读取循环
+        AtomicBoolean cancelled = cancelFlags.remove(taskId);
+        if (cancelled != null) cancelled.set(true);
         // 清理 part 文件（使用任务自己的分片目录，兼容自定义下载路径）
         File partDir = t.partDirPath != null ? new File(t.partDirPath) : partDir(t, new File(Setting.getDownloadDir()));
         File[] files = partDir.listFiles();
