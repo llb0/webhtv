@@ -6,6 +6,7 @@ import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -14,6 +15,7 @@ import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.Drawable;
+import android.Manifest;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -70,6 +72,8 @@ import androidx.viewbinding.ViewBinding;
 import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
+import com.fongmi.android.tv.download.DownloadService;
+import com.fongmi.android.tv.download.DownloadManager;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.DanmakuApi;
 import com.fongmi.android.tv.api.SiteApi;
@@ -807,6 +811,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.shortDisplay.setOnClickListener(view -> onShortDisplay());
         mBinding.search.setOnClickListener(view -> onSearch());
         mBinding.castAction.setOnClickListener(view -> onCast());
+        if (mBinding.downloadAction != null) mBinding.downloadAction.setOnClickListener(view -> onDownload());
         mBinding.settingAction.setOnClickListener(view -> onSetting());
         mBinding.actor.setOnClickListener(view -> onActor());
         mBinding.content.setOnClickListener(view -> onContent());
@@ -1941,6 +1946,22 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void finishVideoPlaybackNow() {
         saveHistory(true);
         finishPlayback();
+    }
+
+    private void onDownload() {
+        if (mHistory == null || TextUtils.isEmpty(mHistory.getVodId()) || player() == null || player().isEmpty() || TextUtils.isEmpty(player().getUrl())) {
+            Notify.show(R.string.cast_not_ready);
+            return;
+        }
+        // Android 13+ 需要 POST_NOTIFICATIONS 权限
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1001);
+        }
+        String title = mBinding.name.getText().toString();
+        String name = title + "_" + (mHistory.getVodRemarks() != null ? mHistory.getVodRemarks() : "");
+        DownloadService.start(this, name, player().getUrl(), player().getHeaders());
+        Notify.show("下载已开始: " + name);
     }
 
     private void onCast() {
