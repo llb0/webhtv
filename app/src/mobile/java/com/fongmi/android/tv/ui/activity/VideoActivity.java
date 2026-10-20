@@ -6,7 +6,6 @@ import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -15,7 +14,6 @@ import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.Drawable;
-import android.Manifest;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -160,6 +158,7 @@ import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -1953,15 +1952,18 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             Notify.show(R.string.cast_not_ready);
             return;
         }
-        // Android 13+ 需要 POST_NOTIFICATIONS 权限
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1001);
-        }
         String title = mBinding.name.getText().toString();
         String name = title + "_" + (mHistory.getVodRemarks() != null ? mHistory.getVodRemarks() : "");
-        DownloadService.start(this, name, player().getUrl(), player().getHeaders());
-        Notify.show("下载已开始: " + name);
+        // 写入下载目录需要文件访问权限（与项目其它落盘入口一致），无权限时先申请
+        PermissionUtil.requestFile(this, granted -> {
+            if (!granted) {
+                Notify.show(R.string.download_need_file_permission);
+                return;
+            }
+            PermissionUtil.requestNotify(this);
+            DownloadService.start(this, name, player().getUrl(), player().getHeaders());
+            Notify.show(getString(R.string.download_started));
+        });
     }
 
     private void onCast() {
