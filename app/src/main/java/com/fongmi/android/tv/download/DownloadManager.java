@@ -31,10 +31,9 @@ public class DownloadManager {
     public static DownloadManager get() { return Holder.INSTANCE; }
 
     private final Map<String, DownloadTask> tasks = new ConcurrentHashMap<>();
+    private final Map<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
     /** 每轮调度的代号：暂停/取消后旧一轮还在收尾的线程不再影响新一轮结果 */
     private final Map<String, AtomicInteger> runGenerations = new ConcurrentHashMap<>();
-    /** 每代独立的中断标记：避免 resume 重置共享标记导致旧线程继续下载并吞掉 onProgress */
-    private final Map<String, Map<Integer, AtomicBoolean>> genCancelled = new ConcurrentHashMap<>();
     private final ExecutorService taskExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService segmentPool = Executors.newFixedThreadPool(DEFAULT_PARALLEL);
     private volatile Listener listener;
@@ -65,6 +64,7 @@ public class DownloadManager {
         task.ext = task.type == DownloadTask.Type.HLS ? "mp4" : guessExt(url);
         task.outputDir = dir.getAbsolutePath();
         tasks.put(task.id, task);
+        cancelFlags.put(task.id, new AtomicBoolean(false));
 
         // 异步初始化（解析 m3u8 / 获取直链大小 / 分片规划）
         taskExecutor.submit(() -> initAndStart(task));
@@ -176,10 +176,13 @@ public class DownloadManager {
 
     /** 调度一轮分片下载：已完成分片直接跳过，未完成的按已有 .part 续传。 */
     private void runSegments(DownloadTask task) {
+        // 任务可能在 restart 入队后、执行前被取消：直接放弃，不再提交任何分片
+        if (task.status == DownloadTask.Status.CANCELLED) return;
         final int gen = nextGeneration(task.id);
-        // 每代独立的中断标记：旧线程持有的旧标记仍为 true，不会因 resume 被重置为 false 而继续下载
+        // 每一代使用独立的中断标记对象：pause 时仅把「当前代」标记置 true，
+        // 旧代线程持有的仍是旧对象（保持 true）会自行退出，不会与新一代并发写同一个 .part
         final AtomicBoolean cancelled = new AtomicBoolean(false);
-        genCancelled.computeIfAbsent(task.id, k -> new ConcurrentHashMap<>()).put(gen, cancelled);
+        cancelFlags.put(task.id, cancelled);
         final AtomicInteger finished = new AtomicInteger(0);
         final AtomicInteger succeeded = new AtomicInteger(0);
         for (DownloadTask.FileSegment seg : task.segments) {
@@ -203,6 +206,7 @@ public class DownloadManager {
             segmentPool.submit(() -> SegmentDownloader.download(seg, task.headers, cancelled,
                     new SegmentDownloader.Listener() {
                         @Override public void onProgress(DownloadTask.FileSegment s, long bytesDownloaded) {
+                            if (task.status == DownloadTask.Status.CANCELLED) return;
                             if (!isCurrent(task.id, gen)) return;
                             long total = 0;
                             for (DownloadTask.FileSegment x : task.segments) total += x.downloaded;
@@ -210,6 +214,7 @@ public class DownloadManager {
                             if (listener != null) listener.onTaskProgress(task, total, task.totalSize);
                         }
                         @Override public void onComplete(DownloadTask.FileSegment s) {
+                            if (task.status == DownloadTask.Status.CANCELLED) return;
                             if (!isCurrent(task.id, gen)) return;
                             task.completedSegments = succeeded.incrementAndGet();
                             // hls 场景: 记录实际分片大小
@@ -224,6 +229,7 @@ public class DownloadManager {
                             if (finished.incrementAndGet() >= task.totalSegments) mergeSegments(task, gen);
                         }
                         @Override public void onError(DownloadTask.FileSegment s, String msg) {
+                            if (task.status == DownloadTask.Status.CANCELLED) return;
                             if (!isCurrent(task.id, gen)) return;
                             // 单分片失败不立即放弃；等所有分片结束再统一判定（避免任务卡死）
                             if (finished.incrementAndGet() >= task.totalSegments) mergeSegments(task, gen);
@@ -267,8 +273,7 @@ public class DownloadManager {
         DownloadTask t = tasks.get(taskId);
         if (t == null || t.status != DownloadTask.Status.RUNNING) return;
         t.status = DownloadTask.Status.PAUSED;
-        // 仅中断当前这一代的分片线程；旧标记不动，避免误影响已收尾的线程
-        AtomicBoolean cancelled = currentCancelled(taskId);
+        AtomicBoolean cancelled = cancelFlags.get(taskId);
         if (cancelled != null) cancelled.set(true);
         if (listener != null) listener.onTaskPaused(t);
     }
@@ -295,6 +300,8 @@ public class DownloadManager {
     }
 
     private void restart(DownloadTask task) {
+        // 任务可能在入队后被取消：此时不再启动新一轮下载
+        if (task.status == DownloadTask.Status.CANCELLED) return;
         try {
             if (task.segments == null || task.segments.length == 0) initAndStart(task);
             else runSegments(task);
@@ -318,11 +325,10 @@ public class DownloadManager {
         DownloadTask t = tasks.remove(taskId);
         if (t == null) return;
         t.status = DownloadTask.Status.CANCELLED;
-        // 通知当前这一代分片线程尽快退出读取循环
-        AtomicBoolean cancelled = currentCancelled(taskId);
+        // 通知各分片线程尽快退出读取循环
+        AtomicBoolean cancelled = cancelFlags.remove(taskId);
         if (cancelled != null) cancelled.set(true);
         runGenerations.remove(taskId);
-        genCancelled.remove(taskId);
         deleteDir(partDir(t));   // 使用任务自己的分片目录，与全局设置无关
         if (listener != null) listener.onTaskCancelled(t);
     }
@@ -334,8 +340,8 @@ public class DownloadManager {
     public void removeTask(String taskId) {
         DownloadTask t = tasks.remove(taskId);
         if (t == null) return;
+        cancelFlags.remove(taskId);
         runGenerations.remove(taskId);
-        genCancelled.remove(taskId);
         deleteDir(partDir(t));
         // 成品文件的扩展名必须用任务自己的 ext（HLS 现为 mp4），否则会删不到 / 删错文件
         File output = new File(new File(t.outputDir), t.name + "." + t.ext);
@@ -369,14 +375,6 @@ public class DownloadManager {
         return g != null && g.get() == gen;
     }
 
-    /** 当前这一代的中断标记；暂停/取消时只置位它，不影响旧线程持有的旧标记。 */
-    private AtomicBoolean currentCancelled(String taskId) {
-        AtomicInteger g = runGenerations.get(taskId);
-        if (g == null) return null;
-        Map<Integer, AtomicBoolean> map = genCancelled.get(taskId);
-        return map != null ? map.get(g.get()) : null;
-    }
- 
     private File partDir(DownloadTask task) {
         File d = new File(new File(task.outputDir), ".parts_" + task.id);
         if (!d.exists()) d.mkdirs();
