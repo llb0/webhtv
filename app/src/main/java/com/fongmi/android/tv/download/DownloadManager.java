@@ -31,9 +31,10 @@ public class DownloadManager {
     public static DownloadManager get() { return Holder.INSTANCE; }
 
     private final Map<String, DownloadTask> tasks = new ConcurrentHashMap<>();
-    private final Map<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
     /** 每轮调度的代号：暂停/取消后旧一轮还在收尾的线程不再影响新一轮结果 */
     private final Map<String, AtomicInteger> runGenerations = new ConcurrentHashMap<>();
+    /** 每代独立的中断标记：避免 resume 重置共享标记导致旧线程继续下载并吞掉 onProgress */
+    private final Map<String, Map<Integer, AtomicBoolean>> genCancelled = new ConcurrentHashMap<>();
     private final ExecutorService taskExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService segmentPool = Executors.newFixedThreadPool(DEFAULT_PARALLEL);
     private volatile Listener listener;
@@ -64,7 +65,6 @@ public class DownloadManager {
         task.ext = task.type == DownloadTask.Type.HLS ? "mp4" : guessExt(url);
         task.outputDir = dir.getAbsolutePath();
         tasks.put(task.id, task);
-        cancelFlags.put(task.id, new AtomicBoolean(false));
 
         // 异步初始化（解析 m3u8 / 获取直链大小 / 分片规划）
         taskExecutor.submit(() -> initAndStart(task));
@@ -177,8 +177,9 @@ public class DownloadManager {
     /** 调度一轮分片下载：已完成分片直接跳过，未完成的按已有 .part 续传。 */
     private void runSegments(DownloadTask task) {
         final int gen = nextGeneration(task.id);
-        final AtomicBoolean cancelled = cancelFlags.computeIfAbsent(task.id, k -> new AtomicBoolean(false));
-        cancelled.set(false);   // 新一轮开始：清掉上一次 暂停/取消 留下的中断标记
+        // 每代独立的中断标记：旧线程持有的旧标记仍为 true，不会因 resume 被重置为 false 而继续下载
+        final AtomicBoolean cancelled = new AtomicBoolean(false);
+        genCancelled.computeIfAbsent(task.id, k -> new ConcurrentHashMap<>()).put(gen, cancelled);
         final AtomicInteger finished = new AtomicInteger(0);
         final AtomicInteger succeeded = new AtomicInteger(0);
         for (DownloadTask.FileSegment seg : task.segments) {
@@ -188,6 +189,11 @@ public class DownloadManager {
             }
         }
         task.completedSegments = succeeded.get();
+        // 新一轮开始：立即上报一次当前已下载量，避免 resume 后直到首个分片回调才刷新进度
+        long initialTotal = 0;
+        for (DownloadTask.FileSegment x : task.segments) initialTotal += x.downloaded;
+        task.downloadedBytes = initialTotal;
+        if (listener != null) listener.onTaskProgress(task, initialTotal, task.totalSize);
         if (finished.get() >= task.totalSegments) {
             mergeSegments(task, gen);
             return;
@@ -210,6 +216,11 @@ public class DownloadManager {
                             if (task.type == DownloadTask.Type.HLS) {
                                 try { s.end = new File(s.partFile).length(); } catch (Exception ignored) {}
                             }
+                            // 分片完成（含 416 已完整路径）也需刷新已下载总量，否则进度会卡住
+                            long total = 0;
+                            for (DownloadTask.FileSegment x : task.segments) total += x.downloaded;
+                            task.downloadedBytes = total;
+                            if (listener != null) listener.onTaskProgress(task, total, task.totalSize);
                             if (finished.incrementAndGet() >= task.totalSegments) mergeSegments(task, gen);
                         }
                         @Override public void onError(DownloadTask.FileSegment s, String msg) {
@@ -256,7 +267,8 @@ public class DownloadManager {
         DownloadTask t = tasks.get(taskId);
         if (t == null || t.status != DownloadTask.Status.RUNNING) return;
         t.status = DownloadTask.Status.PAUSED;
-        AtomicBoolean cancelled = cancelFlags.get(taskId);
+        // 仅中断当前这一代的分片线程；旧标记不动，避免误影响已收尾的线程
+        AtomicBoolean cancelled = currentCancelled(taskId);
         if (cancelled != null) cancelled.set(true);
         if (listener != null) listener.onTaskPaused(t);
     }
@@ -306,10 +318,11 @@ public class DownloadManager {
         DownloadTask t = tasks.remove(taskId);
         if (t == null) return;
         t.status = DownloadTask.Status.CANCELLED;
-        // 通知各分片线程尽快退出读取循环
-        AtomicBoolean cancelled = cancelFlags.remove(taskId);
+        // 通知当前这一代分片线程尽快退出读取循环
+        AtomicBoolean cancelled = currentCancelled(taskId);
         if (cancelled != null) cancelled.set(true);
         runGenerations.remove(taskId);
+        genCancelled.remove(taskId);
         deleteDir(partDir(t));   // 使用任务自己的分片目录，与全局设置无关
         if (listener != null) listener.onTaskCancelled(t);
     }
@@ -321,8 +334,8 @@ public class DownloadManager {
     public void removeTask(String taskId) {
         DownloadTask t = tasks.remove(taskId);
         if (t == null) return;
-        cancelFlags.remove(taskId);
         runGenerations.remove(taskId);
+        genCancelled.remove(taskId);
         deleteDir(partDir(t));
         // 成品文件的扩展名必须用任务自己的 ext（HLS 现为 mp4），否则会删不到 / 删错文件
         File output = new File(new File(t.outputDir), t.name + "." + t.ext);
@@ -356,6 +369,14 @@ public class DownloadManager {
         return g != null && g.get() == gen;
     }
 
+    /** 当前这一代的中断标记；暂停/取消时只置位它，不影响旧线程持有的旧标记。 */
+    private AtomicBoolean currentCancelled(String taskId) {
+        AtomicInteger g = runGenerations.get(taskId);
+        if (g == null) return null;
+        Map<Integer, AtomicBoolean> map = genCancelled.get(taskId);
+        return map != null ? map.get(g.get()) : null;
+    }
+ 
     private File partDir(DownloadTask task) {
         File d = new File(new File(task.outputDir), ".parts_" + task.id);
         if (!d.exists()) d.mkdirs();
