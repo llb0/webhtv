@@ -47,9 +47,10 @@ public class DownloadManager {
 
     /** 创建任务，outputDir 可传 null（此时使用 Setting 中配置的下载目录）。 */
     public DownloadTask addTask(String name, String url, Map<String, String> headers, File outputDir) {
-        if (outputDir == null) {
-            outputDir = new File(Setting.getDownloadDir());
-            outputDir.mkdirs();
+        File dir = outputDir;
+        if (dir == null) {
+            dir = new File(Setting.getDownloadDir());
+            dir.mkdirs();
         }
         DownloadTask task = new DownloadTask();
         task.id = UUID.randomUUID().toString();
@@ -62,7 +63,8 @@ public class DownloadManager {
         cancelFlags.put(task.id, new AtomicBoolean(false));
 
         // 异步初始化（解析 m3u8 / 获取直链大小 / 分片规划）
-        taskExecutor.submit(() -> initAndStart(task, outputDir));
+        final File finalDir = dir;
+        taskExecutor.submit(() -> initAndStart(task, finalDir));
         return task;
     }
 
