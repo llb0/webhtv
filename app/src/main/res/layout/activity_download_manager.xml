@@ -13,7 +13,8 @@
         android:layout_height="?attr/actionBarSize"
         app:contentInsetEnd="16dp"
         app:navigationIconTint="@android:color/white"
-        app:titleTextAppearance="@style/ToolbarTextAppearance" />
+        app:titleTextColor="@color/white"
+        app:titleTextAppearance="@style/TextAppearance.Material3.TitleLarge" />
 
     <LinearLayout
         android:id="@+id/pathRow"
