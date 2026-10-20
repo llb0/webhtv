@@ -2,264 +2,277 @@ package com.fongmi.android.tv.download;
 
 import android.util.Log;
 
-import com.github.catvod.utils.Path;
+import com.fongmi.android.tv.setting.Setting;
 
-import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.*;
-import java.util.concurrent.*;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
+/** 全局下载管理器：单例，队列管理，4 线程并发，整合直链多线程分片 + HLS 分片下载。 */
 public class DownloadManager {
-
     private static final String TAG = "DownloadManager";
-    private static final DownloadManager INSTANCE = new DownloadManager();
+    private static final int DEFAULT_PARALLEL = 4;
 
-    private final ExecutorService executor = Executors.newFixedThreadPool(4);
+    private static class Holder { static final DownloadManager INSTANCE = new DownloadManager(); }
+    public static DownloadManager get() { return Holder.INSTANCE; }
+
     private final Map<String, DownloadTask> tasks = new ConcurrentHashMap<>();
-    private final Map<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
+    private final ExecutorService taskExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService segmentPool = Executors.newFixedThreadPool(DEFAULT_PARALLEL);
+    private volatile Listener listener;
+    private final AtomicInteger activeCount = new AtomicInteger(0);
 
-    public static DownloadManager get() { return INSTANCE; }
-
-    public interface ProgressListener {
-        void onProgress(String taskId, int percent, long downloaded, long total);
-        void onComplete(String taskId);
-        void onFailed(String taskId, String reason);
+    public interface Listener {
+        void onTaskStarted(DownloadTask task);
+        void onTaskProgress(DownloadTask task, long bytes, long total);
+        void onTaskCompleted(DownloadTask task, File output);
+        void onTaskFailed(DownloadTask task, String msg);
+        void onTaskCancelled(DownloadTask task);
     }
 
-    private ProgressListener listener;
-    public void setListener(ProgressListener l) { this.listener = l; }
+    public void setListener(Listener l) { this.listener = l; }
 
-    public DownloadTask enqueue(String url, String title, Map<String, String> headers) {
-        DownloadTask.Type type = url.toLowerCase().contains(".m3u8")
-                ? DownloadTask.Type.HLS : DownloadTask.Type.DIRECT;
-        DownloadTask task = new DownloadTask(url, title, type);
-        tasks.put(task.getId(), task);
-        start(task, headers);
+    /** 创建任务，outputDir 可传 null（此时使用 Setting 中配置的下载目录）。 */
+    public DownloadTask addTask(String name, String url, Map<String, String> headers, File outputDir) {
+        if (outputDir == null) {
+            outputDir = new File(Setting.getDownloadDir());
+            outputDir.mkdirs();
+        }
+        DownloadTask task = new DownloadTask();
+        task.id = UUID.randomUUID().toString();
+        task.name = sanitizeFilename(name);
+        task.url = url;
+        task.headers = headers != null ? new java.util.HashMap<>(headers) : new java.util.HashMap<>();
+        task.type = looksLikeHls(url) ? DownloadTask.Type.HLS : DownloadTask.Type.DIRECT;
+        task.ext = task.type == DownloadTask.Type.HLS ? "ts" : guessExt(url);
+        tasks.put(task.id, task);
+
+        // 异步初始化（解析 m3u8 / 获取直链大小 / 分片规划）
+        taskExecutor.submit(() -> initAndStart(task, outputDir));
         return task;
     }
 
-    public void cancel(String taskId) {
-        AtomicBoolean flag = cancelFlags.remove(taskId);
-        if (flag != null) flag.set(true);
-        DownloadTask t = tasks.get(taskId);
-        if (t != null) t.setStatus(DownloadTask.Status.CANCELLED);
+    private void initAndStart(DownloadTask task, File outputDir) {
+        try {
+            task.partDirPath = partDir(task, outputDir).getAbsolutePath();
+            if (task.type == DownloadTask.Type.HLS) {
+                initHls(task, outputDir);
+            } else {
+                initDirect(task, outputDir);
+            }
+            task.status = DownloadTask.Status.RUNNING;
+            activeCount.incrementAndGet();
+            if (listener != null) listener.onTaskStarted(task);
+            runSegments(task, outputDir);
+        } catch (Exception e) {
+            Log.e(TAG, "init failed", e);
+            task.status = DownloadTask.Status.FAILED;
+            task.errorMsg = e.getMessage();
+            if (listener != null) listener.onTaskFailed(task, e.getMessage());
+        }
     }
 
-    private void start(DownloadTask task, Map<String, String> headers) {
-        task.setStatus(DownloadTask.Status.RUNNING);
-        AtomicBoolean cancelFlag = new AtomicBoolean(false);
-        cancelFlags.put(task.getId(), cancelFlag);
-
-        executor.submit(() -> {
-            try {
-                if (task.getType() == DownloadTask.Type.HLS) {
-                    runHls(task, headers, cancelFlag);
-                } else {
-                    runDirect(task, headers, cancelFlag);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "download failed", e);
-                task.setStatus(DownloadTask.Status.FAILED);
-                if (listener != null) listener.onFailed(task.getId(), e.getMessage());
-            }
-        });
-    }
-
-    // ========== DIRECT ==========
-    private void runDirect(DownloadTask task, Map<String, String> headers, AtomicBoolean cancelFlag) throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) new URL(task.getUrl()).openConnection();
-        if (headers != null) for (Map.Entry<String, String> e : headers.entrySet())
-            conn.setRequestProperty(e.getKey(), e.getValue());
-        conn.setRequestProperty("Range", "bytes=0-");
-        conn.connect();
-
-        long contentLength = conn.getContentLengthLong();
-        if (contentLength <= 0) contentLength = conn.getHeaderFieldLong("Content-Length", 0);
-        task.setTotalSize(contentLength);
-
-        String ext = guessExt(task.getUrl(), conn);
-        String outName = safeName(task.getTitle()) + ext;
-        File outDir = Path.download();
-        File outFile = new File(outDir, outName);
-        task.setOutputPath(outFile.getAbsolutePath());
-
-        // split into N segments
-        int n = task.getThreadCount();
-        if (contentLength > 0) {
-            long segSize = contentLength / n;
-            List<DownloadTask.FileSegment> segs = new ArrayList<>();
-            for (int i = 0; i < n; i++) {
-                long start = i * segSize;
-                long end = (i == n - 1) ? contentLength - 1 : start + segSize - 1;
-                String temp = new File(outDir, outName + ".part" + i).getAbsolutePath();
-                segs.add(new DownloadTask.FileSegment(i, start, end, temp));
-            }
-            task.setSegments(segs);
-        } else {
-            // unknown size — single segment
-            String temp = new File(outDir, outName + ".part0").getAbsolutePath();
-            DownloadTask.FileSegment seg = new DownloadTask.FileSegment(0, 0, Long.MAX_VALUE, temp);
-            seg.downloaded = 0;
-            task.setSegments(Collections.singletonList(seg));
-        }
-
-        // download all segments in parallel
-        CountDownLatch latch = new CountDownLatch(task.getSegments().size());
-        SegmentDownloader.SegmentListener segListener = new SegmentDownloader.SegmentListener() {
-            @Override public void onProgress(long delta) {
-                task.addDownloaded(delta);
-                if (listener != null) listener.onProgress(task.getId(), task.getProgress(),
-                        task.getDownloadedSize(), task.getTotalSize());
-            }
-            @Override public void onSegmentComplete(DownloadTask.FileSegment seg) { latch.countDown(); }
-            @Override public void onError(Exception e) { latch.countDown(); }
-        };
-
-        for (DownloadTask.FileSegment seg : task.getSegments()) {
-            executor.submit(new SegmentDownloader(task, seg, headers, cancelFlag, segListener));
-        }
-        latch.await();
-
-        if (cancelFlag.get()) return;
-
-        // merge
-        mergeParts(task, outFile);
-        if (listener != null) listener.onComplete(task.getId());
-        task.setStatus(DownloadTask.Status.COMPLETED);
-        tasks.remove(task.getId());
-        cancelFlags.remove(task.getId());
-    }
-
-    // ========== HLS ==========
-    private void runHls(DownloadTask task, Map<String, String> headers, AtomicBoolean cancelFlag) throws Exception {
-        HlsParser.ParseResult result = HlsParser.parse(task.getUrl(), headers);
-        if (!result.isHls || result.segments.isEmpty()) {
-            throw new IllegalStateException("No TS segments found");
-        }
-
-        String outName = safeName(task.getTitle()) + ".ts";
-        File outDir = Path.download();
-        File outFile = new File(outDir, outName);
-        task.setOutputPath(outFile.getAbsolutePath());
-
+    private void initHls(DownloadTask task, File outputDir) throws Exception {
+        HlsParser.Result result = HlsParser.parse(task.url, task.headers);
         List<DownloadTask.FileSegment> segs = new ArrayList<>();
-        for (int i = 0; i < result.segments.size(); i++) {
-            String temp = new File(outDir, outName + ".seg" + i).getAbsolutePath();
-            // for HLS, we don't split each TS further; each TS is a "segment" as a whole file
-            segs.add(new DownloadTask.FileSegment(i, 0, 0, temp));
-            // store actual URL in a side-channel by reusing tempFile path name convention
-            // simpler: stash in a Map
-            segUrls.put(temp, result.segments.get(i));
+        task.totalSegments = result.segmentUrls.size();
+        for (int i = 0; i < result.segmentUrls.size(); i++) {
+            DownloadTask.FileSegment s = new DownloadTask.FileSegment();
+            s.index = i;
+            s.url = result.segmentUrls.get(i);
+            s.start = 0;
+            s.end = -1;
+            s.partFile = new File(partDir(task, outputDir), "seg_" + i + ".part").getAbsolutePath();
+            segs.add(s);
         }
-        task.setSegments(segs);
+        task.segments = segs.toArray(new DownloadTask.FileSegment[0]);
+        task.totalSize = -1;  // hls 总大小未知，靠分片实际下载量累加
+    }
 
-        CountDownLatch latch = new CountDownLatch(result.segments.size());
-        SegmentDownloader.SegmentListener segListener = new SegmentDownloader.SegmentListener() {
-            @Override public void onProgress(long delta) {
-                task.addDownloaded(delta);
-                if (listener != null) listener.onProgress(task.getId(), -1,
-                        task.getDownloadedSize(), task.getTotalSize());
+    private void initDirect(DownloadTask task, File outputDir) throws Exception {
+        Probe p = probe(task.url, task.headers);
+        task.totalSize = p.length;  // -1 表示大小未知
+        // 仅当服务器支持 Range 且总大小已知时才多线程分片；否则单线程整文件下载
+        boolean canSplit = p.range && p.length > 0;
+        if (!canSplit) {
+            task.segments = new DownloadTask.FileSegment[]{newSegment(task, outputDir, 0, 0, -1)};
+            task.totalSegments = 1;
+        } else {
+            int n = DEFAULT_PARALLEL;
+            long perSeg = (p.length + n - 1) / n;
+            DownloadTask.FileSegment[] arr = new DownloadTask.FileSegment[n];
+            for (int i = 0; i < n; i++) {
+                long start = i * perSeg;
+                long end = Math.min(p.length - 1, (i + 1) * perSeg - 1);
+                arr[i] = newSegment(task, outputDir, i, start, end);
             }
-            @Override public void onSegmentComplete(DownloadTask.FileSegment seg) { latch.countDown(); }
-            @Override public void onError(Exception e) { latch.countDown(); }
-        };
+            task.segments = arr;
+            task.totalSegments = n;
+        }
+    }
 
-        // Download TS segments directly (no Range splitting for HLS)
-        for (int i = 0; i < result.segments.size(); i++) {
-            final int idx = i;
-            executor.submit(() -> {
-                try {
-                    if (cancelFlag.get()) return;
-                    String tsUrl = result.segments.get(idx);
-                    HttpURLConnection c = (HttpURLConnection) new URL(tsUrl).openConnection();
-                    if (headers != null) for (Map.Entry<String, String> e : headers.entrySet())
-                        c.setRequestProperty(e.getKey(), e.getValue());
-                    c.setConnectTimeout(15000);
-                    c.setReadTimeout(30000);
-                    c.connect();
-                    File segFile = new File(segs.get(idx).tempFile);
-                    try (InputStream in = c.getInputStream();
-                         FileOutputStream fos = new FileOutputStream(segFile)) {
-                        byte[] buf = new byte[65536];
-                        int n;
-                        long localDelta = 0;
-                        while ((n = in.read(buf)) > 0) {
-                            if (cancelFlag.get()) return;
-                            fos.write(buf, 0, n);
-                            localDelta += n;
+    private DownloadTask.FileSegment newSegment(DownloadTask task, File outputDir, int index, long start, long end) {
+        DownloadTask.FileSegment s = new DownloadTask.FileSegment();
+        s.index = index;
+        s.url = task.url;
+        s.start = start;
+        s.end = end;
+        s.partFile = new File(partDir(task, outputDir), "seg_" + index + ".part").getAbsolutePath();
+        return s;
+    }
+
+    private void runSegments(DownloadTask task, File outputDir) {
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        final AtomicInteger finished = new AtomicInteger(0);   // 完成 + 失败总数，用于触发合并
+        final AtomicInteger succeeded = new AtomicInteger(0);  // 成功数，用于进度展示
+        for (final DownloadTask.FileSegment seg : task.segments) {
+            segmentPool.submit(() -> SegmentDownloader.download(seg, task.headers, cancelled,
+                    new SegmentDownloader.Listener() {
+                        @Override public void onProgress(DownloadTask.FileSegment s, long bytesDownloaded) {
+                            long total = 0;
+                            for (DownloadTask.FileSegment x : task.segments) total += x.downloaded;
+                            task.downloadedBytes = total;
+                            if (listener != null) listener.onTaskProgress(task, total, task.totalSize);
                         }
-                    }
-                    segListener.onProgress(new File(segs.get(idx).tempFile).length());
-                    segListener.onSegmentComplete(segs.get(idx));
-                } catch (Exception e) {
-                    segListener.onError(e);
-                }
-            });
+                        @Override public void onComplete(DownloadTask.FileSegment s) {
+                            task.completedSegments = succeeded.incrementAndGet();
+                            // hls 场景: 记录实际分片大小
+                            if (task.type == DownloadTask.Type.HLS) {
+                                try { s.end = new File(s.partFile).length(); } catch (Exception ignored) {}
+                            }
+                            if (finished.incrementAndGet() >= task.totalSegments) {
+                                activeCount.decrementAndGet();
+                                mergeSegments(task, outputDir);
+                            }
+                        }
+                        @Override public void onError(DownloadTask.FileSegment s, String msg) {
+                            // 单分片失败不立即放弃；等所有分片结束再统一判定（避免任务卡死）
+                            if (finished.incrementAndGet() >= task.totalSegments) {
+                                activeCount.decrementAndGet();
+                                mergeSegments(task, outputDir);
+                            }
+                        }
+                    }));
         }
-        latch.await();
+    }
 
-        if (cancelFlag.get()) return;
-
-        // concatenate all TS
-        try (FileOutputStream fos = new FileOutputStream(outFile)) {
-            for (DownloadTask.FileSegment seg : segs) {
-                File f = new File(seg.tempFile);
-                if (!f.exists()) continue;
-                try (FileInputStream fis = new FileInputStream(f)) {
+    private void mergeSegments(DownloadTask task, File outputDir) {
+        boolean allDone = true;
+        for (DownloadTask.FileSegment s : task.segments) if (!s.done) { allDone = false; break; }
+        if (!allDone) {
+            task.status = DownloadTask.Status.FAILED;
+            task.errorMsg = "Some segments failed";
+            if (listener != null) listener.onTaskFailed(task, task.errorMsg);
+            return;
+        }
+        File output = new File(outputDir, task.name + "." + task.ext);
+        try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(output), 65536)) {
+            for (DownloadTask.FileSegment seg : task.segments) {
+                File part = new File(seg.partFile);
+                if (!part.exists()) throw new IOException("Missing segment: " + seg.partFile);
+                try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(part), 65536)) {
                     byte[] buf = new byte[65536];
-                    int n;
-                    while ((n = fis.read(buf)) > 0) fos.write(buf, 0, n);
+                    int r;
+                    while ((r = in.read(buf)) != -1) out.write(buf, 0, r);
                 }
-                f.delete();
+                part.delete();
             }
-        }
-
-        if (listener != null) listener.onComplete(task.getId());
-        task.setStatus(DownloadTask.Status.COMPLETED);
-        tasks.remove(task.getId());
-        cancelFlags.remove(task.getId());
-    }
-
-    private final Map<String, String> segUrls = new HashMap<>(); // unused, kept for future
-
-    private void mergeParts(DownloadTask task, File outFile) throws IOException {
-        try (FileOutputStream fos = new FileOutputStream(outFile)) {
-            for (DownloadTask.FileSegment seg : task.getSegments()) {
-                File f = new File(seg.tempFile);
-                if (!f.exists()) continue;
-                try (FileInputStream fis = new FileInputStream(f)) {
-                    byte[] buf = new byte[65536];
-                    int n;
-                    while ((n = fis.read(buf)) > 0) fos.write(buf, 0, n);
-                }
-                f.delete();
-            }
+            // 清理 partDir
+            new File(partDir(task, outputDir)).delete();
+            task.status = DownloadTask.Status.COMPLETED;
+            if (listener != null) listener.onTaskCompleted(task, output);
+        } catch (IOException e) {
+            task.status = DownloadTask.Status.FAILED;
+            task.errorMsg = e.getMessage();
+            if (listener != null) listener.onTaskFailed(task, e.getMessage());
         }
     }
 
-    private String guessExt(String url, HttpURLConnection conn) {
-        String path = url.contains("?") ? url.substring(0, url.indexOf('?')) : url;
-        int dot = path.lastIndexOf('.');
-        if (dot > 0 && dot < path.length() - 1) {
-            String ext = path.substring(dot + 1).toLowerCase();
-            if (ext.length() <= 6) return "." + ext;
-        }
-        String ct = conn.getContentType();
-        if (ct != null) {
-            if (ct.contains("mp4")) return ".mp4";
-            if (ct.contains("mpeg") || ct.contains("ts")) return ".ts";
-            if (ct.contains("webm")) return ".webm";
-            if (ct.contains("x-matroska")) return ".mkv";
-        }
-        return ".mp4";
+    public void cancelTask(String taskId) {
+        DownloadTask t = tasks.remove(taskId);
+        if (t == null) return;
+        t.status = DownloadTask.Status.CANCELLED;
+        // 清理 part 文件（使用任务自己的分片目录，兼容自定义下载路径）
+        File partDir = t.partDirPath != null ? new File(t.partDirPath) : partDir(t, new File(Setting.getDownloadDir()));
+        File[] files = partDir.listFiles();
+        if (files != null) for (File f : files) if (f != null) f.delete();
+        partDir.delete();
+        if (listener != null) listener.onTaskCancelled(t);
     }
 
-    private String safeName(String name) {
-        if (name == null || name.isEmpty()) name = "download";
+    public DownloadTask getTask(String id) { return tasks.get(id); }
+    public List<DownloadTask> getAllTasks() { return new ArrayList<>(tasks.values()); }
+    public int getActiveCount() { return activeCount.get(); }
+    public void shutdown() { segmentPool.shutdown(); taskExecutor.shutdown(); }
+
+    // ---------- 工具 ----------
+    private File partDir(DownloadTask task, File outputDir) {
+        File d = new File(outputDir, ".parts_" + task.id);
+        if (!d.exists()) d.mkdirs();
+        return d;
+    }
+
+    private boolean looksLikeHls(String url) {
+        String lower = url.toLowerCase();
+        return lower.endsWith(".m3u8") || lower.contains(".m3u8?") || lower.contains("m3u8");
+    }
+
+    private String guessExt(String url) {
+        int q = url.indexOf('?');
+        String base = q > 0 ? url.substring(0, q) : url;
+        int dot = base.lastIndexOf('.');
+        if (dot > 0 && dot < base.length() - 5) return base.substring(dot + 1).toLowerCase();
+        return "mp4";
+    }
+
+    private String sanitizeFilename(String name) {
+        if (name == null || name.isEmpty()) return "video_" + System.currentTimeMillis();
         return name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
     }
 
-    public void shutdown() { executor.shutdown(); }
+    /** 探测文件总大小 + 是否支持 HTTP Range（用 GET + Range: bytes=0-0，比 HEAD 兼容性好）。 */
+    private Probe probe(String url, Map<String, String> headers) {
+        Probe p = new Probe();
+        try {
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            conn.setConnectTimeout(10000); conn.setReadTimeout(10000);
+            conn.setRequestMethod("GET");
+            if (headers != null) for (Map.Entry<String, String> h : headers.entrySet()) {
+                if (h.getKey() != null && h.getValue() != null) conn.setRequestProperty(h.getKey(), h.getValue());
+            }
+            conn.setRequestProperty("Range", "bytes=0-0");
+            int code = conn.getResponseCode();
+            if (code == 206) {
+                p.range = true;
+                String cr = conn.getHeaderField("Content-Range");
+                if (cr != null) {
+                    // 形如 bytes 0-0/1234567
+                    int slash = cr.indexOf('/');
+                    if (slash > 0) try { p.length = Long.parseLong(cr.substring(slash + 1).trim()); } catch (Exception ignored) {}
+                }
+            } else if (code == 200) {
+                String cl = conn.getHeaderField("Content-Length");
+                if (cl != null) try { p.length = Long.parseLong(cl.trim()); } catch (Exception ignored) {}
+            }
+            conn.disconnect();
+        } catch (Exception ignored) {}
+        return p;
+    }
+
+    private static final class Probe {
+        long length = -1;  // 文件总大小，-1 未知
+        boolean range;     // 服务器是否支持 HTTP Range（返回 206）
+    }
 }
