@@ -1,86 +1,85 @@
 package com.fongmi.android.tv.download;
 
-import java.io.*;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class SegmentDownloader implements Runnable {
+/** 单个分片下载器：支持 HTTP Range 断点续传 + 自定义 headers。 */
+public class SegmentDownloader {
 
-    private final DownloadTask task;
-    private final DownloadTask.FileSegment segment;
-    private final Map<String, String> headers;
-    private final AtomicBoolean cancelFlag;
-    private final SegmentListener listener;
-
-    public interface SegmentListener {
-        void onProgress(long delta);
-        void onSegmentComplete(DownloadTask.FileSegment seg);
-        void onError(Exception e);
+    public interface Listener {
+        void onProgress(DownloadTask.FileSegment seg, long bytesDownloaded);
+        void onComplete(DownloadTask.FileSegment seg);
+        void onError(DownloadTask.FileSegment seg, String msg);
     }
 
-    public SegmentDownloader(DownloadTask task, DownloadTask.FileSegment seg,
-                             Map<String, String> headers, AtomicBoolean cancelFlag,
-                             SegmentListener listener) {
-        this.task = task;
-        this.segment = seg;
-        this.headers = headers;
-        this.cancelFlag = cancelFlag;
-        this.listener = listener;
-    }
+    private static final int BUF = 64 * 1024;
 
-    @Override
-    public void run() {
-        File temp = new File(segment.tempFile);
+    public static void download(DownloadTask.FileSegment seg, Map<String, String> headers,
+                                AtomicBoolean cancelled, Listener listener) {
         try {
-            long already = 0;
-            if (temp.exists()) already = temp.length();
+            // 断点续传：如果 .part 文件已存在，读取当前大小作为续传偏移
+            File part = new File(seg.partFile);
+            long resumeBytes = part.exists() ? part.length() : 0;
+            long requestStart = seg.start + resumeBytes;
+            long requestEnd = seg.end;
 
-            HttpURLConnection conn = (HttpURLConnection) new URL(task.getUrl()).openConnection();
-            if (headers != null) for (Map.Entry<String, String> e : headers.entrySet())
-                conn.setRequestProperty(e.getKey(), e.getValue());
-            long rangeStart = segment.start + already;
-            long rangeEnd = segment.end;
-            if (rangeStart <= rangeEnd) {
-                conn.setRequestProperty("Range", "bytes=" + rangeStart + "-" + rangeEnd);
+            HttpURLConnection conn = (HttpURLConnection) new URL(seg.url).openConnection();
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout(60000);
+            conn.setRequestMethod("GET");
+            if (headers != null) for (Map.Entry<String, String> h : headers.entrySet()) {
+                if (h.getKey() != null && h.getValue() != null) conn.setRequestProperty(h.getKey(), h.getValue());
             }
-            conn.setConnectTimeout(20000);
-            conn.setReadTimeout(30000);
-            conn.connect();
+
+            // 直链分片: end >= start 时用两端 Range；hls 分片: end = -1，用开区间
+            if (requestEnd >= requestStart) {
+                conn.setRequestProperty("Range", "bytes=" + requestStart + "-" + requestEnd);
+            } else if (resumeBytes > 0) {
+                conn.setRequestProperty("Range", "bytes=" + requestStart + "-");
+            }
+            conn.setRequestProperty("Accept-Encoding", "identity");  // 禁止 gzip，保证字节数准确
 
             int code = conn.getResponseCode();
-            InputStream in;
-            if (code == 206) {
-                in = conn.getInputStream();
-            } else if (code == 200 && already == 0) {
-                // server doesn't support range — re-download whole segment
-                segment.downloaded = segment.start;
-                in = conn.getInputStream();
+            if (code == HttpURLConnection.HTTP_OK) {
+                // 服务器不支持 Range；已有残留 part 则丢弃重下
+                if (resumeBytes > 0) { resumeBytes = 0; part.delete(); }
             } else if (code == 416) {
-                // segment already fully downloaded
-                listener.onSegmentComplete(segment);
+                // Range Not Satisfiable —— 分片已完整，跳过
+                seg.downloaded = seg.end - seg.start + 1;
+                seg.done = true;
+                if (listener != null) listener.onComplete(seg);
                 return;
-            } else {
+            } else if (code != HttpURLConnection.HTTP_PARTIAL) {
                 throw new IOException("HTTP " + code);
             }
 
-            long delta = 0;
-            try (FileOutputStream fos = new FileOutputStream(temp, true)) {
-                byte[] buf = new byte[65536];
-                int n;
-                while ((n = in.read(buf)) > 0) {
-                    if (cancelFlag.get()) return;
-                    fos.write(buf, 0, n);
-                    segment.downloaded += n;
-                    delta += n;
-                    if (listener != null) listener.onProgress(n);
+            long localDownloaded = resumeBytes;  // 本分片内已下载字节（不含全局起始偏移）
+            try (InputStream in = conn.getInputStream();
+                 FileOutputStream fos = new FileOutputStream(part, resumeBytes > 0);
+                 BufferedOutputStream out = new BufferedOutputStream(fos, BUF)) {
+                byte[] buf = new byte[BUF];
+                int read;
+                while ((read = in.read(buf)) != -1) {
+                    if (cancelled != null && cancelled.get()) throw new IOException("Cancelled");
+                    out.write(buf, 0, read);
+                    localDownloaded += read;
+                    seg.downloaded = localDownloaded;
+                    if (listener != null) listener.onProgress(seg, localDownloaded);
                 }
             }
-            if (listener != null) listener.onSegmentComplete(segment);
-
+            seg.downloaded = (seg.end >= 0) ? (seg.end - seg.start + 1) : localDownloaded;
+            seg.done = true;
+            if (listener != null) listener.onComplete(seg);
         } catch (Exception e) {
-            if (!cancelFlag.get() && listener != null) listener.onError(e);
+            if (seg.errorMsg == null) seg.errorMsg = e.getMessage();
+            if (listener != null) listener.onError(seg, e.getMessage());
         }
     }
 }
