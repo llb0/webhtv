@@ -59,7 +59,8 @@ public class SegmentDownloader {
                 if (resumeBytes > 0) { resumeBytes = 0; part.delete(); }
             } else if (code == 416) {
                 // Range Not Satisfiable —— 分片已完整，跳过
-                seg.downloaded = seg.end - seg.start + 1;
+                // hls 分片 end = -1，此时用已落地 part 文件长度作为完成量
+                seg.downloaded = seg.end >= 0 ? (seg.end - seg.start + 1) : (part.exists() ? part.length() : 0);
                 seg.done = true;
                 if (listener != null) listener.onComplete(seg);
                 return;
