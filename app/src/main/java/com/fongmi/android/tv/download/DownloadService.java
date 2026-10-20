@@ -84,15 +84,23 @@ public class DownloadService extends Service {
                 updateNotification();
                 stopIfIdle();
             }
+            @Override public void onTaskPaused(DownloadTask task) {
+                // 仍有其它任务在跑时刷新聚合进度；否则显示"已暂停"常驻通知
+                if (DownloadManager.get().getActiveCount() > 0) updateNotification();
+                else showPausedNotification(task);
+            }
+            @Override public void onTaskResumed(DownloadTask task) {
+                updateNotification();
+            }
         });
 
         DownloadManager.get().addTask(name, url, headers, outputDir);
         return START_STICKY;
     }
 
-    /** 仅当没有正在进行的任务时才停服务，避免多任务并行时把别人的下载一起杀掉。 */
+    /** 仅当没有未结束的任务（运行中/已暂停/待开始）时才停服务，避免多任务并行或暂停态被误停。 */
     private void stopIfIdle() {
-        if (DownloadManager.get().getActiveCount() == 0) stopSelf();
+        if (!DownloadManager.get().hasTaskWork()) stopSelf();
     }
 
     /** 聚合所有进行中任务的总进度刷新同一条通知。 */
@@ -120,6 +128,18 @@ public class DownloadService extends Service {
         getSystemService(NotificationManager.class).notify(NOTIFY_ID, nb.build());
     }
 
+    /** 暂停态常驻通知：点击仍可进入下载管理界面。 */
+    private void showPausedNotification(DownloadTask task) {
+        NotificationCompat.Builder nb = new NotificationCompat.Builder(this, CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_media_pause)
+                .setContentTitle(getString(R.string.download_status_paused))
+                .setContentText(task.name)
+                .setContentIntent(contentIntent())
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true);
+        getSystemService(NotificationManager.class).notify(NOTIFY_ID, nb.build());
+    }
+ 
     private void showNotification(DownloadTask task, String title, int icon) {
         NotificationCompat.Builder nb = new NotificationCompat.Builder(this, CHANNEL)
                 .setSmallIcon(icon)
