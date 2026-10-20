@@ -79,6 +79,10 @@
     <string name="download_manager_path_changed">下載路徑已更新</string>
     <string name="download_manager_pending">等待中</string>
     <string name="download_manager_cancelled">已取消</string>
+    <string name="download_action_pause">暫停</string>
+    <string name="download_action_resume">繼續</string>
+    <string name="download_action_retry">重試</string>
+    <string name="download_status_paused">已暫停</string>
     <string name="play_change">換源</string>
     <string name="play_short_display">短顯</string>
     <string name="play_search">搜尋</string>
