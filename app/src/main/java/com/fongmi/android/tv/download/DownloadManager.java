@@ -11,6 +11,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -92,7 +93,17 @@ public class DownloadManager {
     private void initHls(DownloadTask task, File outputDir) throws Exception {
         HlsParser.Result result = HlsParser.parse(task.url, task.headers);
         List<DownloadTask.FileSegment> segs = new ArrayList<>();
-        task.totalSegments = result.segmentUrls.size();
+        // fMP4（EXT-X-MAP）：初始化分片必须排在所有媒体分片之前，否则合并结果无法播放
+        if (result.initUrl != null) {
+            DownloadTask.FileSegment init = new DownloadTask.FileSegment();
+            init.index = -1;
+            init.url = result.initUrl;
+            init.start = 0;
+            init.end = -1;
+            init.partFile = new File(partDir(task, outputDir), "seg_init.part").getAbsolutePath();
+            segs.add(init);
+        }
+        Map<String, byte[]> keyCache = new HashMap<>();
         for (int i = 0; i < result.segmentUrls.size(); i++) {
             DownloadTask.FileSegment s = new DownloadTask.FileSegment();
             s.index = i;
@@ -100,10 +111,37 @@ public class DownloadManager {
             s.start = 0;
             s.end = -1;
             s.partFile = new File(partDir(task, outputDir), "seg_" + i + ".part").getAbsolutePath();
+            String keyUrl = result.segmentKeyUrls.get(i);
+            if (keyUrl != null) {
+                byte[] key = keyCache.get(keyUrl);
+                if (key == null) {
+                    key = HlsParser.fetchBytes(keyUrl, task.headers);
+                    keyCache.put(keyUrl, key);
+                }
+                if (key != null && key.length > 0) {
+                    s.keyBytes = key;
+                    // 未显式给 IV 时，按 RFC 8216 用媒体序号推导 IV
+                    byte[] iv = result.segmentKeyIvs.get(i);
+                    s.keyIv = iv != null && iv.length == 16 ? iv : sequenceIv(result.mediaSequence + i);
+                }
+            }
             segs.add(s);
         }
         task.segments = segs.toArray(new DownloadTask.FileSegment[0]);
+        task.totalSegments = segs.size();
         task.totalSize = -1;  // hls 总大小未知，靠分片实际下载量累加
+        // fMP4 合并后就是标准 mp4；纯 TS 保持 .ts（TS 无法在无 ffmpeg 的情况下重封装为 mp4）
+        task.ext = result.initUrl != null ? "mp4" : "ts";
+    }
+
+    /** 由媒体序号推导 AES-128 IV（16 字节大端）。 */
+    private static byte[] sequenceIv(long seq) {
+        byte[] iv = new byte[16];
+        for (int i = 15; i >= 0 && seq != 0; i--) {
+            iv[i] = (byte) (seq & 0xFF);
+            seq >>>= 8;
+        }
+        return iv;
     }
 
     private void initDirect(DownloadTask task, File outputDir) throws Exception {
@@ -226,6 +264,20 @@ public class DownloadManager {
 
     public DownloadTask getTask(String id) { return tasks.get(id); }
     public List<DownloadTask> getAllTasks() { return new ArrayList<>(tasks.values()); }
+
+    /** 从列表移除任务（已完成/失败/取消后的删除），不触碰正在下载的临时文件。 */
+    public void removeTask(String taskId) {
+        DownloadTask t = tasks.remove(taskId);
+        if (t == null) return;
+        cancelFlags.remove(taskId);
+        if (t.partDirPath != null) {
+            File dir = new File(t.partDirPath);
+            File[] files = dir.listFiles();
+            if (files != null) for (File f : files) if (f != null) f.delete();
+            dir.delete();
+        }
+    }
+
     public int getActiveCount() { return activeCount.get(); }
     public void shutdown() { segmentPool.shutdown(); taskExecutor.shutdown(); }
 
