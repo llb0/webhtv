@@ -80,6 +80,10 @@
     <string name="download_manager_path_changed">Download path updated</string>
     <string name="download_manager_pending">Pending</string>
     <string name="download_manager_cancelled">Cancelled</string>
+    <string name="download_action_pause">Pause</string>
+    <string name="download_action_resume">Resume</string>
+    <string name="download_action_retry">Retry</string>
+    <string name="download_status_paused">Paused</string>
     <string name="play_change">Change</string>
     <string name="play_short_display">Short</string>
     <string name="play_search">Search</string>
