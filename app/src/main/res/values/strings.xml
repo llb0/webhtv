@@ -65,6 +65,11 @@
     <string name="play_lut">LUT</string>
     <string name="play_config">Config</string>
     <string name="play_cast">Cast</string>
+    <string name="play_download">Download</string>
+    <string name="download_notify_channel">Download</string>
+    <string name="download_notify_title">Downloading</string>
+    <string name="download_done_notify_title">Download complete</string>
+    <string name="download_failed_notify_title">Download failed</string>
     <string name="play_change">Change</string>
     <string name="play_short_display">Short</string>
     <string name="play_search">Search</string>
