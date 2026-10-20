@@ -71,6 +71,14 @@
     <string name="download_failed_notify_title">下载失败</string>
     <string name="download_need_file_permission">下载需要文件访问权限</string>
     <string name="download_started">已开始下载</string>
+    <string name="download_manager_title">下载管理</string>
+    <string name="download_manager_empty">暂无下载任务</string>
+    <string name="download_manager_path">存储路径</string>
+    <string name="download_manager_cancel">取消</string>
+    <string name="download_manager_delete">删除</string>
+    <string name="download_manager_path_changed">下载路径已更新</string>
+    <string name="download_manager_pending">等待中</string>
+    <string name="download_manager_cancelled">已取消</string>
     <string name="play_change">换源</string>
     <string name="play_short_display">短显</string>
     <string name="play_search">搜索</string>
