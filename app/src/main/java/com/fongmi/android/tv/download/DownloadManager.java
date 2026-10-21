@@ -18,6 +18,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -34,8 +36,14 @@ public class DownloadManager {
     private final Map<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
     /** 每轮调度的代号：暂停/取消后旧一轮还在收尾的线程不再影响新一轮结果 */
     private final Map<String, AtomicInteger> runGenerations = new ConcurrentHashMap<>();
+    /** 本轮已提交到线程池的分片任务句柄。暂停/取消时用来把「已排队但还没执行」的任务从队列里撤销，
+     *  否则它们会在之后逐个执行，一边新建 0B 的 .part 文件，一边继续占满 4 线程的 segmentPool
+     *  （表现：暂停后不断冒出 0B 分片、点继续毫无反应、取消后仍在生成分片）。 */
+    private final Map<String, List<Future<?>>> roundFutures = new ConcurrentHashMap<>();
     private final ExecutorService taskExecutor = Executors.newSingleThreadExecutor();
-    private final ExecutorService segmentPool = Executors.newFixedThreadPool(DEFAULT_PARALLEL);
+    /** 分片线程池按任务隔离：任务 A 的残留线程不会占着任务 B 的线程，
+     *  暂停/取消时也可以整体 shutdownNow() 掉，把排队中的分片一次性清空。 */
+    private final Map<String, ExecutorService> segmentPools = new ConcurrentHashMap<>();
     private volatile Listener listener;
 
     public interface Listener {
@@ -80,6 +88,9 @@ public class DownloadManager {
             } else {
                 initDirect(task);
             }
+            // 解析 m3u8 / 探测大小可能耗时较久，期间用户可能已经点了暂停或取消；
+            // 这里必须尊重最新状态，否则会把 PAUSED 强行改回 RUNNING，导致暂停彻底失效
+            if (task.status == DownloadTask.Status.PAUSED || task.status == DownloadTask.Status.CANCELLED) return;
             task.status = DownloadTask.Status.RUNNING;
             if (listener != null) listener.onTaskStarted(task);
             runSegments(task);
@@ -198,9 +209,16 @@ public class DownloadManager {
             mergeSegments(task, gen);
             return;
         }
+        final List<Future<?>> futures = new ArrayList<>();
+        roundFutures.put(task.id, futures);
+        final ExecutorService pool = poolFor(task);
         for (final DownloadTask.FileSegment seg : task.segments) {
             if (seg.done) continue;
-            segmentPool.submit(() -> SegmentDownloader.download(seg, task.headers, cancelled,
+            try {
+            futures.add(pool.submit(() -> {
+                // 已作废的一轮（暂停/取消之后才轮到执行）：直接跳过，绝不再碰 .part 文件
+                if (cancelled.get() || !isCurrent(task.id, gen)) return;
+                SegmentDownloader.download(seg, task.headers, cancelled,
                     new SegmentDownloader.Listener() {
                         @Override public void onProgress(DownloadTask.FileSegment s, long bytesDownloaded) {
                             if (!isCurrent(task.id, gen)) return;
@@ -222,7 +240,54 @@ public class DownloadManager {
                             // 单分片失败不立即放弃；等所有分片结束再统一判定（避免任务卡死）
                             if (finished.incrementAndGet() >= task.totalSegments) mergeSegments(task, gen);
                         }
-                    }));
+                    });
+            }));
+            } catch (RejectedExecutionException e) {
+                break;   // 本轮已被作废（线程池已关闭），停止提交
+            }
+        }
+        // 提交期间可能刚好被暂停/取消：立刻撤销这一轮排队中的任务，不等它们被执行
+        if (cancelled.get() || !isCurrent(task.id, gen)) purgeRound(task.id);
+    }
+
+    /** 取（或新建）该任务专属的分片线程池。 */
+    private ExecutorService poolFor(DownloadTask task) {
+        ExecutorService pool = segmentPools.get(task.id);
+        if (pool == null || pool.isShutdown()) {
+            pool = Executors.newFixedThreadPool(DEFAULT_PARALLEL);
+            segmentPools.put(task.id, pool);
+        }
+        return pool;
+    }
+
+    /** 撤销某一轮已排队、尚未开始执行的分片任务（已在跑的靠 cancelled 标记自行退出）。 */
+    private void purgeRound(String taskId) {
+        List<Future<?>> futures = roundFutures.remove(taskId);
+        if (futures == null) return;
+        for (Future<?> f : futures) f.cancel(true);
+    }
+
+    /** 作废当前轮次：升代 + 置中断标记 + 清空排队任务 + 关掉专属线程池。 */
+    private void abortRound(String taskId) {
+        nextGeneration(taskId);
+        AtomicBoolean cancelled = cancelFlags.get(taskId);
+        if (cancelled != null) cancelled.set(true);
+        purgeRound(taskId);
+        ExecutorService pool = segmentPools.remove(taskId);
+        if (pool != null) pool.shutdownNow();
+    }
+
+    /** 任务结束（完成/失败）后回收线程池。放到 taskExecutor 上异步执行，
+     *  避免在分片线程里 shutdownNow 把自己也中断掉。 */
+    private void releasePool(String taskId) {
+        try {
+            taskExecutor.submit(() -> {
+                roundFutures.remove(taskId);
+                ExecutorService pool = segmentPools.remove(taskId);
+                if (pool != null) pool.shutdownNow();
+            });
+        } catch (RejectedExecutionException ignored) {
+            // 管理器已 shutdown，线程池随 shutdown() 一起清理
         }
     }
 
@@ -233,10 +298,32 @@ public class DownloadManager {
         for (DownloadTask.FileSegment s : task.segments) if (!s.done) { allDone = false; break; }
         if (!allDone) {
             // 失败：保留 .part 文件与任务记录，便于「重试」优先续传
-            fail(task, "Some segments failed");
+            String firstError = null;
+            for (DownloadTask.FileSegment s : task.segments) {
+                if (!s.done && s.errorMsg != null) { firstError = s.errorMsg; break; }
+            }
+            fail(task, firstError != null ? "Segment failed: " + firstError : "Some segments failed");
             return;
         }
         File output = new File(new File(task.outputDir), task.name + "." + task.ext);
+        try {
+            writeMerged(task, output);
+            deleteDir(partDir(task));
+            // 全部分片都是 0 字节（典型：URL 失效/403/被限速），合并出来的是空文件 —— 判定失败，不要报完成
+            if (task.totalSegments > 0 && output.length() == 0) {
+                output.delete();
+                fail(task, "Empty output: all segments are 0 bytes");
+                return;
+            }
+            task.status = DownloadTask.Status.COMPLETED;
+            releasePool(task.id);
+            if (listener != null) listener.onTaskCompleted(task, output);
+        } catch (IOException e) {
+            fail(task, e.getMessage());
+        }
+    }
+
+    private void writeMerged(DownloadTask task, File output) throws IOException {
         try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(output), 65536)) {
             for (DownloadTask.FileSegment seg : task.segments) {
                 File part = new File(seg.partFile);
@@ -248,23 +335,17 @@ public class DownloadManager {
                 }
                 part.delete();
             }
-            deleteDir(partDir(task));
-            task.status = DownloadTask.Status.COMPLETED;
-            if (listener != null) listener.onTaskCompleted(task, output);
-        } catch (IOException e) {
-            fail(task, e.getMessage());
         }
     }
 
     /** 暂停：中断在途分片读取，保留已下载的 .part 文件，任务留在列表中。 */
     public void pauseTask(String taskId) {
         DownloadTask t = tasks.get(taskId);
-        if (t == null || t.status != DownloadTask.Status.RUNNING) return;
+        if (t == null) return;
+        // 初始化阶段（PENDING，正在解析 m3u8 / 探测大小）也要能暂停，否则暂停会被静默忽略
+        if (t.status != DownloadTask.Status.RUNNING && t.status != DownloadTask.Status.PENDING) return;
         t.status = DownloadTask.Status.PAUSED;
-        // 立刻作废上一轮：即便旧线程因卡在 connect/read 里没读到中断标记，其回调也不会再被采纳
-        nextGeneration(taskId);
-        AtomicBoolean cancelled = cancelFlags.get(taskId);
-        if (cancelled != null) cancelled.set(true);
+        abortRound(taskId);
         if (listener != null) listener.onTaskPaused(t);
     }
 
@@ -318,6 +399,7 @@ public class DownloadManager {
     private void fail(DownloadTask task, String msg) {
         task.status = DownloadTask.Status.FAILED;
         task.errorMsg = msg;
+        releasePool(task.id);   // 失败后不留残余线程继续写文件
         if (listener != null) listener.onTaskFailed(task, msg);
     }
 
@@ -325,9 +407,10 @@ public class DownloadManager {
         DownloadTask t = tasks.remove(taskId);
         if (t == null) return;
         t.status = DownloadTask.Status.CANCELLED;
-        // 通知各分片线程尽快退出读取循环
-        AtomicBoolean cancelled = cancelFlags.remove(taskId);
-        if (cancelled != null) cancelled.set(true);
+        // 先作废本轮（撤销排队任务 + 置中断标记 + 关掉线程池），最后才删目录。
+        // 顺序反了的话，排队中的分片会在目录被删之后才被执行，把 .part 重新建出来
+        abortRound(taskId);
+        cancelFlags.remove(taskId);
         runGenerations.remove(taskId);
         deleteDir(partDir(t));   // 使用任务自己的分片目录，与全局设置无关
         if (listener != null) listener.onTaskCancelled(t);
@@ -340,6 +423,7 @@ public class DownloadManager {
     public void removeTask(String taskId) {
         DownloadTask t = tasks.remove(taskId);
         if (t == null) return;
+        abortRound(taskId);
         cancelFlags.remove(taskId);
         runGenerations.remove(taskId);
         deleteDir(partDir(t));
@@ -363,7 +447,12 @@ public class DownloadManager {
         return false;
     }
 
-    public void shutdown() { segmentPool.shutdown(); taskExecutor.shutdown(); }
+    public void shutdown() {
+        taskExecutor.shutdown();
+        for (ExecutorService pool : segmentPools.values()) pool.shutdownNow();
+        segmentPools.clear();
+        roundFutures.clear();
+    }
 
     // ---------- 工具 ----------
     private int nextGeneration(String taskId) {
