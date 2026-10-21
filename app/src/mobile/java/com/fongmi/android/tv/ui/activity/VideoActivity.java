@@ -70,6 +70,8 @@ import androidx.viewbinding.ViewBinding;
 import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
+import com.fongmi.android.tv.download.DownloadService;
+import com.fongmi.android.tv.download.DownloadManager;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.DanmakuApi;
 import com.fongmi.android.tv.api.SiteApi;
@@ -156,6 +158,7 @@ import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -807,6 +810,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.shortDisplay.setOnClickListener(view -> onShortDisplay());
         mBinding.search.setOnClickListener(view -> onSearch());
         mBinding.castAction.setOnClickListener(view -> onCast());
+        if (mBinding.downloadAction != null) mBinding.downloadAction.setOnClickListener(view -> onDownload());
         mBinding.settingAction.setOnClickListener(view -> onSetting());
         mBinding.actor.setOnClickListener(view -> onActor());
         mBinding.content.setOnClickListener(view -> onContent());
@@ -1941,6 +1945,25 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void finishVideoPlaybackNow() {
         saveHistory(true);
         finishPlayback();
+    }
+
+    private void onDownload() {
+        if (mHistory == null || TextUtils.isEmpty(mHistory.getVodId()) || player() == null || player().isEmpty() || TextUtils.isEmpty(player().getUrl())) {
+            Notify.show(R.string.cast_not_ready);
+            return;
+        }
+        String title = mBinding.name.getText().toString();
+        String name = title + "_" + (mHistory.getVodRemarks() != null ? mHistory.getVodRemarks() : "");
+        // 写入下载目录需要文件访问权限（与项目其它落盘入口一致），无权限时先申请
+        PermissionUtil.requestFile(this, granted -> {
+            if (!granted) {
+                Notify.show(R.string.download_need_file_permission);
+                return;
+            }
+            PermissionUtil.requestNotify(this);
+            DownloadService.start(this, name, player().getUrl(), player().getHeaders());
+            Notify.show(getString(R.string.download_started));
+        });
     }
 
     private void onCast() {

@@ -25,9 +25,11 @@ import com.fongmi.android.tv.utils.WebViewUtil;
 import com.github.catvod.crawler.DebugLogStore;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Trans;
+import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Prefers;
 import com.google.gson.reflect.TypeToken;
 
+import java.io.File;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -953,5 +955,25 @@ public class Setting {
         int count = 0;
         for (int source : SOURCE_ALL) if ((mask & source) != 0) count++;
         return count;
+    }
+
+    // ===== 下载目录配置 =====
+    /** 默认下载子目录名：tvbox/Download/ */
+    public static final String DOWNLOAD_DIR_DEFAULT = "tvbox/Download";
+
+    /** 获取当前下载目录绝对路径。未设置时返回默认路径（tvbox/Download）。 */
+    public static String getDownloadDir() {
+        String custom = Prefers.getString("download_dir", "");
+        if (custom != null && !custom.trim().isEmpty()) return custom;
+        return Path.root() + File.separator + DOWNLOAD_DIR_DEFAULT;
+    }
+
+    /** 设置自定义下载目录（绝对路径）。传 null/空串重置为默认。 */
+    public static void setDownloadDir(String absPath) {
+        if (absPath == null || absPath.trim().isEmpty()) {
+            Prefers.remove("download_dir");
+        } else {
+            Prefers.put("download_dir", absPath.trim());
+        }
     }
 }
