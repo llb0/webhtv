@@ -37,6 +37,17 @@ public class DownloadService extends Service {
         else ctx.startService(i);
     }
 
+    /** 仅把服务拉起来做通知宿主（用于进程重启后继续历史任务），不携带 name/url，不会新建任务。 */
+    public static void attach(Context ctx) {
+        Intent i = new Intent(ctx, DownloadService.class);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i);
+            else ctx.startService(i);
+        } catch (Throwable ignored) {
+            // 后台启动受限（Android 12+）时忽略，下载本身不依赖通知
+        }
+    }
+
     public static void cancel(Context ctx, String taskId) {
         DownloadManager.get().cancelTask(taskId);
     }
@@ -56,10 +67,33 @@ public class DownloadService extends Service {
         @SuppressWarnings("unchecked")
         Map<String, String> headers = (Map<String, String>) intent.getSerializableExtra("headers");
 
-        startForeground(NOTIFY_ID, buildProgressNotification(getString(R.string.download_notify_title), name, 0, -1, 0, 0).build());
+        startForeground(NOTIFY_ID, buildProgressNotification(
+                getString(R.string.download_notify_title),
+                name != null ? name : "", 0, -1, 0, 0).build());
+
+        bindListener();
+
+        // attach 模式：只做通知宿主，不创建任务（进程重启后继续历史下载时走这里）
+        if (url == null || url.isEmpty()) {
+            updateNotification();
+            // 全是暂停态时 updateNotification 会直接 return，这里补一条"已暂停"，
+            // 避免用户看到一条空白的进度通知
+            if (DownloadManager.get().getActiveCount() == 0) {
+                for (DownloadTask t : DownloadManager.get().getAllTasks()) {
+                    if (t.status == DownloadTask.Status.PAUSED) { showPausedNotification(t); break; }
+                }
+            }
+            return START_STICKY;
+        }
 
         File outputDir = new File(Setting.getDownloadDir());
         outputDir.mkdirs();
+        DownloadManager.get().addTask(name, url, headers, outputDir);
+        return START_STICKY;
+    }
+
+    /** 绑定进度监听（每次 start 都刷新一次，保证拿到的是最新实例）。 */
+    private void bindListener() {
         DownloadManager.get().setListener(new DownloadManager.Listener() {
             @Override public void onTaskStarted(DownloadTask task) {
                 updateNotification();
@@ -93,9 +127,6 @@ public class DownloadService extends Service {
                 updateNotification();
             }
         });
-
-        DownloadManager.get().addTask(name, url, headers, outputDir);
-        return START_STICKY;
     }
 
     /** 仅当没有未结束的任务（运行中/已暂停/待开始）时才停服务，避免多任务并行或暂停态被误停。 */
