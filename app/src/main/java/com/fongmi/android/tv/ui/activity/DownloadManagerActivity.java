@@ -27,6 +27,9 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.Notify;
 
+import java.io.File;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.List;
 
 /** 下载管理界面：任务列表（暂停/继续/重试/取消/删除）+ 存储路径设置；由状态栏下载通知点击进入。 */
@@ -131,6 +134,46 @@ public class DownloadManagerActivity extends BaseActivity implements DownloadAda
     public void onRemove(DownloadTask task) {
         DownloadManager.get().removeTask(task.id);
         refreshList();
+    }
+
+    /** 播放成品。
+     *
+     *  这里必须反射：本 Activity 在 main 源集，而 VideoActivity 只在 mobile / leanback
+     *  两个 flavor 源集里各有一份，main 无法直接引用（直接引用会编译不过）。
+     *  走 VideoActivity.file() 而不是 file:// 直传播放器，是因为它内部会把本地文件
+     *  换算成本机代理地址（http://192.168.x.x:port/file/...），这样既能本机播，
+     *  也能在播放器里推到局域网设备；用 127.0.0.1 的话远程设备拉不到流。 */
+    @Override
+    public void onPlay(DownloadTask task) {
+        File file = DownloadAdapter.outputFile(task);
+        if (file == null) {
+            Notify.show(R.string.download_failed_notify_title);
+            refreshList();
+            return;
+        }
+        try {
+            Class<?> clazz = Class.forName("com.fongmi.android.tv.ui.activity.VideoActivity");
+            String path = file.getAbsolutePath();
+            Method m = findFileMethod(clazz);
+            if (m == null) throw new NoSuchMethodException("VideoActivity.file");
+            m.invoke(null, this, path);
+        } catch (Throwable e) {
+            Notify.show(R.string.download_failed_notify_title);
+        }
+    }
+
+    /** 兼容两种签名：file(FragmentActivity, String) / file(Activity, String) */
+    private static Method findFileMethod(Class<?> clazz) {
+        for (Method m : clazz.getDeclaredMethods()) {
+            if (!"file".equals(m.getName())) continue;
+            if (!Modifier.isStatic(m.getModifiers())) continue;
+            Class<?>[] p = m.getParameterTypes();
+            if (p.length == 2 && p[1] == String.class) {
+                m.setAccessible(true);
+                return m;
+            }
+        }
+        return null;
     }
 
     @Override
