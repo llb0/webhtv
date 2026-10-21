@@ -6,6 +6,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
 
@@ -18,6 +19,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.databinding.ActivityDownloadManagerBinding;
 import com.fongmi.android.tv.download.DownloadManager;
 import com.fongmi.android.tv.download.DownloadTask;
@@ -28,12 +30,12 @@ import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.Notify;
 
 import java.io.File;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.List;
 
 /** 下载管理界面：任务列表（暂停/继续/重试/取消/删除）+ 存储路径设置；由状态栏下载通知点击进入。 */
 public class DownloadManagerActivity extends BaseActivity implements DownloadAdapter.OnClickListener {
+
+    private static final String TAG = "DownloadManagerActivity";
 
     public static void start(Context context) {
         context.startActivity(new Intent(context, DownloadManagerActivity.class));
@@ -136,44 +138,58 @@ public class DownloadManagerActivity extends BaseActivity implements DownloadAda
         refreshList();
     }
 
-    /** 播放成品。
-     *
-     *  这里必须反射：本 Activity 在 main 源集，而 VideoActivity 只在 mobile / leanback
-     *  两个 flavor 源集里各有一份，main 无法直接引用（直接引用会编译不过）。
-     *  走 VideoActivity.file() 而不是 file:// 直传播放器，是因为它内部会把本地文件
-     *  换算成本机代理地址（http://192.168.x.x:port/file/...），这样既能本机播，
-     *  也能在播放器里推到局域网设备；用 127.0.0.1 的话远程设备拉不到流。 */
+    /** 播放成品。 */
     @Override
     public void onPlay(DownloadTask task) {
         File file = DownloadAdapter.outputFile(task);
         if (file == null) {
-            Notify.show(R.string.download_failed_notify_title);
+            // 成品被外部删掉了：刷新列表让播放按钮消失，别再弹「下载失败」
             refreshList();
             return;
         }
         try {
-            Class<?> clazz = Class.forName("com.fongmi.android.tv.ui.activity.VideoActivity");
-            String path = file.getAbsolutePath();
-            Method m = findFileMethod(clazz);
-            if (m == null) throw new NoSuchMethodException("VideoActivity.file");
-            m.invoke(null, this, path);
+            startVideo(file);
         } catch (Throwable e) {
-            Notify.show(R.string.download_failed_notify_title);
+            Log.e(TAG, "play failed", e);
+            if (!playExternal(file)) Notify.show(Notify.getError(R.string.play, e));
         }
     }
 
-    /** 兼容两种签名：file(FragmentActivity, String) / file(Activity, String) */
-    private static Method findFileMethod(Class<?> clazz) {
-        for (Method m : clazz.getDeclaredMethods()) {
-            if (!"file".equals(m.getName())) continue;
-            if (!Modifier.isStatic(m.getModifiers())) continue;
-            Class<?>[] p = m.getParameterTypes();
-            if (p.length == 2 && p[1] == String.class) {
-                m.setAccessible(true);
-                return m;
-            }
+    /** 直接按 VideoActivity.start() 的 Intent 协议拉起播放页。
+     *
+     *  这里不能用反射调 VideoActivity.file()：release 包开了 R8，
+     *  file() 的方法名会被混淆掉 —— Class.forName 还能找到类（manifest 声明的 Activity
+     *  会被 aapt 的 keep 规则保留），但 getDeclaredMethod("file") 必然 NoSuchMethodException，
+     *  于是走进 catch 弹出「下载失败」。这就是点了播放却提示下载失败的原因。
+     *  改为只依赖类名（被 manifest keep）+ extras 的字符串 key（字面量不参与混淆），
+     *  debug / release 都能用，mobile 与 leanback 两个 flavor 的 extras 协议一致。
+     *
+     *  id 传 "file://绝对路径" 而不是直接把路径丢给播放器：VideoActivity 内部会经
+     *  SiteApi.toLanHttpUrl() 换算成本机代理地址 http://192.168.x.x:port/file/...，
+     *  这样局域网设备也拉得到流；用 127.0.0.1 只能本机播。 */
+    private void startVideo(File file) throws Exception {
+        Intent intent = new Intent();
+        intent.setClassName(this, "com.fongmi.android.tv.ui.activity.VideoActivity");
+        intent.putExtra("key", SiteApi.PUSH);
+        intent.putExtra("id", "file://" + file.getAbsolutePath());
+        intent.putExtra("name", file.getName());
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
+    }
+
+    /** 兜底：交给系统播放器（走 FileProvider，不需要读权限）。 */
+    private boolean playExternal(File file) {
+        try {
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".provider", file);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "video/*");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+            return true;
+        } catch (Throwable e) {
+            Log.e(TAG, "external play failed", e);
+            return false;
         }
-        return null;
     }
 
     @Override
