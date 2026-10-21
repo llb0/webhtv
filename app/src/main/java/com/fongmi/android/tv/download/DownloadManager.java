@@ -177,8 +177,14 @@ public class DownloadManager {
     /** 调度一轮分片下载：已完成分片直接跳过，未完成的按已有 .part 续传。 */
     private void runSegments(DownloadTask task) {
         final int gen = nextGeneration(task.id);
-        final AtomicBoolean cancelled = cancelFlags.computeIfAbsent(task.id, k -> new AtomicBoolean(false));
-        cancelled.set(false);   // 新一轮开始：清掉上一次 暂停/取消 留下的中断标记
+        // 每一轮调度必须使用一个全新的中断标记，并整体替换掉 map 里的旧标记。
+        // 原实现是复用同一个 AtomicBoolean 并 set(false)，会把上一轮仍处于读取循环中的
+        // 线程"复活"：它们带着旧的写入偏移继续往同一个 .part 文件写数据，
+        // 同时长期占满 4 线程的 segmentPool，使新一轮任务只能在队列里排队。
+        // 结果就是：文件确实还在下（旧线程在写），但所有进度回调都来自旧一轮（gen 不匹配被丢弃），
+        // task.downloadedBytes 不再变化 —— 表现为「能继续下载，但进度条和已下载字节数不更新」。
+        final AtomicBoolean cancelled = new AtomicBoolean(false);
+        cancelFlags.put(task.id, cancelled);
         final AtomicInteger finished = new AtomicInteger(0);
         final AtomicInteger succeeded = new AtomicInteger(0);
         for (DownloadTask.FileSegment seg : task.segments) {
@@ -198,8 +204,7 @@ public class DownloadManager {
                     new SegmentDownloader.Listener() {
                         @Override public void onProgress(DownloadTask.FileSegment s, long bytesDownloaded) {
                             if (!isCurrent(task.id, gen)) return;
-                            long total = 0;
-                            for (DownloadTask.FileSegment x : task.segments) total += x.downloaded;
+                            long total = sumSegmentBytes(task);
                             task.downloadedBytes = total;
                             if (listener != null) listener.onTaskProgress(task, total, task.totalSize);
                         }
@@ -256,6 +261,8 @@ public class DownloadManager {
         DownloadTask t = tasks.get(taskId);
         if (t == null || t.status != DownloadTask.Status.RUNNING) return;
         t.status = DownloadTask.Status.PAUSED;
+        // 立刻作废上一轮：即便旧线程因卡在 connect/read 里没读到中断标记，其回调也不会再被采纳
+        nextGeneration(taskId);
         AtomicBoolean cancelled = cancelFlags.get(taskId);
         if (cancelled != null) cancelled.set(true);
         if (listener != null) listener.onTaskPaused(t);
@@ -285,11 +292,23 @@ public class DownloadManager {
     private void restart(DownloadTask task) {
         try {
             if (task.segments == null || task.segments.length == 0) initAndStart(task);
-            else runSegments(task);
+            else {
+                // 续传时先把已落地的字节数回填，避免恢复后 UI 在首个进度回调到来前显示旧值
+                task.downloadedBytes = sumSegmentBytes(task);
+                runSegments(task);
+            }
         } catch (Exception e) {
             Log.e(TAG, "resume failed", e);
             fail(task, e.getMessage());
         }
+    }
+
+    /** 累加各分片已下载字节（含断点续传已有的部分）。 */
+    private long sumSegmentBytes(DownloadTask task) {
+        if (task.segments == null) return 0;
+        long total = 0;
+        for (DownloadTask.FileSegment x : task.segments) total += x.downloaded;
+        return total;
     }
 
     private void clearSegmentErrors(DownloadTask task) {
