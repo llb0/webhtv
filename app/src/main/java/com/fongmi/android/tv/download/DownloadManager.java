@@ -1,7 +1,9 @@
 package com.fongmi.android.tv.download;
 
+import android.os.SystemClock;
 import android.util.Log;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.setting.Setting;
 
 import java.io.BufferedInputStream;
@@ -10,6 +12,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -29,9 +32,18 @@ public class DownloadManager {
     private static final int DEFAULT_PARALLEL = 4;
     /** 连续失败多少次就熔断整轮：URL 失效/被限流时，避免几百个分片挨个建 0B 文件跑几小时 */
     private static final int MAX_CONSECUTIVE_FAIL = 5;
+    /** 任务快照落盘路径：<filesDir>/download/tasks.json */
+    private static final String STORE_DIR = "download";
+    private static final String STORE_FILE = "tasks.json";
+    /** 落盘节流间隔：分片完成会频繁触发保存，避免高频写盘 */
+    private static final long SAVE_MIN_INTERVAL = 1500;
 
     private static class Holder { static final DownloadManager INSTANCE = new DownloadManager(); }
-    public static DownloadManager get() { return Holder.INSTANCE; }
+    public static DownloadManager get() {
+        DownloadManager m = Holder.INSTANCE;
+        m.restoreIfNeeded();   // 进程重启后恢复历史任务，保证下载管理页不为空
+        return m;
+    }
 
     private final Map<String, DownloadTask> tasks = new ConcurrentHashMap<>();
     private final Map<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
@@ -42,6 +54,10 @@ public class DownloadManager {
      *  暂停/取消时也可以整体 shutdownNow() 掉，把排队中的分片一次性清空。 */
     private final Map<String, ExecutorService> segmentPools = new ConcurrentHashMap<>();
     private volatile Listener listener;
+    /** 落盘相关状态：只恢复一次，保存走节流 + 单线程 */
+    private volatile boolean restored;
+    private volatile long lastSaveTime;
+    private final AtomicBoolean savePending = new AtomicBoolean(false);
 
     public interface Listener {
         void onTaskStarted(DownloadTask task);
@@ -70,6 +86,7 @@ public class DownloadManager {
         task.outputDir = dir.getAbsolutePath();
         tasks.put(task.id, task);
         cancelFlags.put(task.id, new AtomicBoolean(false));
+        saveAsync();   // 新任务立刻落盘，避免刚退出进程就丢记录
 
         // 异步初始化（解析 m3u8 / 获取直链大小 / 分片规划）
         taskExecutor.submit(() -> initAndStart(task));
@@ -90,6 +107,7 @@ public class DownloadManager {
             if (task.status == DownloadTask.Status.PAUSED || task.status == DownloadTask.Status.CANCELLED) return;
             task.status = DownloadTask.Status.RUNNING;
             if (listener != null) listener.onTaskStarted(task);
+            saveAsync();   // 分片规划结果（totalSegments/总大小）落盘
             runSegments(task);
         } catch (Exception e) {
             Log.e(TAG, "init failed", e);
@@ -251,6 +269,7 @@ public class DownloadManager {
                             if (task.type == DownloadTask.Type.HLS) {
                                 try { s.end = new File(s.partFile).length(); } catch (Exception ignored) {}
                             }
+                            saveAsync();   // 分片完成即落盘：续传进度不至于丢太多
                             if (finished.incrementAndGet() >= task.totalSegments) mergeSegments(task, gen);
                         }
                         @Override public void onError(DownloadTask.FileSegment s, String msg) {
@@ -333,7 +352,9 @@ public class DownloadManager {
                 return;
             }
             task.status = DownloadTask.Status.COMPLETED;
+            task.downloadedBytes = output.length();
             releasePool(task.id);
+            saveAsync();
             if (listener != null) listener.onTaskCompleted(task, output);
         } catch (IOException e) {
             fail(task, e.getMessage());
@@ -363,6 +384,7 @@ public class DownloadManager {
         if (t.status != DownloadTask.Status.RUNNING && t.status != DownloadTask.Status.PENDING) return;
         t.status = DownloadTask.Status.PAUSED;
         abortRound(taskId);
+        saveAsync();
         if (listener != null) listener.onTaskPaused(t);
     }
 
@@ -372,6 +394,8 @@ public class DownloadManager {
         if (t == null || t.status != DownloadTask.Status.PAUSED) return;
         t.status = DownloadTask.Status.RUNNING;
         clearSegmentErrors(t);
+        saveAsync();
+        ensureService();   // 进程重启后服务未必在，补启一个用于显示进度通知
         if (listener != null) listener.onTaskResumed(t);
         taskExecutor.submit(() -> restart(t));
     }
@@ -383,8 +407,21 @@ public class DownloadManager {
         t.errorMsg = null;
         t.status = DownloadTask.Status.RUNNING;
         clearSegmentErrors(t);
+        saveAsync();
+        ensureService();
         if (listener != null) listener.onTaskResumed(t);
         taskExecutor.submit(() -> restart(t));
+    }
+
+    /** 进程重启后 DownloadService 不一定还活着，这里只把它拉起来做通知宿主，
+     *  不携带 name/url，因此不会重复创建任务。 */
+    private void ensureService() {
+        try {
+            if (listener != null) return;   // 服务已在，通知正常
+            DownloadService.attach(App.get());
+        } catch (Throwable ignored) {
+            // 服务起不来不影响下载本身
+        }
     }
 
     private void restart(DownloadTask task) {
@@ -436,6 +473,7 @@ public class DownloadManager {
         task.status = DownloadTask.Status.FAILED;
         task.errorMsg = msg;
         releasePool(task.id);   // 失败后不留残余线程继续写文件
+        saveAsync();
         if (listener != null) listener.onTaskFailed(task, msg);
     }
 
@@ -449,6 +487,7 @@ public class DownloadManager {
         cancelFlags.remove(taskId);
         runGenerations.remove(taskId);
         deleteDir(partDir(t));   // 使用任务自己的分片目录，与全局设置无关
+        saveAsync();             // 取消 = 记录消失，立刻落盘
         if (listener != null) listener.onTaskCancelled(t);
     }
 
@@ -466,6 +505,7 @@ public class DownloadManager {
         // 成品文件的扩展名必须用任务自己的 ext（HLS 现为 mp4），否则会删不到 / 删错文件
         File output = new File(new File(t.outputDir), t.name + "." + t.ext);
         if (output.exists()) output.delete();
+        saveAsync();
     }
 
     /** 正在下载（RUNNING）的任务数。 */
@@ -484,10 +524,185 @@ public class DownloadManager {
     }
 
     public void shutdown() {
-        taskExecutor.shutdown();
         for (ExecutorService pool : segmentPools.values()) pool.shutdownNow();
         segmentPools.clear();
         cancelFlags.clear();
+        saveNow();               // 收尾前先落盘，再关掉保存用的单线程
+        taskExecutor.shutdown();
+    }
+
+    // ---------- 持久化：进程重启后仍能管理历史下载 ----------
+
+    /** 首次取实例时恢复一次历史任务（下载管理页因此不会在重进 App 后变空）。 */
+    private void restoreIfNeeded() {
+        if (restored) return;
+        synchronized (this) {
+            if (restored) return;
+            restored = true;
+            restoreNow();
+        }
+    }
+
+    private void restoreNow() {
+        try {
+            File file = storeFile();
+            if (!file.exists()) return;
+            String json = readAll(file);
+            if (json == null || json.isEmpty()) return;
+            DownloadTask[] arr = App.gson().fromJson(json, DownloadTask[].class);
+            if (arr == null) return;
+            for (DownloadTask t : arr) {
+                if (t == null || t.id == null || t.id.isEmpty()) continue;
+                // 进程重启后不自动跑流量：在途任务一律落到暂停态，由用户手动继续
+                if (t.status == DownloadTask.Status.RUNNING || t.status == DownloadTask.Status.PENDING) {
+                    t.status = DownloadTask.Status.PAUSED;
+                }
+                if (t.segments == null) t.segments = new DownloadTask.FileSegment[0];
+                if (t.headers == null) t.headers = new HashMap<>();
+                reconcile(t);
+                tasks.put(t.id, t);
+                // 暂停态：任何迟到的旧回调都应被丢弃
+                cancelFlags.put(t.id, new AtomicBoolean(true));
+            }
+            Log.i(TAG, "restored " + tasks.size() + " task(s)");
+        } catch (Exception e) {
+            Log.e(TAG, "restore failed", e);
+        }
+    }
+
+    /** 用磁盘真实情况校正恢复出来的任务，避免出现"显示已完成但文件没了"或进度虚高。 */
+    private void reconcile(DownloadTask t) {
+        if (t.status == DownloadTask.Status.COMPLETED) {
+            File out = new File(new File(t.outputDir), t.name + "." + t.ext);
+            if (out.exists()) {
+                t.downloadedBytes = out.length();
+                t.completedSegments = t.totalSegments;
+            } else {
+                // 成品被外部删掉了：退回失败态，让用户可以选择重试
+                t.status = DownloadTask.Status.FAILED;
+                t.errorMsg = "Output file missing";
+            }
+            return;
+        }
+        long sum = 0;
+        int done = 0;
+        for (DownloadTask.FileSegment s : t.segments) {
+            if (s.done) { done++; sum += s.downloaded; continue; }
+            File part = new File(s.partFile);
+            if (!part.exists()) {
+                s.downloaded = 0;             // 分片文件没了，续传只能从头开始
+            } else if (s.downloaded <= 0) {
+                s.downloaded = part.length(); // 计数丢了就用实际文件大小回填
+            }
+            sum += s.downloaded;
+        }
+        t.completedSegments = done;
+        t.downloadedBytes = sum;
+    }
+
+    /** 节流落盘：分片完成会高频触发，这里合并成最少间隔 SAVE_MIN_INTERVAL 一次。 */
+    private void saveAsync() {
+        if (!restored) return;
+        if (!savePending.compareAndSet(false, true)) return;
+        try {
+            taskExecutor.submit(this::flushPending);
+        } catch (RejectedExecutionException ignored) {
+            savePending.set(false);
+        }
+    }
+
+    private void flushPending() {
+        try {
+            long wait = SAVE_MIN_INTERVAL - (SystemClock.elapsedRealtime() - lastSaveTime);
+            if (wait > 0) Thread.sleep(wait);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        savePending.set(false);
+        saveNow();
+    }
+
+    private void saveNow() {
+        try {
+            List<DownloadTask> list = new ArrayList<>();
+            for (DownloadTask t : tasks.values()) list.add(snapshot(t));
+            String json = App.gson().toJson(list);
+            File file = storeFile();
+            File dir = file.getParentFile();
+            if (dir != null && !dir.exists()) dir.mkdirs();
+            File tmp = new File(dir, file.getName() + ".tmp");
+            writeAll(tmp, json);
+            if (!tmp.renameTo(file)) {
+                writeAll(file, json);   // rename 失败（跨分区等）时直接覆盖写
+            }
+            lastSaveTime = SystemClock.elapsedRealtime();
+        } catch (Exception e) {
+            Log.e(TAG, "save failed", e);
+        }
+    }
+
+    /** 落盘快照：已完成的任务不存分片明细（不再需要续传，省掉上千条记录）。 */
+    private DownloadTask snapshot(DownloadTask t) {
+        DownloadTask c = new DownloadTask();
+        c.id = t.id;
+        c.name = t.name;
+        c.type = t.type;
+        c.url = t.url;
+        c.headers = t.headers != null ? t.headers : new HashMap<>();
+        c.ext = t.ext;
+        c.totalSize = t.totalSize;
+        c.downloadedBytes = t.downloadedBytes;
+        c.completedSegments = t.completedSegments;
+        c.totalSegments = t.totalSegments;
+        c.status = t.status;
+        c.errorMsg = t.errorMsg;
+        c.partDirPath = t.partDirPath;
+        c.outputDir = t.outputDir;
+        if (t.segments == null || t.status == DownloadTask.Status.COMPLETED) {
+            c.segments = new DownloadTask.FileSegment[0];
+            return c;
+        }
+        DownloadTask.FileSegment[] arr = new DownloadTask.FileSegment[t.segments.length];
+        for (int i = 0; i < arr.length; i++) {
+            DownloadTask.FileSegment s = t.segments[i];
+            DownloadTask.FileSegment d = new DownloadTask.FileSegment();
+            d.index = s.index;
+            d.url = s.url;
+            d.start = s.start;
+            d.end = s.end;
+            d.downloaded = s.downloaded;
+            d.partFile = s.partFile;
+            d.done = s.done;
+            d.errorMsg = s.errorMsg;
+            d.keyBytes = s.keyBytes;
+            d.keyIv = s.keyIv;
+            arr[i] = d;
+        }
+        c.segments = arr;
+        return c;
+    }
+
+    private File storeFile() {
+        return new File(new File(App.get().getFilesDir(), STORE_DIR), STORE_FILE);
+    }
+
+    private static String readAll(File file) throws IOException {
+        long len = file.length();
+        if (len <= 0) return "";
+        byte[] buf = new byte[(int) len];
+        try (FileInputStream in = new FileInputStream(file)) {
+            int off = 0, r;
+            while (off < buf.length && (r = in.read(buf, off, buf.length - off)) > 0) off += r;
+            return new String(buf, 0, off, StandardCharsets.UTF_8);
+        }
+    }
+
+    private static void writeAll(File file, String text) throws IOException {
+        try (FileOutputStream out = new FileOutputStream(file, false)) {
+            out.write(text.getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            out.getFD().sync();
+        }
     }
 
     // ---------- 工具 ----------
