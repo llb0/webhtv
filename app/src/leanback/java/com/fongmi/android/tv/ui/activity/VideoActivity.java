@@ -528,8 +528,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         return episode.getName().concat("|").concat(episode.getUrl());
     }
 
+    /** OSD 左上角标题。
+     *
+     *  注意：OSD 与控制面板是两套渲染 —— 控制面板可见时 PlayerOsdController.render()
+     *  会把整个 OSD root 置 GONE 并直接 return，左上角显示的是控制面板自己的标题。
+     *  所以「控制面板标题正确、OSD 标题错误」并不是同一处数据的两种表现，而是两个数据源：
+     *  控制面板的标题由 updateVod() 用详情返回的真实片名刷新过，而 OSD 一直读的是
+     *  getName()（intent 里的启动快照）。这里改为优先取界面上已确认的片名，
+     *  详情回来后 OSD 会在下一次 render（每秒一次）自动纠偏。 */
     private String getOsdTitle() {
         String name = getName();
+        CharSequence shown = mBinding == null ? null : mBinding.name.getText();
+        if (!TextUtils.isEmpty(shown)) name = shown.toString();
+        else if (mHistory != null && !TextUtils.isEmpty(mHistory.getVodName())) name = mHistory.getVodName();
         if (mEpisodeAdapter == null || mEpisodeAdapter.getItemCount() == 0) return name;
         String episode = Objects.toString(getEpisode().getName(), "");
         if (TextUtils.isEmpty(episode) || TextUtils.equals(name, episode)) return name;
@@ -1215,6 +1226,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         item.checkPic(getPic());
         item.checkName(getName());
         item.checkContent(getContent());
+        // 详情拿到真实片名后同步回 intent：getName() 是启动时传入的快照，
+        // 不回写的话 OSD 左上角标题、换站搜索兜底等都会一直用那个可能已过期的名字
+        if (!item.getName().isEmpty()) getIntent().putExtra("name", item.getName());
         mBinding.progressLayout.showContent();
         mBinding.name.setText(item.getName());
         mFlagAdapter.addAll(item.getFlags());
@@ -3818,7 +3832,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
 
     private void checkHistory(Vod item) {
         mHistory = History.find(getHistoryKey());
+        boolean fromDb = mHistory != null;
         mHistory = mHistory == null ? createHistory(item) : mHistory;
+        // 诊断用：intent 里带的启动片名 vs 详情返回的权威片名。
+        // 两者不一致 = 启动时那条历史的 vodName 是脏的（DB 里 key 与 name 不匹配）。
+        SpiderDebug.log("video-flow", "checkHistory fromDb=%s intentName=%s detailName=%s historyName=%s",
+                fromDb, getName(), item.getName(), mHistory.getVodName());
         applyCastHistory();
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
@@ -3831,6 +3850,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
         mHistory.setSpeed(player().getSpeed());
         mHistory.setVodName(item.getName());
+        // 详情是权威片名，回写 intent：getName() 是启动时传入的快照，
+        // 不回写的话 OSD 左上角会一直停在启动时的旧名字
+        if (!TextUtils.isEmpty(item.getName())) getIntent().putExtra("name", item.getName());
         PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
@@ -3968,6 +3990,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         boolean name = !item.getName().isEmpty();
         if (id) getIntent().putExtra("id", item.getId());
         if (id) mHistory.replace(getHistoryKey());
+        if (name) getIntent().putExtra("name", item.getName());   // 同上：真实片名回写，OSD 才不会停留在启动时的旧值
         if (name) mHistory.setVodName(item.getName());
         if (name) mBinding.name.setText(item.getName());
         if (name) mBinding.widget.title.setText(item.getName());
