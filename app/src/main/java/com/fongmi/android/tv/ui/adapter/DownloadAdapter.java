@@ -12,10 +12,11 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.AdapterDownloadBinding;
 import com.fongmi.android.tv.download.DownloadTask;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 下载任务列表适配器：显示名称/进度/状态，并按任务状态提供 暂停/继续/重试/取消/删除 按钮。 */
+/** 下载任务列表适配器：显示名称/进度/状态，并按任务状态提供 暂停/继续/重试/取消/删除/播放 按钮。 */
 public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.ViewHolder> {
 
     public interface OnClickListener {
@@ -24,6 +25,7 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.ViewHo
         void onRetry(DownloadTask task);    // 失败重试（优先续传）
         void onCancel(DownloadTask task);   // 取消进行中的任务，清理分片
         void onRemove(DownloadTask task);   // 删除任务记录及其成品文件
+        void onPlay(DownloadTask task);     // 播放已完成的成品
     }
 
     private final OnClickListener listener;
@@ -55,7 +57,7 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.ViewHo
         bindActions(holder, t);
     }
 
-    /** 按任务状态决定按钮：运行中[暂停/取消]、已暂停[继续/取消]、失败[重试/删除]、已完成[删除]。 */
+    /** 按任务状态决定按钮：运行中[暂停/取消]、已暂停[继续/取消]、失败[重试/删除]、已完成[播放/删除]。 */
     private void bindActions(ViewHolder holder, DownloadTask t) {
         switch (t.status) {
             case RUNNING:
@@ -72,9 +74,24 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.ViewHo
                 setSecondary(holder, R.string.download_manager_delete, v -> listener.onRemove(t));
                 break;
             default:  // COMPLETED / CANCELLED
-                holder.binding.action.setVisibility(View.GONE);
+                // 成品还在就给播放入口；文件被外部删掉时仍只留删除，避免点了没反应
+                if (t.status == DownloadTask.Status.COMPLETED && outputFile(t) != null) {
+                    setPrimary(holder, R.string.play, v -> listener.onPlay(t));
+                } else {
+                    holder.binding.action.setVisibility(View.GONE);
+                }
                 setSecondary(holder, R.string.download_manager_delete, v -> listener.onRemove(t));
                 break;
+        }
+    }
+
+    /** 成品文件；不存在或长度为 0 都视为不可播放。 */
+    public static File outputFile(DownloadTask t) {
+        try {
+            File f = new File(new File(t.outputDir), t.name + "." + t.ext);
+            return f.exists() && f.length() > 0 ? f : null;
+        } catch (Exception e) {
+            return null;
         }
     }
  
