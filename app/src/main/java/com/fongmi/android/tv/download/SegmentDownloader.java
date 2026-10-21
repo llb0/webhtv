@@ -28,7 +28,12 @@ public class SegmentDownloader {
 
     public static void download(DownloadTask.FileSegment seg, Map<String, String> headers,
                                 AtomicBoolean cancelled, Listener listener) {
+        boolean createdNewFile = false;   // 本次调用是否新建了 .part 文件
+        long written = 0;                 // 本次调用实际写入的字节数
         try {
+            // 已被作废的一轮（暂停/取消之后才轮到执行）：连文件都不要创建，否则就是 0B 垃圾分片
+            if (cancelled != null && cancelled.get()) return;
+
             File part = new File(seg.partFile);
             boolean encrypted = seg.keyBytes != null && seg.keyBytes.length > 0 && seg.keyIv != null && seg.keyIv.length == 16;
             // 加密分片解密后长度会变化，按字节续传会错位，因此加密分片始终整片重下
@@ -71,9 +76,11 @@ public class SegmentDownloader {
                 // 服务器不支持 Range；已有残留 part 则丢弃重下
                 if (resumeBytes > 0) { resumeBytes = 0; part.delete(); }
             } else if (code == 416) {
-                // Range Not Satisfiable —— 分片已完整，跳过
+                // Range Not Satisfiable —— 分片已完整才成立；本地没有任何数据时不能算完成，
+                // 否则后续合并会因为缺少 .part 而失败
+                if (!part.exists()) throw new IOException("Range not satisfiable and no local data: " + seg.url);
                 // hls 分片 end = -1，此时用已落地 part 文件长度作为完成量
-                seg.downloaded = seg.end >= 0 ? (seg.end - seg.start + 1) : (part.exists() ? part.length() : 0);
+                seg.downloaded = seg.end >= 0 ? (seg.end - seg.start + 1) : part.length();
                 seg.done = true;
                 if (listener != null) listener.onComplete(seg);
                 return;
@@ -82,17 +89,34 @@ public class SegmentDownloader {
             }
 
             long localDownloaded = resumeBytes;  // 本分片内已下载字节（不含全局起始偏移）
-            try (InputStream in = conn.getInputStream();
-                 FileOutputStream fos = new FileOutputStream(part, resumeBytes > 0);
-                 BufferedOutputStream out = new BufferedOutputStream(fos, BUF)) {
-                byte[] buf = new byte[BUF];
-                int read;
-                while ((read = in.read(buf)) != -1) {
-                    if (cancelled != null && cancelled.get()) throw new IOException("Cancelled");
-                    out.write(buf, 0, read);
-                    localDownloaded += read;
-                    seg.downloaded = localDownloaded;
-                    if (listener != null) listener.onProgress(seg, localDownloaded);
+            byte[] buf = new byte[BUF];
+            int read;
+            // 先把第一块读出来：确认真的有数据再建 .part 文件。
+            // 旧实现是先建文件再读，请求失败/被中断时就会留下大量 0B 分片。
+            try (InputStream in = conn.getInputStream()) {
+                read = in.read(buf);
+                if (read <= 0) {
+                    // 空响应：没有可续传内容就是失败（URL 失效/被拒），不要留下 0B 分片冒充成功
+                    if (resumeBytes <= 0) throw new IOException("Empty response for " + seg.url);
+                    read = 0;
+                } else {
+                    FileOutputStream fos = new FileOutputStream(part, resumeBytes > 0);
+                    createdNewFile = resumeBytes <= 0;
+                    try (BufferedOutputStream out = new BufferedOutputStream(fos, BUF)) {
+                        out.write(buf, 0, read);
+                        written += read;
+                        localDownloaded += read;
+                        seg.downloaded = localDownloaded;
+                        if (listener != null) listener.onProgress(seg, localDownloaded);
+                        while ((read = in.read(buf)) != -1) {
+                            if (cancelled != null && cancelled.get()) throw new IOException("Cancelled");
+                            out.write(buf, 0, read);
+                            written += read;
+                            localDownloaded += read;
+                            seg.downloaded = localDownloaded;
+                            if (listener != null) listener.onProgress(seg, localDownloaded);
+                        }
+                    }
                 }
             }
 
@@ -107,6 +131,11 @@ public class SegmentDownloader {
         } catch (Exception e) {
             if (seg.errorMsg == null) seg.errorMsg = e.getMessage();
             if (listener != null) listener.onError(seg, e.getMessage());
+        } finally {
+            // 本次新建、且一个字节都没写进去的 .part 直接删掉，杜绝 0B 分片堆积
+            if (!seg.done && createdNewFile && written == 0) {
+                try { new File(seg.partFile).delete(); } catch (Exception ignored) {}
+            }
         }
     }
 
