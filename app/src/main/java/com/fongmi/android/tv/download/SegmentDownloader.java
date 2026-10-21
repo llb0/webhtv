@@ -37,6 +37,17 @@ public class SegmentDownloader {
             long requestStart = seg.start + resumeBytes;
             long requestEnd = seg.end;
 
+            // 续传起点已越过分片末尾（分片其实已完整，或 .part 因异常写入超长）：
+            // 直接按完成处理。否则会退化成 "bytes=N-" 的开放式 Range，把分片后面的数据也拉下来。
+            if (seg.end >= 0 && requestStart > seg.end) {
+                seg.downloaded = seg.end - seg.start + 1;
+                seg.done = true;
+                if (listener != null) listener.onComplete(seg);
+                return;
+            }
+
+            if (cancelled != null && cancelled.get()) throw new IOException("Cancelled");
+
             HttpURLConnection conn = (HttpURLConnection) new URL(seg.url).openConnection();
             conn.setConnectTimeout(30000);
             conn.setReadTimeout(60000);
@@ -54,6 +65,8 @@ public class SegmentDownloader {
             conn.setRequestProperty("Accept-Encoding", "identity");  // 禁止 gzip，保证字节数准确
 
             int code = conn.getResponseCode();
+            // 建连可能耗时几十秒，这里补一次中断检查，让暂停/取消尽快生效
+            if (cancelled != null && cancelled.get()) throw new IOException("Cancelled");
             if (code == HttpURLConnection.HTTP_OK) {
                 // 服务器不支持 Range；已有残留 part 则丢弃重下
                 if (resumeBytes > 0) { resumeBytes = 0; part.delete(); }
