@@ -367,10 +367,24 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
                 List<History> history = History.get();
                 if (!history.isEmpty()) {
                     History first = history.get(0);
+                    // 诊断用：打印启动选中的那条历史，以及排序紧随其后的两条。
+                    // 若这里的 vodName 与实际播放的片子不一致，说明 DB 里存在
+                    // key(id) 与 vodName 不匹配的行 —— 本次播放会把它改对，
+                    // 所以事后查历史看不到问题，只有开机自动启动时才暴露。
+                    SpiderDebug.log("startup", "recent launch key=%s name=%s time=%d | total=%d",
+                            first.getKey(), first.getVodName(), first.getCreateTime(), history.size());
+                    for (int i = 1; i < Math.min(3, history.size()); i++) {
+                        SpiderDebug.log("startup", "recent alt[%d] key=%s name=%s time=%d",
+                                i, history.get(i).getKey(), history.get(i).getVodName(), history.get(i).getCreateTime());
+                    }
                     String siteKey = first.getSiteKey();
                     Task.execute(() -> {
                         Site site = VodConfig.get().getSite(siteKey);
-                        if (!site.isEmpty()) site.spider();
+                        // 站点在当前配置里已经不存在时不能启动：VideoActivity 会退化成
+                        // startCastSearch(getName())，拿历史里的旧片名去全站搜索，
+                        // 搜出来的第一条是不确定的 —— 这就是「下次开机默认启动变成了别的片子」
+                        if (site.isEmpty()) return;
+                        site.spider();
                         App.post(() -> VideoActivity.startFullscreen(this, first));
                     });
                 }
