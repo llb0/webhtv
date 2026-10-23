@@ -327,22 +327,30 @@ public class WebHomeInlineVodStore {
         }
         long start = System.currentTimeMillis();
         SpiderDebug.log("webhome-inline", "resolve episode start id=%s page=%s", id, pageOf(episodeSpec, id));
-        JsonObject resolved = resolver.resolve(episodeSpec.payload.deepCopy());
-        String url = Json.safeString(resolved, "url");
-        if (TextUtils.isEmpty(url)) throw new IllegalStateException("WebHome inline episode resolve failed");
-        HeaderSpec headerSpec = resolvedHeaders(resolved, episodeSpec.headerSpec);
-        String format = first(Json.safeString(resolved, "format"), isHls(url) ? HLS_FORMAT : episodeSpec.format);
-        long now = System.currentTimeMillis();
-        URL_HEADERS.put(url, headerSpec);
-        URL_EPISODES.put(id, new EpisodeSpec(episodeSpec.payload.deepCopy(), headerSpec, resolver, false, url, format, now));
-        // 解析结果也落盘：下次进程重启后可以先直接用（MEDIA_TTL_MS 内有效）
-        String vodId = URL_VOD.get(id);
-        if (!TextUtils.isEmpty(vodId)) {
-            URL_VOD.put(url, vodId);
-            persist(vodId, ITEMS.get(vodId));
+        try {
+            JsonObject resolved = resolver.resolve(episodeSpec.payload.deepCopy());
+            String url = Json.safeString(resolved, "url");
+            if (TextUtils.isEmpty(url)) throw new IllegalStateException("WebHome inline episode resolve failed");
+            HeaderSpec headerSpec = resolvedHeaders(resolved, episodeSpec.headerSpec);
+            String format = first(Json.safeString(resolved, "format"), isHls(url) ? HLS_FORMAT : episodeSpec.format);
+            long now = System.currentTimeMillis();
+            URL_HEADERS.put(url, headerSpec);
+            URL_EPISODES.put(id, new EpisodeSpec(episodeSpec.payload.deepCopy(), headerSpec, resolver, false, url, format, now));
+            // 解析结果也落盘：下次进程重启后可以先直接用（MEDIA_TTL_MS 内有效）
+            String vodId = URL_VOD.get(id);
+            if (!TextUtils.isEmpty(vodId)) {
+                URL_VOD.put(url, vodId);
+                persist(vodId, ITEMS.get(vodId));
+            }
+            SpiderDebug.log("webhome-inline", "resolve episode ok cost=%sms id=%s url=%s", System.currentTimeMillis() - start, id, url);
+            return new ResolveResult(url, headerSpec, format, false);
+        } catch (Throwable e) {
+            // 脚本侧 inline 解析失败：不要直接抛错，回退到 needsParse。
+            // 这样 App 会像冷启动后从历史进入一样，自己开 WebView 真正加载播放页做原生嗅探，
+            // 而不是在当前 WebView 里用 srcdoc 模拟，避免跨域 iframe 场景下扫不到真正的播放器。
+            SpiderDebug.log("webhome-inline", "resolve episode failed cost=%sms id=%s error=%s, fallback needsParse", System.currentTimeMillis() - start, id, e.getMessage());
+            return new ResolveResult(pageOf(episodeSpec, id), episodeSpec.headerSpec, episodeSpec.format, true);
         }
-        SpiderDebug.log("webhome-inline", "resolve episode ok cost=%sms id=%s url=%s", System.currentTimeMillis() - start, id, url);
-        return new ResolveResult(url, headerSpec, format, false);
     }
 
     /** 直链缓存是否还能用：带时间戳的按 TTL 判，本次会话内解析的（无时间戳）直接用。 */
