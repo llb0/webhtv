@@ -42,13 +42,22 @@ public class HomeWebBridge {
 
     private static final int INLINE_LIMIT = 12000;
     private static final int CHUNK_SIZE = 60000;
-    private static final long INLINE_RESOLVE_TIMEOUT_SECONDS = 20;
+    // A+A2（HTML 正则抠）预算：只够抓页面 HTML，超了就交给真实加载
+    private static final long INLINE_RESOLVE_TIMEOUT_SECONDS = 4;
+    // 真实加载预算：让当前 WebView 真正加载播放页，等扩展脚本/原生嗅探拿到首个媒体地址
+    private static final long REAL_LOAD_TIMEOUT_SECONDS = 20;
 
     private final HomeWebController controller;
     private final Activity activity;
     private final WebView webView;
     private final Map<String, String> results;
     private final Map<String, CompletableFuture<String>> inlineResults;
+    // 真实加载嗅探模式：A+A2 失败后让当前 WebView 直接跳转播放页，拦截首个媒体 URL。
+    private volatile CompletableFuture<String> realLoadFuture;
+    private volatile String realLoadId;
+    private volatile boolean realLoading;
+    private volatile String pendingRealUrl;
+    private volatile Map<String, String> pendingRealHeaders;
 
     public HomeWebBridge(HomeWebController controller, Activity activity, WebView webView) {
         this.controller = controller;
@@ -103,7 +112,14 @@ public class HomeWebBridge {
     @JavascriptInterface
     public void inlineResult(String id, String payload) {
         CompletableFuture<String> future = inlineResults.remove(id);
-        if (future != null) future.complete(payload);
+        if (future != null) {
+            future.complete(payload);
+            return;
+        }
+        if (realLoadId != null && realLoadId.equals(id)) {
+            CompletableFuture<String> real = realLoadFuture;
+            if (real != null) real.complete(payload);
+        }
     }
 
     /**
@@ -205,6 +221,7 @@ public class HomeWebBridge {
         // 两端 start 签名不同，main 目录直接引用会让另一个 flavor 编译失败。
         final boolean wantFullscreen = payload.has("fullscreen") && payload.get("fullscreen").getAsBoolean();
         SpiderDebug.log("webhome", "player.playUrl title=%s url=%s fullscreen=%s", playTitle, playUrl, wantFullscreen);
+        pausePageMedia();
         App.post(() -> {
             ImgUtil.preload(activity, playPic);
             if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(playWall) && !TextUtils.equals(playWall, playPic)) ImgUtil.preload(activity, playWall);
@@ -259,6 +276,7 @@ public class HomeWebBridge {
         // 播放器还没就绪时会被 enterFullscreen() 开头的 service()==null 直接丢弃。
         final boolean wantFullscreen = payload.has("fullscreen") && payload.get("fullscreen").getAsBoolean();
         SpiderDebug.log("webhome", "player.playVodInline title=%s id=%s mark=%s fullscreen=%s", playTitle, vodId, playMark, wantFullscreen);
+        pausePageMedia();
         App.post(() -> {
             ImgUtil.preload(activity, playPic);
             if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(playWall) && !TextUtils.equals(playWall, playPic)) ImgUtil.preload(activity, playWall);
@@ -294,6 +312,22 @@ public class HomeWebBridge {
         return Json.safeString(payload, "wallPic");
     }
 
+    /**
+     * 起播前把页面里的 video/audio 全部暂停并静音。
+     * 网页播放器还在出声时切换播放器，ExoPlayer 会因音频焦点被抢走而「加载了第一帧就暂停」。
+     */
+    private void pausePageMedia() {
+        String script = "(function(){try{var m=document.querySelectorAll('video,audio');"
+                + "for(var i=0;i<m.length;i++){try{m[i].pause();m[i].muted=true;m[i].volume=0;}catch(e){}}}catch(e){}})();";
+        App.post(() -> {
+            if (webView == null) return;
+            try {
+                webView.evaluateJavascript(script, null);
+            } catch (Throwable ignored) {
+            }
+        });
+    }
+
     private String content(JsonObject payload) {
         String content = Json.safeString(payload, "content");
         if (TextUtils.isEmpty(content)) content = Json.safeString(payload, "vod_content");
@@ -303,6 +337,45 @@ public class HomeWebBridge {
     }
 
     private JsonObject resolveInlineEpisode(JsonObject payload) throws Exception {
+        long start = System.currentTimeMillis();
+        long inlineDeadline = start + INLINE_RESOLVE_TIMEOUT_SECONDS * 1000;
+        boolean lease = controller.beginInlineEvaluation();
+        try {
+            // 1) 先走 A+A2（HTML 正则抠），对简单页面秒出结果
+            JsonObject object = null;
+            try {
+                object = resolveByInlineResolver(payload, inlineDeadline);
+            } catch (Throwable e) {
+                // A+A2 失败（取不到直链 / 超时）不算致命，继续走真实加载
+                SpiderDebug.log("webhome-inline", "inline resolver miss error=%s", e.getMessage());
+            }
+            String url = object == null ? "" : Json.safeString(object, "url");
+            if (!TextUtils.isEmpty(url)) {
+                SpiderDebug.log("webhome-inline", "resolve ok by inline resolver cost=%sms url=%s", System.currentTimeMillis() - start, url);
+                return object;
+            }
+            // 2) A+A2 没结果：让当前 WebView 真实加载播放页，扩展脚本自己嗅探
+            //    首个媒体 URL 被 shouldInterceptRequest 拦截后直接完成 future。
+            object = resolveByRealLoad(payload, start + REAL_LOAD_TIMEOUT_SECONDS * 1000 + INLINE_RESOLVE_TIMEOUT_SECONDS * 1000);
+            url = object == null ? "" : Json.safeString(object, "url");
+            if (!TextUtils.isEmpty(url)) {
+                SpiderDebug.log("webhome-inline", "resolve ok by real load cost=%sms url=%s", System.currentTimeMillis() - start, url);
+                return object;
+            }
+            throw new IllegalStateException("real load miss");
+        } catch (Throwable e) {
+            SpiderDebug.log("webhome-inline", "resolve failed cost=%sms error=%s", System.currentTimeMillis() - start, e.getMessage());
+            // 失败时页面可能还在出声：先静音，交给 App 原生 WebView 去解析
+            pausePageMedia();
+            if (e instanceof Exception) throw (Exception) e;
+            if (e instanceof Error) throw (Error) e;
+            throw new RuntimeException(e);
+        } finally {
+            controller.endInlineEvaluation(lease);
+        }
+    }
+
+    private JsonObject resolveByInlineResolver(JsonObject payload, long deadline) throws Exception {
         String id = "inline_" + UUID.randomUUID().toString().replace("-", "");
         CompletableFuture<String> future = new CompletableFuture<>();
         inlineResults.put(id, future);
@@ -327,26 +400,112 @@ public class HomeWebBridge {
                 })();
                 """;
         script = String.format(Locale.ROOT, script, quote(id), payload == null ? "{}" : payload.toString());
-        long start = System.currentTimeMillis();
-        boolean lease = controller.beginInlineEvaluation();
+        SpiderDebug.log("webhome-inline", "resolve inline resolver start id=%s page=%s", id, Json.safeString(payload, "pageUrl"));
+        eval(script);
         try {
-            SpiderDebug.log("webhome-inline", "resolve start id=%s page=%s lease=%s", id, Json.safeString(payload, "pageUrl"), lease);
-            eval(script);
-            String result = future.get(INLINE_RESOLVE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            long remain = Math.max(1, deadline - System.currentTimeMillis());
+            String result = future.get(remain, TimeUnit.MILLISECONDS);
             JsonObject object = WebCall.object(result);
             String error = Json.safeString(object, "error");
             if (!TextUtils.isEmpty(error)) throw new IllegalStateException(error);
-            SpiderDebug.log("webhome-inline", "resolve ok id=%s cost=%sms url=%s", id, System.currentTimeMillis() - start, Json.safeString(object, "url"));
             return object;
-        } catch (Throwable e) {
-            SpiderDebug.log("webhome-inline", "resolve failed id=%s cost=%sms error=%s", id, System.currentTimeMillis() - start, e.getMessage());
-            if (e instanceof Exception) throw (Exception) e;
-            if (e instanceof Error) throw (Error) e;
-            throw new RuntimeException(e);
         } finally {
             inlineResults.remove(id);
-            controller.endInlineEvaluation(lease);
         }
+    }
+
+    private JsonObject resolveByRealLoad(JsonObject payload, long deadline) throws Exception {
+        String pageUrl = Json.safeString(payload, "pageUrl");
+        if (TextUtils.isEmpty(pageUrl)) throw new IllegalStateException("no pageUrl for real load");
+        String id = "inline_real_" + UUID.randomUUID().toString().replace("-", "");
+        CompletableFuture<String> future = new CompletableFuture<>();
+        realLoadFuture = future;
+        realLoadId = id;
+        pendingRealUrl = null;
+        pendingRealHeaders = null;
+        realLoading = true;
+        try {
+            SpiderDebug.log("webhome-inline", "resolve real load start id=%s url=%s", id, pageUrl);
+            App.post(() -> {
+                if (webView == null) return;
+                try {
+                    webView.loadUrl(pageUrl);
+                } catch (Throwable ignored) {
+                }
+            });
+            long remain = Math.max(1, deadline - System.currentTimeMillis());
+            String result = future.get(remain, TimeUnit.MILLISECONDS);
+            JsonObject object = WebCall.object(result);
+            String error = Json.safeString(object, "error");
+            if (!TextUtils.isEmpty(error)) throw new IllegalStateException(error);
+            // 解析成功：把刚才真实加载页面的声音停掉，避免抢走播放器音频焦点
+            pausePageMedia();
+            return object;
+        } finally {
+            realLoading = false;
+            realLoadId = null;
+            realLoadFuture = null;
+            pendingRealUrl = null;
+            pendingRealHeaders = null;
+        }
+    }
+
+    public boolean isRealLoading() {
+        return realLoading;
+    }
+
+    /** 真实加载期间，把上报钩子注入页面，让扩展脚本嗅到 blob 等原生拦不到的地址也能回传。 */
+    public void injectRealLoadHook() {
+        if (!realLoading) return;
+        String id = realLoadId;
+        if (TextUtils.isEmpty(id)) return;
+        String script = "(function(){window.__fmInlineRealLoadCallback=function(u,h){try{fongmiBridge.inlineResult("
+                + quote(id) + ",JSON.stringify({url:u,headers:h||{}}));}catch(e){}};})();";
+        App.post(() -> {
+            if (webView == null) return;
+            try {
+                webView.evaluateJavascript(script, null);
+            } catch (Throwable ignored) {
+            }
+        });
+    }
+
+    public void onRealLoadResult(String url, Map<String, String> headers) {
+        if (!realLoading || TextUtils.isEmpty(url)) return;
+        // m3u8 直接收口；其它格式（mp4/音频）先挂起等一小会，避免被前置广告抢走
+        if (isManifest(url)) {
+            completeRealLoad(url, headers);
+            return;
+        }
+        if (pendingRealUrl != null) return;
+        pendingRealUrl = url;
+        pendingRealHeaders = headers;
+        App.post(() -> {
+            String pending = pendingRealUrl;
+            Map<String, String> pendingHeaders = pendingRealHeaders;
+            pendingRealUrl = null;
+            pendingRealHeaders = null;
+            if (pending != null) completeRealLoad(pending, pendingHeaders);
+        }, 800);
+    }
+
+    private boolean isManifest(String url) {
+        return url.contains(".m3u8") || url.contains(".mpd");
+    }
+
+    private void completeRealLoad(String url, Map<String, String> headers) {
+        if (!realLoading || TextUtils.isEmpty(url)) return;
+        CompletableFuture<String> future = realLoadFuture;
+        if (future == null || future.isDone()) return;
+        SpiderDebug.log("webhome-inline", "real load hit url=%s", url);
+        JsonObject result = new JsonObject();
+        result.addProperty("url", url);
+        if (headers != null && !headers.isEmpty()) {
+            JsonObject h = new JsonObject();
+            for (Map.Entry<String, String> e : headers.entrySet()) h.addProperty(e.getKey(), e.getValue());
+            result.add("headers", h);
+        }
+        future.complete(result.toString());
     }
 
     private String control(JsonObject payload) {
