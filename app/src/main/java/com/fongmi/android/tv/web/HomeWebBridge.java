@@ -342,7 +342,8 @@ public class HomeWebBridge {
         return content;
     }
 
-    private JsonObject resolveInlineEpisode(JsonObject payload) throws Exception {
+    // 包内可见：隐藏实例（WebHomeHiddenResolver）也复用这条链路
+    JsonObject resolveInlineEpisode(JsonObject payload) throws Exception {
         long start = System.currentTimeMillis();
         long inlineDeadline = start + INLINE_RESOLVE_TIMEOUT_SECONDS * 1000;
         boolean lease = controller.beginInlineEvaluation();
