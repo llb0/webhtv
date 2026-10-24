@@ -243,6 +243,40 @@ public class HomeWebController {
         consumeExtensionReload();
     }
 
+    /**
+     * 冷启动专用的隐藏实例：只准备站点脚本并加载指定页面，不接管 UI。
+     * 进程重启后网页里的脚本解析器没了，靠这个实例把同一套解析链路重新跑起来。
+     */
+    public boolean loadHidden(Site site, String url) {
+        if (site == null || !site.hasHomePage() || TextUtils.isEmpty(url)) return false;
+        this.site = site;
+        // 刻意不写 homePage：加载超时时走 onWebError 就好，别触发 recreateWebView 那套 UI 恢复
+        Server.get().start();
+        prepareExtensions(site);
+        registerDocumentStartScripts();
+        loadUrl(url);
+        return true;
+    }
+ 
+    /** 隐藏实例的解析入口：与网页里点击剧集走的是同一套逻辑。 */
+    public JsonObject resolveEpisode(JsonObject payload) throws Exception {
+        return bridge.resolveInlineEpisode(payload);
+    }
+ 
+    /** 隐藏实例用完即弃：从窗口摘下、停止加载、销毁 WebView。 */
+    public void destroyHidden() {
+        try {
+            if (active == this) active = null;
+            if (webView == null) return;
+            ViewGroup parent = (ViewGroup) webView.getParent();
+            if (parent != null) parent.removeView(webView);
+            webView.stopLoading();
+            webView.loadUrl("about:blank");
+            webView.destroy();
+        } catch (Throwable ignored) {
+        }
+    }
+ 
     public void hide() {
         webView.setVisibility(View.GONE);
     }
