@@ -71,6 +71,7 @@ public class HomeWebController {
     private WebView webView;
     private final float density;
     private ScriptHandler documentStartHandler;
+    private boolean silenceRegistered;// 停播接收器只注册一次，避免换站点时重复堆叠
     private Site site;
     private String documentStartKey;
     private String defaultUserAgent;
@@ -777,10 +778,34 @@ public class HomeWebController {
         }
     }
 
+    /**
+     * 每个框架都装一个「停播开关」接收器。
+     * 播放器多半在跨域 iframe 里，父页面拿不到它的 DOM，只能靠 postMessage 通知它自己停下；
+     * 不停的话网页会一直出声，App 播放器抢不到音频焦点，表现就是「加载了第一帧就暂停」。
+     */
+    private void registerSilenceScript() {
+        if (silenceRegistered || webView == null || !isDocumentStartSupported()) return;
+        silenceRegistered = true;
+        String script = "(function(){if(window.__fmSilenceHooked)return;window.__fmSilenceHooked=1;"
+                + "var s=function(){"
+                + "try{var m=document.querySelectorAll('video,audio');for(var i=0;i<m.length;i++){try{m[i].pause();m[i].muted=true;m[i].volume=0;}catch(e){}}}catch(e){}"
+                + "try{var fr=document.querySelectorAll('iframe,frame');for(var j=0;j<fr.length;j++){try{if(fr[j].contentWindow)fr[j].contentWindow.postMessage({fmSilence:1},'*');}catch(e){}}}catch(e){}"
+                + "};"
+                + "window.addEventListener('message',function(e){var d=e&&e.data;if(!d||!d.fmSilence)return;"
+                + "s();var n=0;var t=setInterval(function(){s();if(++n>=20)clearInterval(t);},500);});"
+                + "})();";
+        try {
+            WebViewCompat.addDocumentStartJavaScript(webView, script, Collections.singleton("*"));
+        } catch (Throwable e) {
+            SpiderDebug.log("webhome-sniffer", "silence script register failed error=%s", e.getMessage());
+        }
+    }
+ 
     private void registerDocumentStartScripts() {
         removeDocumentStartScripts();
         resetSniffedMedia();
         registerSniffQueueScript();
+        registerSilenceScript();
         if (site == null || !isDocumentStartSupported()) return;
         String script = documentStartScript();
         if (TextUtils.isEmpty(script)) return;
