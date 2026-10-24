@@ -65,6 +65,7 @@ public class HomeWebController {
     private final Activity activity;
     private final Set<String> injectedExtensions;
     private final Set<String> sniffedUrls;
+    private HomeWebBridge bridge;
     private final Runnable extensionReloadRunnable;
     private final boolean debugTools;
     private WebView webView;
@@ -121,7 +122,7 @@ public class HomeWebController {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.setOnFocusChangeListener((v, hasFocus) -> SpiderDebug.log("webhome-focus", "webview focus=%s visible=%s url=%s", hasFocus, isVisible(), webView.getUrl()));
         webView.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> injectViewport());
-        webView.addJavascriptInterface(new HomeWebBridge(this, activity, webView), BRIDGE);
+        webView.addJavascriptInterface(bridge = new HomeWebBridge(this, activity, webView), BRIDGE);
         webView.setWebViewClient(client());
         webView.setWebChromeClient(chrome());
         WebViewUtil.logProvider("webhome");
@@ -588,6 +589,7 @@ public class HomeWebController {
                 loadTimeoutRecoveries = 0;
                 lastPageUrl = url;
                 injectSdk();
+                if (bridge != null && bridge.isRealLoading()) bridge.injectRealLoadHook();
                 focusWebView("page-finished");
                 listener.onWebReady();
             }
@@ -711,6 +713,11 @@ public class HomeWebController {
      * 只推送不拦截，对页面零副作用；JS 侧由 __fmNativeSniff / __fmNativeSniffQ 接收。
      */
     private void pushSniffedMedia(String url, String method, Map<String, String> requestHeaders) {
+        // 真实加载嗅探优先：命中即回传，不受「WebHome 嗅探开关」影响
+        HomeWebBridge active = bridge;
+        if (active != null && active.isRealLoading() && !TextUtils.isEmpty(url) && Sniffer.isVideoFormat(url)) {
+            active.onRealLoadResult(url, requestHeaders);
+        }
         if (!Setting.isWebHomeSniffer()) return;
         if (TextUtils.isEmpty(url) || !Sniffer.isVideoFormat(url)) return;
         if (!sniffedUrls.add(url)) return;
