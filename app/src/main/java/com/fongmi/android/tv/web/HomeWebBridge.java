@@ -315,10 +315,16 @@ public class HomeWebBridge {
     /**
      * 起播前把页面里的 video/audio 全部暂停并静音。
      * 网页播放器还在出声时切换播放器，ExoPlayer 会因音频焦点被抢走而「加载了第一帧就暂停」。
+     * 播放器通常在跨域 iframe 里，父页面拿不到它的 DOM，所以额外 postMessage 通知子框架自己停；
+     * 子框架侧由 HomeWebController.registerSilenceScript 注册的接收器处理。
      */
     private void pausePageMedia() {
-        String script = "(function(){try{var m=document.querySelectorAll('video,audio');"
-                + "for(var i=0;i<m.length;i++){try{m[i].pause();m[i].muted=true;m[i].volume=0;}catch(e){}}}catch(e){}})();";
+        String script = "(function(){var t=function(){"
+                + "try{var m=document.querySelectorAll('video,audio');"
+                + "for(var i=0;i<m.length;i++){try{m[i].pause();m[i].muted=true;m[i].volume=0;}catch(e){}}}catch(e){}"
+                + "try{var fr=document.querySelectorAll('iframe,frame');"
+                + "for(var j=0;j<fr.length;j++){try{if(fr[j].contentWindow)fr[j].contentWindow.postMessage({fmSilence:1},'*');}catch(e){}}}catch(e){}"
+                + "};t();setTimeout(t,300);setTimeout(t,1200);setTimeout(t,2500);})();";
         App.post(() -> {
             if (webView == null) return;
             try {
