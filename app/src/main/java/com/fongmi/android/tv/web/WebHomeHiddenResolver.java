@@ -58,8 +58,9 @@ public final class WebHomeHiddenResolver {
             Activity activity = App.activity();
             String siteKey = Json.safeString(payload, "siteKey");
             // 有站点 key 就用它，没有就退回当前首页源（WebHome 站点）
-            Site site = TextUtils.isEmpty(siteKey) ? VodConfig.get().getHome() : VodConfig.get().getSite(siteKey);
-            if (site == null) site = VodConfig.get().getHome();
+            Site selected = TextUtils.isEmpty(siteKey) ? VodConfig.get().getHome() : VodConfig.get().getSite(siteKey);
+            if (selected == null) selected = VodConfig.get().getHome();
+            final Site site = selected;
             String pageUrl = first(Json.safeString(payload, "pageUrl"), Json.safeString(payload, "href"), Json.safeString(payload, "url"));
             if (activity == null || site == null || !site.hasHomePage() || pageUrl.isEmpty()) {
                 SpiderDebug.log("webhome-inline", "hidden resolve skip activity=%s site=%s page=%s", activity != null, site == null ? "" : site.getKey(), pageUrl);
