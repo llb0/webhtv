@@ -65,11 +65,13 @@ public class HomeWebController {
     private final Activity activity;
     private final Set<String> injectedExtensions;
     private final Set<String> sniffedUrls;
+    private HomeWebBridge bridge;
     private final Runnable extensionReloadRunnable;
     private final boolean debugTools;
     private WebView webView;
     private final float density;
     private ScriptHandler documentStartHandler;
+    private boolean silenceRegistered;// 停播接收器只注册一次，避免换站点时重复堆叠
     private Site site;
     private String documentStartKey;
     private String defaultUserAgent;
@@ -121,7 +123,7 @@ public class HomeWebController {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.setOnFocusChangeListener((v, hasFocus) -> SpiderDebug.log("webhome-focus", "webview focus=%s visible=%s url=%s", hasFocus, isVisible(), webView.getUrl()));
         webView.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> injectViewport());
-        webView.addJavascriptInterface(new HomeWebBridge(this, activity, webView), BRIDGE);
+        webView.addJavascriptInterface(bridge = new HomeWebBridge(this, activity, webView), BRIDGE);
         webView.setWebViewClient(client());
         webView.setWebChromeClient(chrome());
         WebViewUtil.logProvider("webhome");
@@ -241,6 +243,40 @@ public class HomeWebController {
         consumeExtensionReload();
     }
 
+    /**
+     * 冷启动专用的隐藏实例：只准备站点脚本并加载指定页面，不接管 UI。
+     * 进程重启后网页里的脚本解析器没了，靠这个实例把同一套解析链路重新跑起来。
+     */
+    public boolean loadHidden(Site site, String url) {
+        if (site == null || !site.hasHomePage() || TextUtils.isEmpty(url)) return false;
+        this.site = site;
+        // 刻意不写 homePage：加载超时时走 onWebError 就好，别触发 recreateWebView 那套 UI 恢复
+        Server.get().start();
+        prepareExtensions(site);
+        registerDocumentStartScripts();
+        loadUrl(url);
+        return true;
+    }
+ 
+    /** 隐藏实例的解析入口：与网页里点击剧集走的是同一套逻辑。 */
+    public JsonObject resolveEpisode(JsonObject payload) throws Exception {
+        return bridge.resolveInlineEpisode(payload);
+    }
+ 
+    /** 隐藏实例用完即弃：从窗口摘下、停止加载、销毁 WebView。 */
+    public void destroyHidden() {
+        try {
+            if (active == this) active = null;
+            if (webView == null) return;
+            ViewGroup parent = (ViewGroup) webView.getParent();
+            if (parent != null) parent.removeView(webView);
+            webView.stopLoading();
+            webView.loadUrl("about:blank");
+            webView.destroy();
+        } catch (Throwable ignored) {
+        }
+    }
+ 
     public void hide() {
         webView.setVisibility(View.GONE);
     }
@@ -588,6 +624,7 @@ public class HomeWebController {
                 loadTimeoutRecoveries = 0;
                 lastPageUrl = url;
                 injectSdk();
+                if (bridge != null && bridge.isRealLoading()) bridge.injectRealLoadHook();
                 focusWebView("page-finished");
                 listener.onWebReady();
             }
@@ -711,6 +748,11 @@ public class HomeWebController {
      * 只推送不拦截，对页面零副作用；JS 侧由 __fmNativeSniff / __fmNativeSniffQ 接收。
      */
     private void pushSniffedMedia(String url, String method, Map<String, String> requestHeaders) {
+        // 真实加载嗅探优先：命中即回传，不受「WebHome 嗅探开关」影响
+        HomeWebBridge active = bridge;
+        if (active != null && active.isRealLoading() && !TextUtils.isEmpty(url) && Sniffer.isVideoFormat(url)) {
+            active.onRealLoadResult(url, requestHeaders);
+        }
         if (!Setting.isWebHomeSniffer()) return;
         if (TextUtils.isEmpty(url) || !Sniffer.isVideoFormat(url)) return;
         if (!sniffedUrls.add(url)) return;
@@ -770,10 +812,34 @@ public class HomeWebController {
         }
     }
 
+    /**
+     * 每个框架都装一个「停播开关」接收器。
+     * 播放器多半在跨域 iframe 里，父页面拿不到它的 DOM，只能靠 postMessage 通知它自己停下；
+     * 不停的话网页会一直出声，App 播放器抢不到音频焦点，表现就是「加载了第一帧就暂停」。
+     */
+    private void registerSilenceScript() {
+        if (silenceRegistered || webView == null || !isDocumentStartSupported()) return;
+        silenceRegistered = true;
+        String script = "(function(){if(window.__fmSilenceHooked)return;window.__fmSilenceHooked=1;"
+                + "var s=function(){"
+                + "try{var m=document.querySelectorAll('video,audio');for(var i=0;i<m.length;i++){try{m[i].pause();m[i].muted=true;m[i].volume=0;}catch(e){}}}catch(e){}"
+                + "try{var fr=document.querySelectorAll('iframe,frame');for(var j=0;j<fr.length;j++){try{if(fr[j].contentWindow)fr[j].contentWindow.postMessage({fmSilence:1},'*');}catch(e){}}}catch(e){}"
+                + "};"
+                + "window.addEventListener('message',function(e){var d=e&&e.data;if(!d||!d.fmSilence)return;"
+                + "s();var n=0;var t=setInterval(function(){s();if(++n>=20)clearInterval(t);},500);});"
+                + "})();";
+        try {
+            WebViewCompat.addDocumentStartJavaScript(webView, script, Collections.singleton("*"));
+        } catch (Throwable e) {
+            SpiderDebug.log("webhome-sniffer", "silence script register failed error=%s", e.getMessage());
+        }
+    }
+ 
     private void registerDocumentStartScripts() {
         removeDocumentStartScripts();
         resetSniffedMedia();
         registerSniffQueueScript();
+        registerSilenceScript();
         if (site == null || !isDocumentStartSupported()) return;
         String script = documentStartScript();
         if (TextUtils.isEmpty(script)) return;
