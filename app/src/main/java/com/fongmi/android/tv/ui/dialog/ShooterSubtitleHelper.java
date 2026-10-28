@@ -90,8 +90,9 @@ public final class ShooterSubtitleHelper {
         String scheme;
         String pathinfo;
         String fileName;
+        URI uri;
         try {
-            URI uri = URI.create(clean);
+            uri = URI.create(clean);
             scheme = uri.getScheme();
             pathinfo = clean;
             fileName = extractFileName(uri.getPath());
