@@ -75,6 +75,18 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         return !secondarySubtitle && type == C.TRACK_TYPE_TEXT && player.isVod();
     }
 
+    private boolean hasShooter() {
+        // 射手走文件特征哈希，只要是本地播放（含 file:// 和 9978/file 代理）都能跑
+        if (!hasChoose()) return false;
+        String url = player.getUrl();
+        if (url == null || url.isEmpty()) return false;
+        String lower = url.toLowerCase();
+        return lower.startsWith("file://")
+                || lower.startsWith("http://127.0.0.1")
+                || lower.startsWith("http://localhost")
+                || lower.matches("^https?://\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?/.*"); // 局域网 IP 代理
+    }
+ 
     private boolean hasText() {
         return !secondarySubtitle && type == C.TRACK_TYPE_TEXT && player.haveTrack(type);
     }
@@ -107,6 +119,7 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         binding.offset.setOnClickListener(this::onOffset);
         binding.choose.setOnClickListener(this::onChoose);
         binding.subtitle.setOnClickListener(this::onSubtitle);
+        binding.shooter.setOnClickListener(this::onShooter);
     }
 
     private void refreshTrackList() {
@@ -120,6 +133,7 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         binding.offset.setVisibility(hasText() || hasAudio() ? View.VISIBLE : View.GONE);
         binding.choose.setVisibility(hasChoose() ? View.VISIBLE : View.GONE);
         binding.subtitle.setVisibility(hasText() ? View.VISIBLE : View.GONE);
+        binding.shooter.setVisibility(hasShooter() ? View.VISIBLE : View.GONE);
     }
 
     private String getTitle() {
@@ -141,6 +155,12 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
         player.pause();
     }
 
+    private void onShooter(View view) {
+        Listener listener = (Listener) requireActivity();
+        App.post(listener::onShooterClick, 100);
+        dismiss();
+    }
+ 
     private void onSubtitle(View view) {
         Listener listener = (Listener) requireActivity();
         App.post(listener::onSubtitleClick, 100);
@@ -215,5 +235,7 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
     public interface Listener {
 
         void onSubtitleClick();
+ 
+        default void onShooterClick() {}
     }
 }
