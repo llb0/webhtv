@@ -1,7 +1,6 @@
 package com.fongmi.android.tv.ui.dialog;
  
-import android.util.Log;
- 
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -74,9 +73,9 @@ public final class ShooterSubtitleHelper {
         if (hash != null) {
             List<Candidate> r = postSearch(hash, file.getAbsolutePath(), title);
             if (!r.isEmpty()) return r;
-            Log.i(TAG, "hash search empty for " + file.getName() + ", fallback to pathinfo");
+            SpiderDebug.log(TAG, "hash search empty for " + file.getName() + ", fallback to pathinfo");
         } else {
-            Log.i(TAG, "hash unavailable for " + file.getName() + ", try pathinfo only");
+            SpiderDebug.log(TAG, "hash unavailable for " + file.getName() + ", try pathinfo only");
         }
         // 降级：空哈希 + pathinfo 搜索
         return postSearchTitle(file.getAbsolutePath(), title);
@@ -110,12 +109,12 @@ public final class ShooterSubtitleHelper {
                 if (hash != null) {
                     List<Candidate> r = postSearch(hash, clean, title);
                     if (!r.isEmpty()) return r;
-                    Log.i(TAG, "http hash search empty, fallback to pathinfo");
+                    SpiderDebug.log(TAG, "http hash search empty, fallback to pathinfo");
                 } else {
-                    Log.i(TAG, "http hash unavailable (no Range / too small), try pathinfo");
+                    SpiderDebug.log(TAG, "http hash unavailable (no Range / too small), try pathinfo");
                 }
             } else {
-                Log.i(TAG, "skip hash for index/interface url (" + ext + "), pathinfo only");
+                SpiderDebug.log(TAG, "skip hash for index/interface url (" + ext + "), pathinfo only");
             }
             return postSearchTitle(clean, title);
         }
@@ -157,7 +156,7 @@ public final class ShooterSubtitleHelper {
             }
             return sb.length() == 0 ? null : sb.toString();
         } catch (Exception e) {
-            Log.w(TAG, "computeHash failed", e);
+            SpiderDebug.log(TAG, "computeHash failed: " + e);
             return null;
         }
     }
@@ -167,7 +166,7 @@ public final class ShooterSubtitleHelper {
         try {
             long size = probeContentLength(url);
             if (size < MIN_FILE_SIZE) {
-                Log.i(TAG, "skip http: too small " + url + " size=" + size);
+                SpiderDebug.log(TAG, "skip http: too small " + url + " size=" + size);
                 return null;
             }
             long[] offsets = new long[]{4 * 1024L, size / 3 * 2, size / 3, Math.max(size - 8 * 1024L, 0L)};
@@ -181,7 +180,7 @@ public final class ShooterSubtitleHelper {
                         .get().build();
                 try (Response resp = OkHttp.client().newCall(req).execute()) {
                     if (resp.code() != 206 || resp.body() == null) {
-                        Log.w(TAG, "range fail code=" + resp.code() + " offset=" + offset + " url=" + url);
+                        SpiderDebug.log(TAG, "range fail code=" + resp.code() + " offset=" + offset + " url=" + url);
                         return null;
                     }
                     InputStream in = resp.body().byteStream();
@@ -199,7 +198,7 @@ public final class ShooterSubtitleHelper {
             }
             return sb.length() == 0 ? null : sb.toString();
         } catch (Exception e) {
-            Log.w(TAG, "computeHttpRangeHash fail " + url, e);
+            SpiderDebug.log(TAG, "computeHttpRangeHash fail " + url + ": " + e);
             return null;
         }
     }
@@ -257,13 +256,13 @@ public final class ShooterSubtitleHelper {
         Request request = new Request.Builder().url(API).header("User-Agent", UA).post(body).build();
         try (Response response = OkHttp.client().newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
-                Log.w(TAG, "search http fail code=" + response.code());
+                SpiderDebug.log(TAG, "search http fail code=" + response.code());
                 return new ArrayList<>();
             }
             String raw = response.body().string();
             if (raw == null || raw.isEmpty()) return new ArrayList<>();
             List<Candidate> r = parse(raw, displayName);
-            Log.i(TAG, (r.isEmpty() ? "no candidates" : r.size() + " candidates") + " for pathinfo=" + displayName);
+            SpiderDebug.log(TAG, (r.isEmpty() ? "no candidates" : r.size() + " candidates") + " for pathinfo=" + displayName);
             return r;
         }
     }
@@ -293,7 +292,7 @@ public final class ShooterSubtitleHelper {
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "parse failed", e);
+            SpiderDebug.log(TAG, "parse failed: " + e);
         }
         return out;
     }
