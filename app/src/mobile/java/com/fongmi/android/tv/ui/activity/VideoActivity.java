@@ -6853,7 +6853,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                     }
                 }));
             } catch (Exception e) {
-                Log.w("ShooterSub", "search fail", e);
+                SpiderDebug.log("ShooterSub", "search fail: " + e);
                 App.post(() -> Notify.show("射手字幕：搜索失败"));
             }
         });
@@ -6873,7 +6873,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                     Notify.show("射手字幕：已应用");
                 });
             } catch (Exception e) {
-                Log.w("ShooterSub", "download fail", e);
+                SpiderDebug.log("ShooterSub", "download fail: " + e);
                 App.post(() -> Notify.show("射手字幕：下载失败"));
             }
         });
