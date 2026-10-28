@@ -252,7 +252,7 @@ public class SiteApi {
         vod.setId(id);
         vod.setPic(ResUtil.getString(R.string.push_image));
         vod.setName(base.startsWith("file://") ? new java.io.File(base).getName() : "");
-        String url = base.startsWith("file://") ? toLanHttpUrl(base) : (base.contains("://") && base.contains("#") ? base.replace("#", "***") : base);
+        String url = base.startsWith("file://") ? toLanHttpUrl(base) : (base.contains("://") && base.contains("#") && !base.contains("$") ? base.replace("#", "***") : base);
         if (isThunderUrl(url)) {
             vod.setPlayUrl(url);
             vod.setPlayFrom("迅雷");
@@ -260,14 +260,26 @@ public class SiteApi {
             vod.setPlayUrl(url);
             vod.setPlayFrom("YouTube");
         } else if (url.contains("$")) {
-            vod.setPlayFrom("直链");
-            vod.setPlayUrl(TextUtils.join("#", url.split("\n")));
+            // 剧集包：集名$地址，多集用 # 或换行分隔。
+            // 地址往往是大纲页/播放页而不是直链，线路名必须给"嗅探"，
+            // 否则 buildPushPlayer 走 default 强制 parse=0，远端会把 HTML 当视频播。
+            String playUrl = url.contains("\n") ? TextUtils.join("#", url.split("\n")) : url;
+            vod.setPlayFrom(Sniffer.isVideoFormat(firstEpisodeUrl(playUrl)) ? "直链" : "嗅探");
+            vod.setPlayUrl(playUrl);
         } else {
             vod.setPlayUrl(TextUtils.join("$$$", Arrays.asList(url, url, url)));
             if (Sniffer.isVideoFormat(url)) vod.setPlayFrom(TextUtils.join("$$$", Arrays.asList("直链", "嗅探", "解析")));
             else vod.setPlayFrom(TextUtils.join("$$$", Arrays.asList("嗅探", "直链", "解析")));
         }
         return vod;
+    }
+ 
+    /** 取剧集包推送串里第一集的地址：集名$地址#集名$地址 -> 地址。 */
+    private static String firstEpisodeUrl(String playUrl) {
+        if (TextUtils.isEmpty(playUrl)) return "";
+        String first = playUrl.split("#")[0];
+        int index = first.indexOf('$');
+        return index >= 0 ? first.substring(index + 1).trim() : first.trim();
     }
  
     private static String toLanHttpUrl(String url) {
