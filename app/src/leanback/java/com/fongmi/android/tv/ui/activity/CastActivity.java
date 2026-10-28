@@ -8,7 +8,6 @@ import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 
@@ -44,6 +43,7 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.Traffic;
+import com.github.catvod.crawler.SpiderDebug;
 
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
@@ -479,7 +479,7 @@ public class CastActivity extends PlaybackActivity implements CustomKeyDownVod.L
                     }
                 }));
             } catch (Exception e) {
-                Log.w("ShooterSub", "search fail", e);
+                SpiderDebug.log("ShooterSub", "search fail: " + e);
                 App.post(() -> Notify.show("射手字幕：搜索失败"));
             }
         });
@@ -499,7 +499,7 @@ public class CastActivity extends PlaybackActivity implements CustomKeyDownVod.L
                     Notify.show("射手字幕：已应用");
                 });
             } catch (Exception e) {
-                Log.w("ShooterSub", "download fail", e);
+                SpiderDebug.log("ShooterSub", "download fail: " + e);
                 App.post(() -> Notify.show("射手字幕：下载失败"));
             }
         });
