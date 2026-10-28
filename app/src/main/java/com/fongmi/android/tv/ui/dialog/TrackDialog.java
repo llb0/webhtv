@@ -76,15 +76,52 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
     }
 
     private boolean hasShooter() {
-        // 射手走文件特征哈希，只要是本地播放（含 file:// 和 9978/file 代理）都能跑
+        // 射手走文件特征哈希，三类 URL 都能跑：
+        //   1) file:// 本地路径
+        //   2) http(s)://127.0.0.1 / localhost / 局域网 IP 代理（含远程推送过来的 9978/file）
+        //   3) http(s)://CDN 直链视频（排除 m3u8/mpd/txt/html 等索引/清单/接口文件）
         if (!hasChoose()) return false;
         String url = player.getUrl();
         if (url == null || url.isEmpty()) return false;
         String lower = url.toLowerCase();
-        return lower.startsWith("file://")
-                || lower.startsWith("http://127.0.0.1")
+        if (lower.startsWith("file://")) return true;
+        if (lower.startsWith("http://127.0.0.1")
                 || lower.startsWith("http://localhost")
-                || lower.matches("^https?://\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?/.*"); // 局域网 IP 代理
+                || lower.matches("^https?://\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?/.*")) return true;
+        // 在线 CDN 直链：URL path 以视频容器扩展名结尾，且不是 HLS/DASH/API
+        if (lower.startsWith("http://") || lower.startsWith("https://")) {
+            String path = stripQuery(lower);
+            if (path == null) return false;
+            int slash = path.lastIndexOf('/');
+            String fileName = slash >= 0 ? path.substring(slash + 1) : path;
+            String ext = extension(fileName);
+            if (ext.isEmpty()) return false;
+            switch (ext) {
+                case "mp4": case "mkv": case "avi": case "mov": case "flv":
+                case "webm": case "wmv": case "mpg": case "mpeg": case "m4v":
+                case "m2ts": case "mts": case "3gp": case "rmvb": case "ts":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        return false;
+    }
+ 
+    private static String stripQuery(String url) {
+        int q = url.indexOf('?');
+        int h = url.indexOf('#');
+        int cut = url.length();
+        if (q >= 0) cut = Math.min(cut, q);
+        if (h >= 0) cut = Math.min(cut, h);
+        return url.substring(0, cut);
+    }
+ 
+    private static String extension(String fileName) {
+        if (fileName == null) return "";
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0 || dot == fileName.length() - 1) return "";
+        return fileName.substring(dot + 1);
     }
  
     private boolean hasText() {
