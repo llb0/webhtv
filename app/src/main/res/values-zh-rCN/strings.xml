@@ -1038,7 +1038,7 @@
     <string name="theme_import_no_warnings">只会导入支持的颜色角色。</string>
     <string name="theme_import_warnings">导入提示：\n%1$s</string>
     <string name="setting_appearance">外观与语言</string>
-    <string name="setting_appearance_summary">5 项</string>
+    <string name="setting_appearance_summary">6 项</string>
     <string name="setting_auto">自动</string>
     <string name="setting_custom">自定义</string>
     <string name="setting_language">语言</string>
