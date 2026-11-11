@@ -1042,7 +1042,7 @@
     <string name="theme_import_no_warnings">Only supported color roles will be imported.</string>
     <string name="theme_import_warnings">Import warnings:\n%1$s</string>
     <string name="setting_appearance">Appearance &amp; language</string>
-    <string name="setting_appearance_summary">5 options</string>
+    <string name="setting_appearance_summary">6 options</string>
     <string name="setting_auto">Auto</string>
     <string name="setting_custom">Custom</string>
     <string name="setting_language">Language</string>
