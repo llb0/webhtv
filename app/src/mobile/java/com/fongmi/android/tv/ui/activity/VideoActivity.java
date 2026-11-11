@@ -4007,7 +4007,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             return;
         }
         CastVideo video = new CastVideo(mBinding.name.getText().toString(), player().getUrl(), player().getPosition(), player().getHeaders());
-        CastDialog.create().history(mHistory).video(video).fm(true).show(this);
+        // webhome_inline 的 VOD 只在发送端内存里，远端拿 history 必然 not found；
+        // 改写成自包含的 push_agent 推送串（真实地址 + 请求头）后再发。
+        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders())).video(video).fm(true).show(this);
     }
 
     private void onInfo() {
