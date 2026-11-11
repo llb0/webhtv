@@ -506,12 +506,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void setFunc() {
         mFuncAdapter.setItems(getFuncItems(), new BaseDiffCallback<Func>());
-        int count = mFuncAdapter.size();
-        if (count > 0) {
-            android.view.ViewGroup.LayoutParams params = mBinding.funcRecycler.getLayoutParams();
-            params.width = ResUtil.dp2px(64 * count + 4 * (count - 1) + 68);
+        // 宽度交给 RecyclerView 自己按内容量：以前用 64dp*count 手算，UI 缩放/字体变化后
+        // 会算得比内容窄，按钮被裁；wrap_content 跟着 item 实际尺寸走，也不挤右侧时钟
+        // （时钟在 LinearLayout 尾部右对齐，容器变宽变窄只影响按钮组自身）。
+        android.view.ViewGroup.LayoutParams params = mBinding.funcRecycler.getLayoutParams();
+        if (params.width != android.view.ViewGroup.LayoutParams.WRAP_CONTENT) {
+            params.width = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
             mBinding.funcRecycler.setLayoutParams(params);
         }
+        mBinding.funcRecycler.requestLayout();
     }
 
     private List<Func> getFuncItems() {
@@ -831,11 +834,30 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             showHomeMenu();
             return true;
         }
+        // 标题栏按钮组左右不环形：直播再往左、设置再往右都回到标题，
+        // 否则会在按钮组里首尾互相跳（直播←→设置）。
+        if (KeyUtil.isActionDown(event) && mBinding.funcRecycler.hasFocus() && (KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event))) {
+            View funcFocus = getCurrentFocus();
+            View funcItem = funcFocus == null ? null : mBinding.funcRecycler.findContainingItemView(funcFocus);
+            int position = funcItem == null ? -1 : mBinding.funcRecycler.getChildAdapterPosition(funcItem);
+            int count = mFuncAdapter.size();
+            if (KeyUtil.isLeftKey(event) && position == 0 && count > 0) {
+                requestTitleFocus();
+                return true;
+            }
+            if (KeyUtil.isRightKey(event) && position == count - 1 && count > 0) {
+                requestTitleFocus();
+                return true;
+            }
+        }
         // 视频列表/筛选左右环形跳转（放在最前面，确保在VerticalGridView处理之前消费）
         if (KeyUtil.isActionDown(event) && (KeyUtil.isLeftKey(event) || KeyUtil.isRightKey(event))) {
             View focus = getCurrentFocus();
             if (focus != null && mBinding.recycler.getVisibility() == View.VISIBLE) {
                 HorizontalGridView grid = findHorizontalGridView(focus);
+                // 标题栏按钮组也是 HorizontalGridView，别被下面这段"列表首尾环形"逻辑抓走，
+                // 否则直播按左会跑到设置、设置按右会跑到直播。
+                if (grid == mBinding.funcRecycler) grid = null;
                 if (grid != null && grid.getAdapter() != null) {
                     int position = grid.getSelectedPosition();
                     int count = grid.getAdapter().getItemCount();
