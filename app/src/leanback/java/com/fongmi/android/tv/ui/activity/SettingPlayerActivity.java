@@ -7,6 +7,7 @@ import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 
 import androidx.viewbinding.ViewBinding;
 
@@ -118,7 +119,7 @@ public class SettingPlayerActivity extends BaseActivity implements UaListener, B
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        View parent = mBinding.render.getParent();
+        ViewParent parent = mBinding.render.getParent();
         if (parent instanceof ViewGroup && FocusLoop.handleChildGrid((ViewGroup) parent, 1, FocusLoop.Mode.VERTICAL, event)) return true;
         return super.dispatchKeyEvent(event);
     }
