@@ -994,7 +994,7 @@
     <string name="theme_import_no_warnings">只會匯入支援的顏色角色。</string>
     <string name="theme_import_warnings">匯入提示：\n%1$s</string>
     <string name="setting_appearance">外觀與語言</string>
-    <string name="setting_appearance_summary">5 項</string>
+    <string name="setting_appearance_summary">6 項</string>
     <string name="setting_auto">自動</string>
     <string name="setting_custom">自訂</string>
     <string name="setting_language">語言</string>
