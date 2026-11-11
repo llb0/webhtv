@@ -9013,6 +9013,11 @@ private boolean runtimeSourceOnly;
             else if (menuKey == Setting.FULLSCREEN_MENU_KEY_NEXT_EPISODE) onMenuNextEpisode();
             else onToggle();
         }
+        // 详情页（小窗预览状态）的菜单键等同于该页可见的「简介」按钮。
+        if (!isFullscreen() && KeyUtil.isMenuKey(event) && isVisible(mBinding.content)) {
+            onContent();
+            return true;
+        }
         if (isVisible(mBinding.control.getRoot())) {
             setR1Callback();
             if (dispatchOpeningEndingAdjust(event)) return true;

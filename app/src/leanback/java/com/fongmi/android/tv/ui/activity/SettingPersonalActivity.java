@@ -8,7 +8,6 @@ import android.view.View;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.bean.HomeButton;
 import com.fongmi.android.tv.databinding.ActivitySettingPersonalBinding;
 import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.event.RefreshEvent;
@@ -22,7 +21,6 @@ import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.theme.WebHtvAlertDialogBuilder;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.GroupRuleDialog;
-import com.fongmi.android.tv.ui.dialog.HomeButtonDialog;
 import com.fongmi.android.tv.ui.dialog.HomeMenuKeyDialog;
 import com.fongmi.android.tv.ui.dialog.SpeedSettingDialog;
 import com.fongmi.android.tv.ui.dialog.SliderNumberDialog;
@@ -59,16 +57,14 @@ public class SettingPersonalActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        mBinding.homeVodAutoLoad.requestFocus();
+        mBinding.following.requestFocus();
         setText();
     }
 
     @Override
     protected void initEvent() {
-        mBinding.homeVodAutoLoad.setOnClickListener(this::setHomeVodAutoLoad);
         mBinding.following.setOnClickListener(this::setFollowing);
         mBinding.autoBackup.setOnClickListener(this::setAutoBackup);
-        mBinding.homeButtons.setOnClickListener(this::onHomeButtons);
         mBinding.fullscreenMenuKey.setOnClickListener(this::setFullscreenMenuKey);
         mBinding.homeMenuKey.setOnClickListener(this::setHomeMenuKey);
         mBinding.playBackToDetail.setOnClickListener(this::setPlayBackToDetail);
@@ -95,10 +91,8 @@ public class SettingPersonalActivity extends BaseActivity {
     }
 
     private void setText() {
-        mBinding.homeVodAutoLoadText.setText(getSwitch(Setting.isHomeVodAutoLoad()));
         mBinding.followingText.setText(getSwitch(FollowingSettings.isEnabled()));
         mBinding.autoBackupText.setText(getSwitch(isAutoBackupEnabled()));
-        mBinding.homeButtonsText.setText(getString(R.string.home_buttons_selected, HomeButton.getButtons().size(), HomeButton.all().size()));
         mBinding.fullscreenMenuKeyText.setText((fullscreenMenuKey = getResources().getStringArray(R.array.select_fullscreen_menu_key))[Setting.getFullscreenMenuKey()]);
         mBinding.homeMenuKeyText.setText((homeMenuKey = getResources().getStringArray(R.array.select_home_menu_key))[Setting.getHomeMenuKey()]);
         mBinding.playBackToDetailText.setText(getSwitch(Setting.isPlayBackToDetail()));
@@ -128,11 +122,6 @@ public class SettingPersonalActivity extends BaseActivity {
 
     private String getSpeedText(float speed) {
         return String.format(Locale.US, "%.2f", speed);
-    }
-
-    private void setHomeVodAutoLoad(View view) {
-        Setting.putHomeVodAutoLoad(!Setting.isHomeVodAutoLoad());
-        setText();
     }
 
     private void setFollowing(View view) {
@@ -167,10 +156,6 @@ public class SettingPersonalActivity extends BaseActivity {
 
     private boolean isAutoBackupEnabled() {
         return AutoBackupPolicy.isEffective(Setting.isAutoBackup(), Setting.hasFileAccess());
-    }
-
-    private void onHomeButtons(View view) {
-        HomeButtonDialog.show(this, this::setText);
     }
 
     private void setFullscreenMenuKey(View view) {

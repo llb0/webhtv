@@ -46,6 +46,7 @@ import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.event.ServerEvent;
 import com.fongmi.android.tv.following.FollowingScheduler;
+import com.fongmi.android.tv.following.FollowingSettings;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.player.Source;
@@ -514,12 +515,21 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private List<Func> getFuncItems() {
+        return getFuncItems(false);
+    }
+
+    /**
+     * 首页菜单里追更新开关打开时，在「设置」前面插一个「追更」入口，点开就是追更管理界面；
+     * 首页按钮行保持用户自己配置的按钮集合，不跟着菜单一起变。
+     */
+    private List<Func> getFuncItems(boolean forMenu) {
         List<Func> items = new ArrayList<>();
         if (LiveConfig.hasLoadedLives()) items.add(Func.create(R.string.home_live));
         items.add(Func.create(R.string.home_search));
         items.add(Func.create(R.string.home_history));
         items.add(Func.create(R.string.home_keep));
         items.add(Func.create(R.string.home_push));
+        if (forMenu && FollowingSettings.isEnabled()) items.add(Func.create(R.string.home_following));
         items.add(Func.create(R.string.home_setting));
         return items;
     }
@@ -619,6 +629,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         else if (item.getResId() == R.string.home_history) HistoryActivity.start(this);
         else if (item.getResId() == R.string.home_push) PushActivity.start(this);
         else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
+        else if (item.getResId() == R.string.home_following) FollowingActivity.start(this);
         else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
     }
 
@@ -711,7 +722,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void showHomeMenu() {
-        List<Func> funcs = getFuncItems();
+        List<Func> funcs = getFuncItems(true);
         boolean hasRecommend = mHomeResult != null && !mHomeResult.getList().isEmpty();
         List<Class> types = mHomeResult == null ? new ArrayList<>() : mHomeResult.getTypes();
         mMenuButtonCount = 2 + funcs.size(); // 选站 + 多仓 + funcs
@@ -738,7 +749,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             return;
         }
         if (which >= 2 && which < mMenuButtonCount) {
-            onItemClick(getFuncItems().get(which - 2));
+            onItemClick(getFuncItems(true).get(which - 2));
             return;
         }
         if (which == mMenuButtonCount) {
@@ -969,8 +980,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      */
     private void confirmExitHome() {
         finish();
+        boolean autoBackup = AutoBackupPolicy.isEffective(Setting.isAutoBackup(), Setting.hasFileAccess());
         Task.execute(() -> {
-            AppDatabase.backupOnExitSync();
+            if (autoBackup) AppDatabase.backupOnExitSync();
             CacheScheduler.get().runExitCleanup();
             Process.killProcess(Process.myPid());
             System.exit(0);
