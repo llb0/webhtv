@@ -5126,8 +5126,12 @@ private boolean runtimeSourceOnly;
      */
     private void onPlaybackSetting() {
         boolean wasPlaying = service() != null && player() != null && player().isPlaying();
+        int scaleBefore = PlayerSetting.getScale();
+        boolean[] displayBefore = PlayerSetting.getDisplayChecked();
+        int badgeBefore = PlayerSetting.getMediaBadgeChoice();
         boolean shown = PlaybackSettingDialog.show(this, () -> {
             if (isFinishing() || isDestroyed()) return;
+            applyPanelSettings(scaleBefore, displayBefore, badgeBefore);
             if (wasPlaying && service() != null && player() != null && !player().isPlaying()) player().play();
         });
         if (!shown) return;
@@ -5137,6 +5141,25 @@ private boolean runtimeSourceOnly;
         mDialogReturnFocus = mBinding.control.getRoot().findFocus();
         // 面板铺满播放画面：确认面板真的打开了，才把播放暂停。
         if (wasPlaying && player() != null) player().pause();
+    }
+
+    /**
+     * 面板关掉后把面板里改动过、且当前实例能立刻吃到的设置补上：
+     * 画面比例直接重设；屏显（时间/网速/媒体徽标/角位/诊断）重开一次 OSD 循环读取新值。
+     * 内核、渲染、缓冲这类需要重建播放器的设置不在这里强行生效，等下次加载。
+     */
+    private void applyPanelSettings(int scaleBefore, boolean[] displayBefore, int badgeBefore) {
+        if (service() == null || player() == null) return;
+        int scale = PlayerSetting.getScale();
+        if (scale != scaleBefore) {
+            applyResizeMode(scale);
+            mBinding.control.action.scale.setText(ResUtil.getStringArray(R.array.select_scale)[scale]);
+        }
+        // 屏显开关/媒体徽标角位真的改过才重开 OSD 循环，避免只是打开面板看一眼也打断屏显。
+        if (badgeBefore != PlayerSetting.getMediaBadgeChoice()
+                || !java.util.Arrays.equals(displayBefore, PlayerSetting.getDisplayChecked())) {
+            onDisplayChanged();
+        }
     }
 
     private void onCast() {
