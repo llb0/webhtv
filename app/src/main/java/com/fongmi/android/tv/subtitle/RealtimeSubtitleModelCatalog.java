@@ -8,7 +8,15 @@ final class RealtimeSubtitleModelCatalog {
         OFFLINE_MOONSHINE
     }
 
-    record ModelFile(String relativePath, String url, long size, String sha256) {
+    record ModelFile(String relativePath, String url, String fallbackUrl, long size, String sha256) {
+
+        ModelFile(String relativePath, String url, long size, String sha256) {
+            this(relativePath, url, "", size, sha256);
+        }
+
+        String[] urls() {
+            return fallbackUrl == null || fallbackUrl.isEmpty() ? new String[]{url} : new String[]{url, fallbackUrl};
+        }
     }
 
     record ModelSpec(String id, String directory, Engine engine, int minRamMb, boolean needsVad, ModelFile[] files) {
@@ -92,7 +100,12 @@ final class RealtimeSubtitleModelCatalog {
         return files;
     }
 
+    /** 国内可直连的 Hugging Face 镜像；2026-11 实测四个中文模型文件与上游逐字节一致，且支持 Range 续传。 */
+    private static final String MIRROR = "https://hf-mirror.com/";
+    private static final String ORIGIN = "https://huggingface.co/";
+
     private static ModelFile file(String path, String repo, String revision, long size, String sha256) {
-        return new ModelFile(path, "https://huggingface.co/" + repo + "/resolve/" + revision + "/" + path, size, sha256);
+        String suffix = repo + "/resolve/" + revision + "/" + path;
+        return new ModelFile(path, MIRROR + suffix, ORIGIN + suffix, size, sha256);
     }
 }
