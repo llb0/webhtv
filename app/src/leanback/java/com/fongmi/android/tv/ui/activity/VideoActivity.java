@@ -256,6 +256,7 @@ import com.fongmi.android.tv.ui.dialog.CastDialog;
 import com.fongmi.android.tv.ui.dialog.ControlDialog;
 import com.fongmi.android.tv.ui.dialog.PanNetworkDiagnosticDialog;
 import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
+import com.fongmi.android.tv.ui.dialog.PlaybackSettingDialog;
 import com.fongmi.android.tv.ui.dialog.QuickSearchDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TitleDialog;
@@ -5125,14 +5126,17 @@ private boolean runtimeSourceOnly;
      */
     private void onPlaybackSetting() {
         boolean wasPlaying = service() != null && player() != null && player().isPlaying();
-        // 面板期间停掉控制栏自动隐藏：否则 3 秒后控制栏被置 GONE，关面板后遥控没有落点。
-        App.removeCallbacks(mR1);
-        mDialogReturnFocus = mBinding.control.getRoot().findFocus();
         boolean shown = PlaybackSettingDialog.show(this, () -> {
+            if (isFinishing() || isDestroyed()) return;
             if (wasPlaying && service() != null && player() != null && !player().isPlaying()) player().play();
         });
-        // 面板铺满播放画面：确认面板真的打开了，才把播放暂停；面板没开就别乱暂停。
-        if (shown && wasPlaying && player() != null) player().pause();
+        if (!shown) return;
+        // 面板期间停掉控制栏自动隐藏：否则 3 秒后控制栏被置 GONE，关面板后遥控没有落点。
+        App.removeCallbacks(mR1);
+        // 记下进面板前的焦点，关面板后由 onWindowFocusChanged 还给控制栏原来的按钮。
+        mDialogReturnFocus = mBinding.control.getRoot().findFocus();
+        // 面板铺满播放画面：确认面板真的打开了，才把播放暂停。
+        if (wasPlaying && player() != null) player().pause();
     }
 
     private void onCast() {
@@ -9040,11 +9044,19 @@ private boolean runtimeSourceOnly;
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        // 播放设置面板开着时，遥控键只归面板：不让播放页再处理菜单/方向键去切控制栏、重开面板。
-        // 极端情况下按键漏到播放页（个别设备对话框窗口没拿到焦点），也按返回键把面板关掉，别直接退出播放。
+        // 播放设置面板开着时，菜单/方向/确定/返回这些键只归面板：不让播放页再切控制栏、重开面板。
+        // 只有极端情况下按键才会漏到播放页（个别设备对话框窗口没拿到焦点）；音量等系统键照常放行。
         if (PlaybackSettingDialog.isShowing(this)) {
-            if (KeyUtil.isBackKey(event) && KeyUtil.isActionUp(event)) PlaybackSettingDialog.dismissIfShowing(this);
-            return true;
+            int keyCode = event.getKeyCode();
+            if (KeyUtil.isBackKey(event)) {
+                if (KeyUtil.isActionUp(event)) PlaybackSettingDialog.dismissIfShowing(this);
+                return true;
+            }
+            if (KeyUtil.isMenuKey(event)) return true;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                    || keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                    || keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
+                    || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) return true;
         }
         if (dispatchDiscMenuKey(event)) return true;
         if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;

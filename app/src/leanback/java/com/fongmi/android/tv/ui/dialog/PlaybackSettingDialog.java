@@ -12,7 +12,9 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
+import androidx.fragment.app.FragmentManager;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
@@ -68,8 +70,8 @@ public class PlaybackSettingDialog extends BaseBottomSheetDialog implements UaLi
 
     public static boolean show(FragmentActivity activity, Runnable onDismiss) {
         if (activity == null || activity.getSupportFragmentManager().isStateSaved()) return false;
-        androidx.fragment.app.FragmentManager manager = activity.getSupportFragmentManager();
-        androidx.fragment.app.Fragment existing = manager.findFragmentByTag(TAG);
+        FragmentManager manager = activity.getSupportFragmentManager();
+        Fragment existing = manager.findFragmentByTag(TAG);
         if (existing instanceof PlaybackSettingDialog) return false;
         PlaybackSettingDialog dialog = new PlaybackSettingDialog();
         dialog.onDismissListener = onDismiss;
@@ -265,7 +267,7 @@ public class PlaybackSettingDialog extends BaseBottomSheetDialog implements UaLi
     }
 
     private void onLut(View view) {
-        LutDialog.show(this, null, () -> mBinding.lutText.setText(LutSetting.getSummary()));
+        LutDialog.show(this, () -> mBinding.lutText.setText(LutSetting.getSummary()));
     }
 
     private void setMpvRows() {
