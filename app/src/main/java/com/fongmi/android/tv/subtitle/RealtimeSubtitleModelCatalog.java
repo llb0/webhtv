@@ -22,6 +22,11 @@ final class RealtimeSubtitleModelCatalog {
         public String[] urls() {
             return urls.clone();
         }
+
+        /** 首选地址；下载器会按 {@link #urls()} 的顺序依次尝试。 */
+        String url() {
+            return urls.length == 0 ? "" : urls[0];
+        }
     }
 
     record ModelSpec(String id, String directory, Engine engine, int minRamMb, boolean needsVad, ModelFile[] files) {
