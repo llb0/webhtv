@@ -35,8 +35,7 @@
             <item
                 android:id="@+id/multi_repo"
                 android:icon="@drawable/ic_multi_repo"
-                android:title="@string/multi_repo"
-                app:iconTint="?attr/colorOnSurface" />
+                android:title="@string/multi_repo" />
 
             <item
                 android:id="@+id/refresh"
