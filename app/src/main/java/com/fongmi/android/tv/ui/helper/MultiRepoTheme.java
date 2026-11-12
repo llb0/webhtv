@@ -55,7 +55,7 @@ public final class MultiRepoTheme {
     }
 
     public static int danger(Context context) {
-        return tv() ? tokens().colorError() : attr(context, com.google.android.material.R.attr.colorError, 0xFFD93025);
+        return tv() ? tokens().colorError() : attr(context, androidx.appcompat.R.attr.colorError, 0xFFD93025);
     }
 
     public static int onPrimary(Context context) {
@@ -94,10 +94,10 @@ public final class MultiRepoTheme {
         // 选中/聚焦改用 primaryContainer + primary；不再写死蓝色。
         boolean highlight = focused || selected;
         int fill = highlight
-                ? attr(context, com.google.android.material.R.attr.colorPrimaryContainer, 0xFFE8F0FE)
+                ? attr(context, androidx.appcompat.R.attr.colorPrimaryContainer, 0xFFE8F0FE)
                 : attr(context, com.google.android.material.R.attr.colorSurfaceContainer, 0xFFFFFFFF);
         int stroke = highlight
-                ? attr(context, com.google.android.material.R.attr.colorPrimary, 0xFF1A73E8)
+                ? attr(context, androidx.appcompat.R.attr.colorPrimary, 0xFF1A73E8)
                 : attr(context, com.google.android.material.R.attr.colorOutline, 0xFFDADCE0);
         int text = highlight
                 ? attr(context, com.google.android.material.R.attr.colorOnPrimaryContainer, 0xFF174EA6)
@@ -119,15 +119,15 @@ public final class MultiRepoTheme {
             return;
         }
         int fill = focused
-                ? attr(context, com.google.android.material.R.attr.colorPrimaryContainer, 0xFFE8F0FE)
+                ? attr(context, androidx.appcompat.R.attr.colorPrimaryContainer, 0xFFE8F0FE)
                 : attr(context, com.google.android.material.R.attr.colorSurfaceContainer, 0xFFFFFFFF);
         int stroke = focused
-                ? attr(context, com.google.android.material.R.attr.colorPrimary, 0xFF1A73E8)
+                ? attr(context, androidx.appcompat.R.attr.colorPrimary, 0xFF1A73E8)
                 : attr(context, com.google.android.material.R.attr.colorOutline, 0xFFDADCE0);
         int icon = focused
-                ? attr(context, com.google.android.material.R.attr.colorPrimary, 0xFF1A73E8)
+                ? attr(context, androidx.appcompat.R.attr.colorPrimary, 0xFF1A73E8)
                 : dangerIcon
-                ? attr(context, com.google.android.material.R.attr.colorError, 0xFFD93025)
+                ? attr(context, androidx.appcompat.R.attr.colorError, 0xFFD93025)
                 : attr(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFF5F6368);
         button.setBackgroundTintList(ColorStateList.valueOf(fill));
         button.setStrokeColor(ColorStateList.valueOf(stroke));
@@ -145,7 +145,7 @@ public final class MultiRepoTheme {
             return;
         }
         button.setBackgroundTintList(ColorStateList.valueOf(
-                attr(context, com.google.android.material.R.attr.colorPrimary, 0xFF1A73E8)));
+                attr(context, androidx.appcompat.R.attr.colorPrimary, 0xFF1A73E8)));
         button.setTextColor(ColorStateList.valueOf(
                 attr(context, com.google.android.material.R.attr.colorOnPrimary, Color.WHITE)));
         button.setStrokeWidth(0);
@@ -162,10 +162,10 @@ public final class MultiRepoTheme {
         }
         button.setTextColor(ColorStateList.valueOf(
                 focused
-                        ? attr(context, com.google.android.material.R.attr.colorPrimary, 0xFF1A73E8)
+                        ? attr(context, androidx.appcompat.R.attr.colorPrimary, 0xFF1A73E8)
                         : attr(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFF5F6368)));
         button.setBackgroundTintList(ColorStateList.valueOf(Color.TRANSPARENT));
-        button.setStrokeWidth(Res(dp(context, 1)));
+        button.setStrokeWidth(dp(context, 1));
         button.setStrokeColor(ColorStateList.valueOf(
                 attr(context, com.google.android.material.R.attr.colorOutline, 0xFFDADCE0)));
     }
@@ -178,7 +178,7 @@ public final class MultiRepoTheme {
                 tv() ? tokens().colorSurfaceContainerHigh() : attr(context, com.google.android.material.R.attr.colorSurfaceContainerHigh, 0xFFF3EDF7),
                 tv() ? tokens().colorOutline() : attr(context, com.google.android.material.R.attr.colorOutline, 0xFFDADCE0),
                 12, 1));
-        edit.setPadding(Res(dp(context, 12)), edit.getPaddingTop(), Res(dp(context, 12)), edit.getPaddingBottom());
+        edit.setPadding(dp(context, 12), edit.getPaddingTop(), dp(context, 12), edit.getPaddingBottom());
     }
 
     public static void applyLabel(MaterialTextView label) {
