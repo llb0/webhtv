@@ -5125,9 +5125,11 @@ private boolean runtimeSourceOnly;
      */
     private void onPlaybackSetting() {
         boolean wasPlaying = service() != null && player() != null && player().isPlaying();
-        PlaybackSettingDialog.show(this, () -> {
+        boolean shown = PlaybackSettingDialog.show(this, () -> {
             if (wasPlaying && service() != null && player() != null && !player().isPlaying()) player().play();
         });
+        // 面板铺满播放画面：确认面板真的打开了，才把播放暂停；面板没开就别乱暂停。
+        if (shown && wasPlaying && player() != null) player().pause();
     }
 
     private void onCast() {

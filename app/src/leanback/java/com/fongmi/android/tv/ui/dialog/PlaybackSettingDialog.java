@@ -65,14 +65,15 @@ public class PlaybackSettingDialog extends BaseBottomSheetDialog implements UaLi
     private String[] badgePosition;
     private String[] osd;
 
-    public static void show(androidx.fragment.app.FragmentActivity activity, Runnable onDismiss) {
-        if (activity == null || activity.getSupportFragmentManager().isStateSaved()) return;
+    public static boolean show(androidx.fragment.app.FragmentActivity activity, Runnable onDismiss) {
+        if (activity == null || activity.getSupportFragmentManager().isStateSaved()) return false;
         androidx.fragment.app.FragmentManager manager = activity.getSupportFragmentManager();
         androidx.fragment.app.Fragment existing = manager.findFragmentByTag(TAG);
-        if (existing instanceof PlaybackSettingDialog) return;
+        if (existing instanceof PlaybackSettingDialog) return false;
         PlaybackSettingDialog dialog = new PlaybackSettingDialog();
         dialog.onDismissListener = onDismiss;
         dialog.show(manager, TAG);
+        return true;
     }
 
     @Override
