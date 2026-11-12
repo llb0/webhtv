@@ -12,6 +12,7 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
@@ -65,7 +66,7 @@ public class PlaybackSettingDialog extends BaseBottomSheetDialog implements UaLi
     private String[] badgePosition;
     private String[] osd;
 
-    public static boolean show(androidx.fragment.app.FragmentActivity activity, Runnable onDismiss) {
+    public static boolean show(FragmentActivity activity, Runnable onDismiss) {
         if (activity == null || activity.getSupportFragmentManager().isStateSaved()) return false;
         androidx.fragment.app.FragmentManager manager = activity.getSupportFragmentManager();
         androidx.fragment.app.Fragment existing = manager.findFragmentByTag(TAG);
