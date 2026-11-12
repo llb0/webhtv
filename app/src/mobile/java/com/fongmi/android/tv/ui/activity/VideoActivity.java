@@ -615,17 +615,39 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         else if (!dispatchToContentHandler(activity, push.getUrl(), title)) start(activity, SiteApi.PUSH, push.getId(), TextUtils.isEmpty(name) ? push.getName() : name);
     }
 
-    private static boolean sPendingFullscreen;
+    /**
+     * 点名「下一次打开这条视频直接全屏」。用 key+id 绑定目标，而不是一个全局布尔：
+     * 历史/收藏点击可能被路由到 TMDB 详情、搜索页或阅读器，布尔标记会滞留下来，
+     * 把之后随便打开的一部片子顶成全屏；按条目绑定就不会误伤别的视频。
+     */
+    private static String sPendingFullscreenTarget;
+    private static String sPendingFullscreenName;
+
+    public static void requestFullscreenFor(String key, String id, String name) {
+        sPendingFullscreenTarget = fullscreenTarget(key, id);
+        // 源变更时续播会走「按片名全站搜索」，用户在结果里换源播放时 key/id 已经不同，
+        // 额外记住片名，让这条续播链在换源后仍然直接全屏。
+        sPendingFullscreenName = name == null ? "" : name;
+    }
 
     public static void startFullscreen(Activity activity, History history) {
-        sPendingFullscreen = true;
+        requestFullscreenFor(history.getSiteKey(), history.getVodId(), history.getVodName());
         start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, history.getWallPic());
     }
 
-    private static boolean consumePendingFullscreen() {
-        boolean pending = sPendingFullscreen;
-        sPendingFullscreen = false;
-        return pending;
+    private static String fullscreenTarget(String key, String id) {
+        return (key == null ? "" : key) + AppDatabase.SYMBOL + (id == null ? "" : id);
+    }
+
+    private boolean takePendingFullscreen() {
+        String pending = sPendingFullscreenTarget;
+        if (pending == null) return false;
+        // 一次性消费：这次打开的是别的片子就顺手作废，避免很久以后打开同名条目突然全屏。
+        sPendingFullscreenTarget = null;
+        String pendingName = sPendingFullscreenName;
+        sPendingFullscreenName = null;
+        if (pending.equals(fullscreenTarget(getKey(), getId()))) return true;
+        return !TextUtils.isEmpty(pendingName) && pendingName.equals(getName());
     }
 
     @Override
@@ -2451,7 +2473,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void checkLand() {
-        if (consumePendingFullscreen() || (isPort() && ResUtil.isLand(this))) enterFullscreen();
+        boolean requested = takePendingFullscreen();
+        if (requested || (isPort() && ResUtil.isLand(this))) enterFullscreen();
+        // 播放器实例还没就绪时 enterFullscreen 会直接返回，把请求留给这条片子下次进来再用，
+        // 不能因为一次时序问题就让「历史/收藏点播全屏」失效。
+        if (requested && !isFullscreen()) requestFullscreenFor(getKey(), getId(), getName());
     }
 
     private void getDetail() {
