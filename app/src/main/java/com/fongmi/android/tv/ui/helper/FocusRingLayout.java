@@ -81,6 +81,30 @@ public class FocusRingLayout extends LinearLayout {
             }
         }
         if (nearest != null) return nearest;
+        // 接口列表和站点网格是两个独立 RecyclerView，行高不一致时同一水平带里可能没有对方：
+        // 这里显式跨容器补一次（只按方向取最近的另一个容器项），保证左右能走到另一个列表。
+        ViewGroup container = containerOf(current);
+        View cross = null;
+        int crossDistance = Integer.MAX_VALUE;
+        int crossOffset = Integer.MAX_VALUE;
+        for (View view : candidates) {
+            ViewGroup other = containerOf(view);
+            if (other == null || other == container) continue;
+            // 只跨同一水平区域的容器（左接口列表/右站点网格）；顶部仓库栏是另一条横带，不参与。
+            Rect otherBounds = bounds(other);
+            if (otherBounds.isEmpty() || !overlapsVertically(cur, otherBounds)) continue;
+            Rect rect = bounds(view);
+            if (rect.isEmpty()) continue;
+            int distance = right ? rect.left - cur.right : cur.left - rect.right;
+            if (distance < 0) continue;
+            int offset = Math.abs(rect.centerY() - cur.centerY());
+            if (distance < crossDistance || (distance == crossDistance && offset < crossOffset)) {
+                cross = view;
+                crossDistance = distance;
+                crossOffset = offset;
+            }
+        }
+        if (cross != null) return cross;
         // 这一行到头了：回绕到同一水平带的最左/最右；没有同带项时回绕到整窗最左/最右。
         Rect bestRect = null;
         for (View view : candidates) {
@@ -101,6 +125,15 @@ public class FocusRingLayout extends LinearLayout {
             }
         }
         return nearest;
+    }
+
+    private static ViewGroup containerOf(View view) {
+        ViewParent parent = view.getParent();
+        while (parent instanceof View) {
+            if (parent instanceof ViewGroup && parent instanceof RecyclerView) return (ViewGroup) parent;
+            parent = ((View) parent).getParent();
+        }
+        return null;
     }
 
     private static boolean overlapsVertically(Rect a, Rect b) {
