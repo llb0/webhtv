@@ -8,23 +8,39 @@ final class RealtimeSubtitleModelCatalog {
         OFFLINE_MOONSHINE
     }
 
-    record ModelFile(String relativePath, String url, String fallbackUrl, long size, String sha256) {
+    record ModelFile(String relativePath, String[] urls, long size, String sha256) {
 
         ModelFile(String relativePath, String url, long size, String sha256) {
-            this(relativePath, url, "", size, sha256);
+            this(relativePath, new String[]{url}, size, sha256);
         }
 
-        String[] urls() {
-            return fallbackUrl == null || fallbackUrl.isEmpty() ? new String[]{url} : new String[]{url, fallbackUrl};
+        ModelFile(String relativePath, String url, String fallbackUrl, long size, String sha256) {
+            this(relativePath, fallbackUrl == null || fallbackUrl.isEmpty() ? new String[]{url} : new String[]{url, fallbackUrl}, size, sha256);
+        }
+
+        @Override
+        public String[] urls() {
+            return urls.clone();
         }
     }
 
     record ModelSpec(String id, String directory, Engine engine, int minRamMb, boolean needsVad, ModelFile[] files) {
     }
 
+    /** VAD 只发布在 GitHub Release，国内常不通，所以按前缀加速源依次尝试，最后回落到 origin。 */
+    private static final String VAD_ORIGIN = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx";
+
+    private static final String[] GITHUB_MIRRORS = {
+            "https://gh-proxy.com/",
+            "https://ghfast.top/",
+            "https://gh-proxy.org/",
+            "https://github.chenc.dev/",
+            "https://gh.monlor.com/"
+    };
+
     private static final ModelFile VAD = new ModelFile(
             "silero_vad.onnx",
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+            vadUrls(),
             643854L,
             "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6");
 
@@ -98,6 +114,13 @@ final class RealtimeSubtitleModelCatalog {
         files[0] = VAD;
         System.arraycopy(model.files(), 0, files, 1, model.files().length);
         return files;
+    }
+
+    private static String[] vadUrls() {
+        String[] urls = new String[GITHUB_MIRRORS.length + 1];
+        for (int i = 0; i < GITHUB_MIRRORS.length; i++) urls[i] = GITHUB_MIRRORS[i] + VAD_ORIGIN;
+        urls[GITHUB_MIRRORS.length] = VAD_ORIGIN;
+        return urls;
     }
 
     /** 国内可直连的 Hugging Face 镜像；2026-11 实测四个中文模型文件与上游逐字节一致，且支持 Range 续传。 */
