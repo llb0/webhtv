@@ -1795,6 +1795,7 @@ private boolean runtimeSourceOnly;
         if (mBinding.control.action.immersiveAudio != null) mBinding.control.action.immersiveAudio.setOnClickListener(view -> toggleImmersiveAudioMode());
         if (mBinding.control.action.cast != null) mBinding.control.action.cast.setOnClickListener(view -> onCast());
         if (mBinding.control.action.timer != null) mBinding.control.action.timer.setOnClickListener(view -> onTimer());
+        if (mBinding.control.action.setting != null) mBinding.control.action.setting.setOnClickListener(view -> onPlaybackSetting());
         if (mBinding.audioPlay != null) mBinding.audioPlay.setOnClickListener(view -> checkPlay());
         if (mBinding.audioNext != null) mBinding.audioNext.setOnClickListener(view -> checkNext());
         if (mBinding.audioPrev != null) mBinding.audioPrev.setOnClickListener(view -> checkPrev());
@@ -1908,6 +1909,7 @@ private boolean runtimeSourceOnly;
         addActionButton(PlayerButtonSetting.CAST, mBinding.control.action.cast);
         addActionButton(PlayerButtonSetting.TIMER, mBinding.control.action.timer);
         addActionButton(PlayerButtonSetting.REPEAT, mBinding.control.action.repeat);
+        addActionButton(PlayerButtonSetting.SETTING, mBinding.control.action.setting);
         PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
         setupCustomActionButtons();
         updatePanDiagnosticAction();
@@ -5115,6 +5117,17 @@ private boolean runtimeSourceOnly;
 
     private void onSetting() {
         ControlDialog.create().parent(mBinding).history(mHistory).parse(isUseParse()).player(player()).show(this);
+    }
+
+    /**
+     * 播放设置面板：全屏且控制栏显示时按菜单键、或控制栏里的「设置」按钮进来，
+     * 用半透明对话框加载设置页内容，不再跳 Activity；关掉后继续播放。
+     */
+    private void onPlaybackSetting() {
+        boolean wasPlaying = service() != null && player() != null && player().isPlaying();
+        PlaybackSettingDialog.show(this, () -> {
+            if (wasPlaying && service() != null && player() != null && !player().isPlaying()) player().play();
+        });
     }
 
     private void onCast() {
@@ -9030,6 +9043,10 @@ private boolean runtimeSourceOnly;
             return true;
         }
         if (isVisible(mBinding.lutQuick)) return dispatchLutQuickKey(event);
+        if (isFullscreen() && KeyUtil.isMenuKey(event) && isVisible(mBinding.control.getRoot())) {
+            onPlaybackSetting();
+            return true;
+        }
         if (isFullscreen() && KeyUtil.isMenuKey(event)) {
             int menuKey = Setting.getFullscreenMenuKey();
             if (menuKey == Setting.FULLSCREEN_MENU_KEY_EPISODES) onEpisodes();

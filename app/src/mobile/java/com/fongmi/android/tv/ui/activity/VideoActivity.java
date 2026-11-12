@@ -131,6 +131,7 @@ import com.fongmi.android.tv.setting.PreloadSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.FlagSwitchPlaybackPolicy;
 import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
+import com.fongmi.android.tv.ui.dialog.PlaybackSettingDialog;
 import com.fongmi.android.tv.ui.dialog.PlaybackSpeedDialog;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.theme.PlaybackMenuScrim;
@@ -1769,6 +1770,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.next.setOnClickListener(view -> checkNext());
         mBinding.control.prev.setOnClickListener(view -> checkPrev());
         mBinding.control.setting.setOnClickListener(view -> onSetting());
+        mBinding.control.action.setting.setOnClickListener(view -> onPlaybackSetting());
         mBinding.control.title.setOnLongClickListener(view -> onChange());
         mBinding.control.right.lock.setOnClickListener(view -> onLock());
         mBinding.control.right.rotate.setOnClickListener(view -> onRotate());
@@ -2091,6 +2093,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         addActionButton(PlayerButtonSetting.PREV, mBinding.control.action.prev);
         addActionButton(PlayerButtonSetting.NEXT, mBinding.control.action.next);
         addActionButton(PlayerButtonSetting.EPISODES, mBinding.control.action.episodes);
+        addActionButton(PlayerButtonSetting.SETTING, mBinding.control.action.setting);
         applyActionButtonSettings();
         addActionButton(PlayerButtonSetting.CHANGE, mBinding.control.action.change2);
         PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
@@ -4103,6 +4106,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private void onSetting() {
         setTrackVisible();
         ControlDialog.create().parent(mBinding).history(mHistory).parse(isUseParse()).player(player()).show(this);
+    }
+
+    /**
+     * 播放设置面板：半透明对话框里直接加载设置页内容，关掉后如果进来时正在播放就继续播放。
+     */
+    private void onPlaybackSetting() {
+        boolean wasPlaying = service() != null && player() != null && player().isPlaying();
+        PlaybackSettingDialog.show(this, () -> {
+            if (wasPlaying && service() != null && player() != null && !player().isPlaying()) player().play();
+        });
     }
 
     private void onLock() {

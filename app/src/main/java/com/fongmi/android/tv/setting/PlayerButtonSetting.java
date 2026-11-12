@@ -52,6 +52,7 @@ public class PlayerButtonSetting {
     public static final String CHANGE = "change";
     public static final String CAST = "cast";
     public static final String TIMER = "timer";
+    public static final String SETTING = "setting";
 
     private static final String ORDER = "player_button_order";
     private static final String HIDDEN = "player_button_hidden";
@@ -94,7 +95,8 @@ public class PlayerButtonSetting {
             new Item(IMMERSIVE_AUDIO, R.string.player_immersive_audio_mode),
             new Item(PARSE, R.string.parse),
             new Item(DISPLAY, R.string.control_display),
-            new Item(CAST, R.string.play_cast)
+            new Item(CAST, R.string.play_cast),
+            new Item(SETTING, R.string.play_setting)
     );
 
     public static List<Item> getItems() {
@@ -246,6 +248,8 @@ public class PlayerButtonSetting {
                 MULTI_THREAD_PROXY, QUALITY, KARAOKE, AD_FEEDBACK, IMMERSIVE_AUDIO, PARSE, DISPLAY, CAST
         ));
         if (!Util.isLeanback()) hidden.add(SEARCH);
+        // 设置按钮：手机端默认显示（控制栏即可进播放设置），电视端默认隐藏（用菜单键进）。
+        if (Util.isLeanback()) hidden.add(SETTING);
         return hidden;
     }
 
