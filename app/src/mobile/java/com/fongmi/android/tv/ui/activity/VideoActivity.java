@@ -4113,6 +4113,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
      */
     private void onPlaybackSetting() {
         boolean wasPlaying = service() != null && player() != null && player().isPlaying();
+        App.removeCallbacks(mR1);
         boolean shown = PlaybackSettingDialog.show(this, () -> {
             if (wasPlaying && service() != null && player() != null && !player().isPlaying()) player().play();
         });

@@ -60,6 +60,14 @@ public class PlaybackSettingDialog extends BaseBottomSheetDialog {
         }
     }
 
+    public static boolean isShowing(FragmentActivity activity) {
+        if (activity == null) return false;
+        Fragment existing = activity.getSupportFragmentManager().findFragmentByTag(TAG);
+        return existing instanceof PlaybackSettingDialog && existing.isAdded()
+                && ((PlaybackSettingDialog) existing).getDialog() != null
+                && ((PlaybackSettingDialog) existing).getDialog().isShowing();
+    }
+
     @Override
     public void onDismiss(@NonNull DialogInterface dialog) {
         super.onDismiss(dialog);

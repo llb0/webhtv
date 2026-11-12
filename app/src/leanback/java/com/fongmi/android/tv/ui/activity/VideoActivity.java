@@ -5125,6 +5125,9 @@ private boolean runtimeSourceOnly;
      */
     private void onPlaybackSetting() {
         boolean wasPlaying = service() != null && player() != null && player().isPlaying();
+        // 面板期间停掉控制栏自动隐藏：否则 3 秒后控制栏被置 GONE，关面板后遥控没有落点。
+        App.removeCallbacks(mR1);
+        mDialogReturnFocus = mBinding.control.getRoot().findFocus();
         boolean shown = PlaybackSettingDialog.show(this, () -> {
             if (wasPlaying && service() != null && player() != null && !player().isPlaying()) player().play();
         });
@@ -9037,6 +9040,12 @@ private boolean runtimeSourceOnly;
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // 播放设置面板开着时，遥控键只归面板：不让播放页再处理菜单/方向键去切控制栏、重开面板。
+        // 极端情况下按键漏到播放页（个别设备对话框窗口没拿到焦点），也按返回键把面板关掉，别直接退出播放。
+        if (PlaybackSettingDialog.isShowing(this)) {
+            if (KeyUtil.isBackKey(event) && KeyUtil.isActionUp(event)) PlaybackSettingDialog.dismissIfShowing(this);
+            return true;
+        }
         if (dispatchDiscMenuKey(event)) return true;
         if (KeyUtil.isActionUp(event) && KeyUtil.isBackKey(event) && mBinding.lutQuick.hideIfVisible()) return true;
         if (mKeyDown.isChangingSpeed() && KeyUtil.isActionUp(event) && KeyUtil.isUpKey(event)) {

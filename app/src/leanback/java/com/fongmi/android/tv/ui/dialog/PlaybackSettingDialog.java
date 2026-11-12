@@ -76,6 +76,20 @@ public class PlaybackSettingDialog extends BaseBottomSheetDialog implements UaLi
         return true;
     }
 
+    public static boolean isShowing(FragmentActivity activity) {
+        if (activity == null) return false;
+        Fragment existing = activity.getSupportFragmentManager().findFragmentByTag(TAG);
+        return existing instanceof PlaybackSettingDialog && existing.isAdded()
+                && ((PlaybackSettingDialog) existing).getDialog() != null
+                && ((PlaybackSettingDialog) existing).getDialog().isShowing();
+    }
+
+    public static void dismissIfShowing(FragmentActivity activity) {
+        if (!isShowing(activity)) return;
+        Fragment existing = activity.getSupportFragmentManager().findFragmentByTag(TAG);
+        if (existing instanceof PlaybackSettingDialog) ((PlaybackSettingDialog) existing).dismissAllowingStateLoss();
+    }
+
     @Override
     public void onDismiss(@NonNull DialogInterface dialog) {
         super.onDismiss(dialog);
@@ -101,6 +115,25 @@ public class PlaybackSettingDialog extends BaseBottomSheetDialog implements UaLi
             sheet.getLayoutParams().height = ViewGroup.LayoutParams.MATCH_PARENT;
             sheet.setBackgroundColor(0x00000000);
         }
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        // 打开瞬间窗口还没真正拿到焦点，只看 initView 里那一次 requestFocus 会被丢掉，
+        // 导致遥控键落不到面板上（历史上的「播放设置面板焦点被播放页抢走」就是这个现象）。
+        requestInitialFocus();
+    }
+
+    private void requestInitialFocus() {
+        if (mBinding == null || !isAdded()) return;
+        mBinding.playerButtons.requestFocus();
+        mBinding.getRoot().post(() -> {
+            if (mBinding != null && isAdded()) mBinding.playerButtons.requestFocus();
+        });
+        mBinding.getRoot().postDelayed(() -> {
+            if (mBinding != null && isAdded()) mBinding.playerButtons.requestFocus();
+        }, 180);
     }
 
     @Override
