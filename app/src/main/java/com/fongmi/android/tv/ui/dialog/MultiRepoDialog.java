@@ -34,7 +34,6 @@ import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.setting.MultiRepoStore;
 import com.fongmi.android.tv.ui.helper.FocusRingLayout;
 import com.fongmi.android.tv.ui.helper.MultiRepoTheme;
-import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.google.android.material.button.MaterialButton;
@@ -78,6 +77,14 @@ public class MultiRepoDialog extends DialogFragment {
         Dialog dialog = new Dialog(requireContext());
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setCanceledOnTouchOutside(true);
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            // KeyUtil.isMenuKey 只在 ACTION_UP 成立：菜单动作放在 UP，DOWN 也吃掉。
+            if (keyCode != KeyEvent.KEYCODE_MENU) return false;
+            if (event.getAction() == KeyEvent.ACTION_DOWN) return true;
+            // 菜单键：焦点跳到顶部仓库栏的当前仓库按钮（维护界面仍走右上角设置齿轮）。
+            focusSelectedRepo();
+            return true;
+        });
         return dialog;
     }
 
@@ -112,17 +119,6 @@ public class MultiRepoDialog extends DialogFragment {
 
         buildTitleBar(root);
         buildContentArea(root);
-
-        root.setOnKeyListener((v, keyCode, event) -> {
-            // KeyUtil.isMenuKey 只在 ACTION_UP 成立，菜单动作必须放在 UP 上，
-            // DOWN 也要吃掉，避免事件继续冒到 Activity 被当成别的功能。
-            if (keyCode != KeyEvent.KEYCODE_MENU && !KeyUtil.isMenuKey(event)) return false;
-            if (event.getAction() == KeyEvent.ACTION_DOWN) return true;
-            // 菜单键：焦点先跳到顶部仓库栏的当前仓库按钮；已在仓库栏时再次按菜单进维护弹窗。
-            if (isFocusInRepoBar()) openManageDialog();
-            else focusSelectedRepo();
-            return true;
-        });
 
         // 加载仓库列表
         loadRepos();
@@ -444,16 +440,6 @@ public class MultiRepoDialog extends DialogFragment {
                 repoList.postDelayed(() -> focusRepoItem(position, retry + 1), 120);
             }
         });
-    }
-
-    private boolean isFocusInRepoBar() {
-        View focused = getView() == null ? null : getView().findFocus();
-        while (focused != null) {
-            if (focused == repoList) return true;
-            if (!(focused.getParent() instanceof View)) return false;
-            focused = (View) focused.getParent();
-        }
-        return false;
     }
 
     private void openManageDialog() {
