@@ -94,7 +94,7 @@ public final class MultiRepoTheme {
         // 选中/聚焦改用 primaryContainer + primary；不再写死蓝色。
         boolean highlight = focused || selected;
         int fill = highlight
-                ? attr(context, androidx.appcompat.R.attr.colorPrimaryContainer, 0xFFE8F0FE)
+                ? attr(context, com.google.android.material.R.attr.colorPrimaryContainer, 0xFFE8F0FE)
                 : attr(context, com.google.android.material.R.attr.colorSurfaceContainer, 0xFFFFFFFF);
         int stroke = highlight
                 ? attr(context, androidx.appcompat.R.attr.colorPrimary, 0xFF1A73E8)
@@ -119,7 +119,7 @@ public final class MultiRepoTheme {
             return;
         }
         int fill = focused
-                ? attr(context, androidx.appcompat.R.attr.colorPrimaryContainer, 0xFFE8F0FE)
+                ? attr(context, com.google.android.material.R.attr.colorPrimaryContainer, 0xFFE8F0FE)
                 : attr(context, com.google.android.material.R.attr.colorSurfaceContainer, 0xFFFFFFFF);
         int stroke = focused
                 ? attr(context, androidx.appcompat.R.attr.colorPrimary, 0xFF1A73E8)
