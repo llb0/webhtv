@@ -506,9 +506,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void setFunc() {
         mFuncAdapter.setItems(getFuncItems(), new BaseDiffCallback<Func>());
-        // 宽度交给 RecyclerView 自己按内容量：以前用 64dp*count 手算，UI 缩放/字体变化后
-        // 会算得比内容窄，按钮被裁；wrap_content 跟着 item 实际尺寸走，也不挤右侧时钟
-        // （时钟在 LinearLayout 尾部右对齐，容器变宽变窄只影响按钮组自身）。
+        // 按钮组自身按内容自适应（wrap_content），但它的可用空间被外层 FrameLayout 的权重锁死：
+        // 容器从不越过「标题与时钟之间」的余量，所以按钮再多也只会被裁剪/滚动，
+        // 右侧时钟的位置与可见性不受按钮数量影响（以前 wrap_content 直接参与 LinearLayout
+        // 测量，按钮一多就把时钟顶出屏幕）。
         android.view.ViewGroup.LayoutParams params = mBinding.funcRecycler.getLayoutParams();
         if (params.width != android.view.ViewGroup.LayoutParams.WRAP_CONTENT) {
             params.width = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
