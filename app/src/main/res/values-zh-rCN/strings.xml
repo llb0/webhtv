@@ -1090,7 +1090,7 @@
     <string name="cache_limit_title_exo">播放缓存上限</string>
     <string name="cache_management_playback_budget">播放缓存 %1$s（退出播放后收至 %2$s）</string>
     <string name="cache_cleanup_confirm_title">确认清理缓存？</string>
-    <string name="cache_cleanup_confirm_light">清理过期节目单、临时文件和遗留缓存？</string>
+    <string name="cache_cleanup_confirm_light">清理临时文件和遗留缓存？</string>
     <string name="cache_cleanup_confirm_standard">清理图片、歌词、K 歌和 WebHome 等可重建缓存？\n\n收藏、历史和设置不会受影响。</string>
     <string name="cache_cleanup_confirm_deep">清理播放缓存及其他深度缓存？\n\n正在播放的内容会受保护；之后播放可能需要重新下载和缓冲。</string>
     <string name="cache_cleanup_confirm_deep_final">深度清理不可撤销，确定现在开始？</string>

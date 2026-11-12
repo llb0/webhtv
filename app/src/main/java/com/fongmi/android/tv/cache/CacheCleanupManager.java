@@ -96,9 +96,7 @@ public final class CacheCleanupManager {
                 CachePolicyStore.getLimit(CacheModuleId.KARAOKE), retention, () -> now, Set.of());
         CacheRetentionManager.applyLimit(new File(cache, "webhome_ext"),
                 CachePolicyStore.getLimit(CacheModuleId.WEBHOME_EXT), retention, () -> now, Set.of());
-        CacheRetentionManager.applyLimit(EpgParser.cacheDir(),
-                CachePolicyStore.getLimit(CacheModuleId.EPG), Math.min(retention, 6L * 60L * 60L * 1000L),
-                () -> now, Set.of());
+        // EPG 不做任何自动保留期修剪：只能在缓存管理里手动清理。
         CacheCenter.get().notifyChanged();
     }
 

@@ -111,7 +111,7 @@ public final class CacheModuleRegistry {
                 module(CacheModuleId.KARAOKE, CacheGroup.MEDIA, List.of(CacheRoot.tree(new File(cache, "karaoke_tracks"))), CacheCleanability.SAFE_NOW, CacheEvictionPolicy.COUNT_THEN_LRU, true, true, false, false),
                 module(CacheModuleId.WEBHOME_EXT, CacheGroup.NETWORK, List.of(CacheRoot.tree(new File(cache, "webhome_ext"))), CacheCleanability.SAFE_NOW, CacheEvictionPolicy.LRU_WITH_TTL, true, true, false, false),
                 module(CacheModuleId.WEBHOME_RAW, CacheGroup.NETWORK, List.of(CacheRoot.tree(new File(cache, "webhome_raw"))), CacheCleanability.OWNER_MANAGED, CacheEvictionPolicy.LRU, false, true, true, false),
-                module(CacheModuleId.EPG, CacheGroup.NETWORK, List.of(CacheRoot.tree(epg)), CacheCleanability.SAFE_NOW, CacheEvictionPolicy.TTL, true, true, false, false),
+                module(CacheModuleId.EPG, CacheGroup.NETWORK, List.of(CacheRoot.tree(epg)), CacheCleanability.SAFE_NOW, CacheEvictionPolicy.TTL, false, true, false, false),
                 module(CacheModuleId.GLIDE, CacheGroup.MEDIA, List.of(CacheRoot.tree(new File(cache, "image_manager_disk_cache"))), CacheCleanability.OWNER_MANAGED, CacheEvictionPolicy.OWNER_MANAGED, false, true, true, false),
                 module(CacheModuleId.PLUGIN_SCRIPTS, CacheGroup.PLUGIN, List.of(
                         CacheRoot.tree(new File(cache, "js")),
