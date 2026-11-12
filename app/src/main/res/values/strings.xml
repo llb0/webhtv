@@ -284,6 +284,7 @@
     <string name="setting_history_aggregation_hint">Unify history across sources based on TMDB match</string>
     <string name="setting_global_history">Global history resume</string>
     <string name="history_other_config">Other config</string>
+    <string name="history_source_webhome">WebHome</string>
     <string name="history_source_unavailable">Source unavailable</string>
     <string name="history_source_searching">Matching a playable source…</string>
     <string name="history_source_not_found">No reliable playback source found</string>

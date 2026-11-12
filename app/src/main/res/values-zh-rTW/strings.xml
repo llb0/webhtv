@@ -2723,6 +2723,7 @@
     <string name="interface_failover_switch">切換介面</string>
     <string name="interface_failover_cancelled">已取消介面切換</string>
     <string name="history_other_config">其他配置</string>
+    <string name="history_source_webhome">WebHome</string>
     <string name="history_source_unavailable">介面已失效</string>
     <string name="history_source_searching">正在配對可續播播放源…</string>
     <string name="history_source_not_found">未找到可可靠續播的播放源</string>
