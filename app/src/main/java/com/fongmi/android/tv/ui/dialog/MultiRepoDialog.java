@@ -184,7 +184,7 @@ public class MultiRepoDialog extends DialogFragment {
 
         MaterialTextView leftLabel = new MaterialTextView(requireContext());
         leftLabel.setText(R.string.multi_repo_config_list);
-        leftLabel.setTextColor(MultiRepoTheme.onSurfaceVariant());
+        leftLabel.setTextColor(MultiRepoTheme.onSurfaceVariant(requireContext()));
         leftLabel.setTextSize(13);
         leftLabel.setPadding(ResUtil.dp2px(3), 0, 0, ResUtil.dp2px(3));
         leftPane.addView(leftLabel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -206,7 +206,7 @@ public class MultiRepoDialog extends DialogFragment {
 
         MaterialTextView rightLabel = new MaterialTextView(requireContext());
         rightLabel.setText(R.string.multi_repo_site_list);
-        rightLabel.setTextColor(MultiRepoTheme.onSurfaceVariant());
+        rightLabel.setTextColor(MultiRepoTheme.onSurfaceVariant(requireContext()));
         rightLabel.setTextSize(13);
         rightLabel.setPadding(ResUtil.dp2px(3), 0, 0, ResUtil.dp2px(3));
         LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
