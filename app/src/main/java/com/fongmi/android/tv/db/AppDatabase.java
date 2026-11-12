@@ -70,6 +70,14 @@ public abstract class AppDatabase extends RoomDatabase {
         backup(new com.fongmi.android.tv.impl.Callback());
     }
 
+    /**
+     * 在线更新“备份并升级”使用：与自动备份同一套命名与单份保留规则，但仍保留成功/失败回调，
+     * 让更新流程在备份完成或失败后继续下载安装。
+     */
+    public static void backupAuto(com.fongmi.android.tv.impl.Callback callback) {
+        backup(callback, null, true);
+    }
+
     public static void autoBackup() {
         if (!beginAutoBackup()) return;
         try {

@@ -31,6 +31,14 @@ public class BackupPermissionRegressionTest {
         }
     }
 
+    /** 在线更新的“备份并升级”必须复用自动备份的 auto 命名与单份保留规则。 */
+    @Test
+    public void updateBackupUsesAutomaticBackupLogic() throws Exception {
+        String updater = read(source("main", "java", "com", "fongmi", "android", "tv", "Updater.java"));
+        assertTrue(updater.contains("AppDatabase.backupAuto("));
+        assertFalse(updater.contains("AppDatabase.backup("));
+    }
+
     @Test
     public void localBackupPublishesOnlyACompletedArchive() throws Exception {
         String database = read(source("main", "java", "com", "fongmi", "android", "tv", "db", "AppDatabase.java"));
