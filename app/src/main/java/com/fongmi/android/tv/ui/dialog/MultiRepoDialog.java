@@ -32,6 +32,7 @@ import com.fongmi.android.tv.bean.MultiRepo;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.setting.MultiRepoStore;
+import com.fongmi.android.tv.ui.helper.FocusRingLayout;
 import com.fongmi.android.tv.ui.helper.MultiRepoTheme;
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -102,7 +103,7 @@ public class MultiRepoDialog extends DialogFragment {
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
-        LinearLayout root = new LinearLayout(requireContext());
+        FocusRingLayout root = new FocusRingLayout(requireContext());
         root.setOrientation(LinearLayout.VERTICAL);
         MultiRepoTheme.applyPanel(root);
         int horizontal = ResUtil.dp2px(16);
@@ -115,8 +116,9 @@ public class MultiRepoDialog extends DialogFragment {
         root.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
             if (KeyUtil.isMenuKey(event)) {
-                // 菜单键触发维护弹窗
-                openManageDialog();
+                // 菜单键：焦点先跳到顶部仓库栏的当前仓库按钮；已在仓库栏时再次按菜单进维护弹窗。
+                if (isFocusInRepoBar()) openManageDialog();
+                else focusSelectedRepo();
                 return true;
             }
             return false;
@@ -422,6 +424,36 @@ public class MultiRepoDialog extends DialogFragment {
                 Notify.show(msg);
             }
         });
+    }
+
+    /** 菜单键：把焦点移到顶部仓库栏里当前选中的仓库按钮。 */
+    private void focusSelectedRepo() {
+        if (repoList == null || repos.isEmpty()) return;
+        int position = Math.max(0, Math.min(currentRepoIndex, repos.size() - 1));
+        repoList.scrollToPosition(position);
+        focusRepoItem(position, 0);
+    }
+
+    private void focusRepoItem(int position, int retry) {
+        repoList.post(() -> {
+            if (!isAdded() || repoList == null) return;
+            RecyclerView.ViewHolder holder = repoList.findViewHolderForAdapterPosition(position);
+            if (holder != null) {
+                holder.itemView.requestFocus();
+            } else if (retry < 2) {
+                repoList.postDelayed(() -> focusRepoItem(position, retry + 1), 120);
+            }
+        });
+    }
+
+    private boolean isFocusInRepoBar() {
+        View focused = getView() == null ? null : getView().findFocus();
+        while (focused != null) {
+            if (focused == repoList) return true;
+            if (!(focused.getParent() instanceof View)) return false;
+            focused = (View) focused.getParent();
+        }
+        return false;
     }
 
     private void openManageDialog() {
