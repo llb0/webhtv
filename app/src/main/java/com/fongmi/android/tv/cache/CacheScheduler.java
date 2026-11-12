@@ -99,7 +99,7 @@ public final class CacheScheduler {
         if (!CachePolicyStore.isAutoCleanupEnabled()) return;
         if (CacheCleanupManager.isRunning()) return;
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
-        CacheCleanupManager.execute(automaticPlan(CacheAutoCleanupPolicy.cleanupMode(false, false)),
+        CacheCleanupManager.execute(CachePolicyEngine.plan(CacheCleanupMode.FULL),
                 "exit", result -> done.countDown());
         try {
             done.await(EXIT_CLEANUP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
@@ -222,15 +222,15 @@ public final class CacheScheduler {
 
     private boolean trigger(String reason, Runnable finished, boolean force) {
         boolean periodic = "periodic".equals(reason);
-        boolean lowSpace = sampleLowSpace();
-        boolean playing = PlaybackService.isRunning();
-        CacheCleanupMode mode = CacheAutoCleanupPolicy.cleanupMode(playing, lowSpace);
+        sampleLowSpace();
         if ((!force && !CacheAutoCleanupPolicy.shouldTrigger(Prefers.getInt(KEY_LOW_SPACE_STREAK, 0), periodic))
                 || CacheCleanupManager.isRunning()) {
             if (finished != null) finished.run();
             return false;
         }
-        CacheCleanupManager.execute(automaticPlan(mode), reason, result -> {
+        // 自动清理与设置页"一键清理"等价：跑 FULL 计划，逐模块按 owner 释放，
+        // 播放中的播放缓存仍由 cleanEverything 的 DEFERRED 逻辑保留，不做半套清理。
+        CacheCleanupManager.execute(CachePolicyEngine.plan(CacheCleanupMode.FULL), reason, result -> {
             if (result.status() == CacheCleanupStatus.COMPLETED
                     || result.status() == CacheCleanupStatus.PARTIAL) {
                 Prefers.put(KEY_LAST_AUTO_MS, System.currentTimeMillis());
@@ -241,6 +241,7 @@ public final class CacheScheduler {
         return true;
     }
 
+    /** 维护低空间连续计数：runPersistedCheck 的 low-space 分支仍依赖它。 */
     private boolean sampleLowSpace() {
         File cache = App.get().getCacheDir();
         try {
