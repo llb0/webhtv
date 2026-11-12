@@ -117,7 +117,9 @@ public final class CacheScheduler {
         // would hand the playback cache the whole total limit.
         CacheCenter.get().requestSnapshot(true, ignored -> {
         });
-        trigger("startup", null);
+        // 冷启动这一轮必须真的跑：开关打开后用户退出重进，期待看到缓存被清理，
+        // 而周期/低空间门槛（shouldTrigger）在空间充足时不会放行，等于开机永远不清理。
+        trigger("startup", null, true);
         enforceTotalLimit();
     }
 
@@ -215,11 +217,15 @@ public final class CacheScheduler {
     }
 
     private boolean trigger(String reason, Runnable finished) {
+        return trigger(reason, finished, false);
+    }
+
+    private boolean trigger(String reason, Runnable finished, boolean force) {
         boolean periodic = "periodic".equals(reason);
         boolean lowSpace = sampleLowSpace();
         boolean playing = PlaybackService.isRunning();
         CacheCleanupMode mode = CacheAutoCleanupPolicy.cleanupMode(playing, lowSpace);
-        if (!CacheAutoCleanupPolicy.shouldTrigger(Prefers.getInt(KEY_LOW_SPACE_STREAK, 0), periodic)
+        if ((!force && !CacheAutoCleanupPolicy.shouldTrigger(Prefers.getInt(KEY_LOW_SPACE_STREAK, 0), periodic))
                 || CacheCleanupManager.isRunning()) {
             if (finished != null) finished.run();
             return false;
