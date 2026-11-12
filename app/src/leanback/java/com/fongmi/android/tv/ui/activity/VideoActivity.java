@@ -2151,6 +2151,24 @@ private boolean runtimeSourceOnly;
         if (mCustomPortraitButtons != null) mCustomPortraitButtons.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
+    private void applyActionButtonSettings() {
+        if (mActionButtons != null) PlayerButtonSetting.applyOrder(mBinding.control.action.container, mActionButtons);
+    }
+
+    /**
+     * 面板里改过「播放器按钮」之后重建一次动作栏：先全部置 VISIBLE 作基线，
+     * 再按新的隐藏集/顺序重排，最后补回按能力判断的显隐（轨道、弹幕、投屏、诊断等）。
+     */
+    private void refreshActionButtonsAfterPanel() {
+        if (mActionButtons == null) return;
+        for (View view : mActionButtons.values()) if (view != null) view.setVisibility(View.VISIBLE);
+        setupActionButtons();
+        applyActionButtonVisibility();
+        setTrackVisible();
+        mBinding.control.action.danmaku.setVisibility(DanmakuSetting.isLoad() ? View.VISIBLE : View.GONE);
+        mBinding.control.action.adFeedback.setVisibility(isAdFeedbackEnabled() ? View.VISIBLE : View.GONE);
+    }
+
     private void applyActionButtonVisibility() {
         updateCustomButtonVisibility();
         mBinding.control.action.cast.setVisibility(isFullscreen() ? View.GONE : View.VISIBLE);
@@ -5129,9 +5147,10 @@ private boolean runtimeSourceOnly;
         int scaleBefore = PlayerSetting.getScale();
         boolean[] displayBefore = PlayerSetting.getDisplayChecked();
         int badgeBefore = PlayerSetting.getMediaBadgeChoice();
+        String buttonsBefore = PlayerButtonSetting.signature();
         boolean shown = PlaybackSettingDialog.show(this, () -> {
             if (isFinishing() || isDestroyed()) return;
-            applyPanelSettings(scaleBefore, displayBefore, badgeBefore);
+            applyPanelSettings(scaleBefore, displayBefore, badgeBefore, buttonsBefore);
             if (wasPlaying && service() != null && player() != null && !player().isPlaying()) player().play();
         });
         if (!shown) return;
@@ -5148,7 +5167,7 @@ private boolean runtimeSourceOnly;
      * 画面比例直接重设；屏显（时间/网速/媒体徽标/角位/诊断）重开一次 OSD 循环读取新值。
      * 内核、渲染、缓冲这类需要重建播放器的设置不在这里强行生效，等下次加载。
      */
-    private void applyPanelSettings(int scaleBefore, boolean[] displayBefore, int badgeBefore) {
+    private void applyPanelSettings(int scaleBefore, boolean[] displayBefore, int badgeBefore, String buttonsBefore) {
         if (service() == null || player() == null) return;
         int scale = PlayerSetting.getScale();
         if (scale != scaleBefore) {
@@ -5159,6 +5178,10 @@ private boolean runtimeSourceOnly;
         if (badgeBefore != PlayerSetting.getMediaBadgeChoice()
                 || !java.util.Arrays.equals(displayBefore, PlayerSetting.getDisplayChecked())) {
             onDisplayChanged();
+        }
+        // 播放器按钮配置（显示/隐藏、排序）改过就重排控制栏，不用等下次进播放页。
+        if (mActionButtons != null && !buttonsBefore.equals(PlayerButtonSetting.signature())) {
+            refreshActionButtonsAfterPanel();
         }
     }
 

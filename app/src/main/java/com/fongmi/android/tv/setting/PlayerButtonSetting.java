@@ -155,6 +155,11 @@ public class PlayerButtonSetting {
         Prefers.remove(HIDDEN_SEED_VERSION);
     }
 
+    /** 当前「播放器按钮」配置（顺序 + 隐藏集）的指纹：用来判断面板里是否真的改动过。 */
+    public static String signature() {
+        return join(getOrder()) + "|" + join(getHidden());
+    }
+
     public static void applyOrder(ViewGroup container, Map<String, View> views) {
         if (container == null) return;
         // 未自定义排序时也按 DEFAULT（fish 默认顺序）重排，否则鱼序无法落地。
