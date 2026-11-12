@@ -120,6 +120,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private boolean loadingHomeCategory;
     private boolean mStartupActionDone;
     private int mMenuButtonCount;
+    /** 首页按钮行的内容宽度（由子项几何算出），0 表示还没算出来。 */
+    private int funcContentWidth;
+    private int funcFitAttempts;
 
     public static List<Vod> sRecommendCache = new ArrayList<>();
     public static Vod sPendingVideo = null;
@@ -278,46 +281,59 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mBinding.funcRecycler.getAdapter().registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override
             public void onChanged() {
-                scheduleFuncFit();
+                onFuncItemsChanged();
             }
 
             @Override
             public void onItemRangeInserted(int positionStart, int itemCount) {
-                scheduleFuncFit();
+                onFuncItemsChanged();
             }
 
             @Override
             public void onItemRangeRemoved(int positionStart, int itemCount) {
-                scheduleFuncFit();
+                onFuncItemsChanged();
             }
         });
     }
 
+    private void onFuncItemsChanged() {
+        funcContentWidth = 0;
+        scheduleFuncFit();
+    }
+
     private void scheduleFuncFit() {
+        funcFitAttempts = 0;
         mBinding.funcContainer.post(this::fitFuncWidth);
     }
 
     /**
-     * 让按钮行在容器内居中：先用不受限测量拿到内容宽度，再夹到容器可用宽度。
-     * 内容比容器窄时保持内容宽度（FrameLayout 的 center 才会生效），
-     * 内容更宽时退回容器宽度，交给 HorizontalGridView 自己横向滚动，绝不溢出到时钟那边。
+     * 让按钮行在容器内居中。容器宽度已由 FrameLayout 权重锁死（标题之后、时钟之前的全部余量），
+     * 这里只负责算按钮行自身的宽度：读已排好的子项几何宽度得到内容宽，夹到容器可用宽度。
+     * 不能依赖 wrap_content 的测量值 —— 在定宽父容器里它会被量成整行宽，居中就失效了。
      */
     private void fitFuncWidth() {
         FrameLayout container = mBinding.funcContainer;
         HorizontalGridView recycler = mBinding.funcRecycler;
         int available = container.getWidth() - container.getPaddingStart() - container.getPaddingEnd();
         if (available <= 0) return;
+        RecyclerView.Adapter<?> adapter = recycler.getAdapter();
+        int itemCount = adapter == null ? 0 : adapter.getItemCount();
+        int childCount = recycler.getChildCount();
+        if (itemCount == 0) {
+            funcContentWidth = 0;
+        } else if (childCount >= itemCount) {
+            int first = recycler.getChildAt(0).getLeft();
+            int last = recycler.getChildAt(childCount - 1).getRight();
+            if (last > first) funcContentWidth = last - first;
+        }
+        int target = funcContentWidth > 0 ? Math.min(funcContentWidth, available) : available;
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) recycler.getLayoutParams();
-        int usable = Math.max(0, available - params.getMarginStart() - params.getMarginEnd());
-        int height = recycler.getMeasuredHeight() > 0 ? recycler.getMeasuredHeight() : ResUtil.dp2px(40);
-        recycler.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
-        int content = recycler.getMeasuredWidth();
-        int target = content > 0 ? Math.min(content, usable) : usable;
         if (params.width != target) {
             params.width = target;
             recycler.setLayoutParams(params);
         }
+        // 首次进来时子项可能还没排版完，等一帧再算；超过次数就按可用宽度先铺满。
+        if (itemCount > 0 && funcContentWidth <= 0 && ++funcFitAttempts < 4) recycler.post(this::fitFuncWidth);
     }
 
     private void setWebView() {
