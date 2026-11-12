@@ -114,14 +114,14 @@ public class MultiRepoDialog extends DialogFragment {
         buildContentArea(root);
 
         root.setOnKeyListener((v, keyCode, event) -> {
-            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-            if (KeyUtil.isMenuKey(event)) {
-                // 菜单键：焦点先跳到顶部仓库栏的当前仓库按钮；已在仓库栏时再次按菜单进维护弹窗。
-                if (isFocusInRepoBar()) openManageDialog();
-                else focusSelectedRepo();
-                return true;
-            }
-            return false;
+            // KeyUtil.isMenuKey 只在 ACTION_UP 成立，菜单动作必须放在 UP 上，
+            // DOWN 也要吃掉，避免事件继续冒到 Activity 被当成别的功能。
+            if (keyCode != KeyEvent.KEYCODE_MENU && !KeyUtil.isMenuKey(event)) return false;
+            if (event.getAction() == KeyEvent.ACTION_DOWN) return true;
+            // 菜单键：焦点先跳到顶部仓库栏的当前仓库按钮；已在仓库栏时再次按菜单进维护弹窗。
+            if (isFocusInRepoBar()) openManageDialog();
+            else focusSelectedRepo();
+            return true;
         });
 
         // 加载仓库列表
