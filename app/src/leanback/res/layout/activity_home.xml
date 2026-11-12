@@ -94,9 +94,9 @@
             android:textColor="@color/white"
             android:textSize="24sp" />
 
-        <!-- 按钮组固定占用「标题与时钟之间」的全部余量，宽度由 FrameLayout 的权重决定，
-             内部 HorizontalGridView 再按内容自适应；这样按钮再多也只会被容器裁剪/滚动，
-             不会把右侧时钟挤出屏幕（此前 wrap_content 直接参与 LinearLayout 测量会挤掉时钟）。 -->
+        <!-- 按钮组的可用宽度由 FrameLayout 的权重决定：恒等于「标题之后、时钟之前」的余量，
+             所以按钮再多也挤不掉右侧时钟。按钮行在容器内水平居中，宽度由代码按内容算
+             （fitFuncWidth），内容比容器宽时退回容器宽度、行内横向滚动。 -->
         <FrameLayout
             android:id="@+id/funcContainer"
             android:layout_width="0dp"
@@ -109,8 +109,9 @@
                 android:id="@+id/funcRecycler"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
-                android:layout_gravity="end|center_vertical"
-                android:layout_marginEnd="16dp"
+                android:layout_gravity="center"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
                 android:clipChildren="false"
                 android:clipToPadding="false"
                 android:nextFocusDown="@id/typeRecycler"

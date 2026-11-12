@@ -270,6 +270,54 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mBinding.funcRecycler.setAdapter(new ItemBridgeAdapter(mFuncAdapter = new ArrayObjectAdapter(funcPresenter)));
         mBinding.funcRecycler.setHorizontalSpacing(ResUtil.dp2px(4));
         mBinding.funcRecycler.setRowHeight(ResUtil.dp2px(40));
+        // 容器宽度由权重决定（标题与时钟之间的全部余量），按钮行在容器内按内容宽度居中；
+        // 容器尺寸变化时重新算一次，保证居中基准跟着变。
+        mBinding.funcContainer.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (right - left != oldRight - oldLeft) view.post(this::fitFuncWidth);
+        });
+        mBinding.funcRecycler.getAdapter().registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+            @Override
+            public void onChanged() {
+                scheduleFuncFit();
+            }
+
+            @Override
+            public void onItemRangeInserted(int positionStart, int itemCount) {
+                scheduleFuncFit();
+            }
+
+            @Override
+            public void onItemRangeRemoved(int positionStart, int itemCount) {
+                scheduleFuncFit();
+            }
+        });
+    }
+
+    private void scheduleFuncFit() {
+        mBinding.funcContainer.post(this::fitFuncWidth);
+    }
+
+    /**
+     * 让按钮行在容器内居中：先用不受限测量拿到内容宽度，再夹到容器可用宽度。
+     * 内容比容器窄时保持内容宽度（FrameLayout 的 center 才会生效），
+     * 内容更宽时退回容器宽度，交给 HorizontalGridView 自己横向滚动，绝不溢出到时钟那边。
+     */
+    private void fitFuncWidth() {
+        FrameLayout container = mBinding.funcContainer;
+        HorizontalGridView recycler = mBinding.funcRecycler;
+        int available = container.getWidth() - container.getPaddingStart() - container.getPaddingEnd();
+        if (available <= 0) return;
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) recycler.getLayoutParams();
+        int usable = Math.max(0, available - params.getMarginStart() - params.getMarginEnd());
+        int height = recycler.getMeasuredHeight() > 0 ? recycler.getMeasuredHeight() : ResUtil.dp2px(40);
+        recycler.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+        int content = recycler.getMeasuredWidth();
+        int target = content > 0 ? Math.min(content, usable) : usable;
+        if (params.width != target) {
+            params.width = target;
+            recycler.setLayoutParams(params);
+        }
     }
 
     private void setWebView() {
@@ -506,16 +554,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void setFunc() {
         mFuncAdapter.setItems(getFuncItems(), new BaseDiffCallback<Func>());
-        // 按钮组自身按内容自适应（wrap_content），但它的可用空间被外层 FrameLayout 的权重锁死：
-        // 容器从不越过「标题与时钟之间」的余量，所以按钮再多也只会被裁剪/滚动，
-        // 右侧时钟的位置与可见性不受按钮数量影响（以前 wrap_content 直接参与 LinearLayout
-        // 测量，按钮一多就把时钟顶出屏幕）。
-        android.view.ViewGroup.LayoutParams params = mBinding.funcRecycler.getLayoutParams();
-        if (params.width != android.view.ViewGroup.LayoutParams.WRAP_CONTENT) {
-            params.width = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
-            mBinding.funcRecycler.setLayoutParams(params);
-        }
+        // 按钮行宽度不在这里决定：setWebView() 里注册的观察器会在条目变化后调用
+        // fitFuncWidth()，按内容宽度居中；容器宽度由 FrameLayout 权重锁死，
+        // 按钮再多也只会被裁剪/横向滚动，右侧时钟的位置与可见性不受影响。
         mBinding.funcRecycler.requestLayout();
+        scheduleFuncFit();
     }
 
     private List<Func> getFuncItems() {
