@@ -649,17 +649,38 @@ private boolean runtimeSourceOnly;
         else if (!dispatchToContentHandler(activity, push.getUrl(), title)) start(activity, SiteApi.PUSH, push.getId(), TextUtils.isEmpty(name) ? push.getName() : name);
     }
 
-    private static boolean sPendingFullscreen;
+    /**
+     * 点名「下一次打开这条视频直接全屏」。用 key+id 绑定目标而不是全局布尔：
+     * 历史/收藏点击可能被路由到 TMDB 详情、搜索页或阅读器，布尔标记会滞留下来，
+     * 把之后随便打开的一部片子顶成全屏；按条目绑定就不会误伤别的视频。
+     */
+    private static String sPendingFullscreenTarget;
+    private static String sPendingFullscreenName;
+
+    public static void requestFullscreenFor(String key, String id, String name) {
+        sPendingFullscreenTarget = fullscreenTarget(key, id);
+        // 源变更时续播会走「按片名全站搜索」，换源后 key/id 已经不同，额外记住片名兜底。
+        sPendingFullscreenName = name == null ? "" : name;
+    }
 
     public static void startFullscreen(Activity activity, History history) {
-        sPendingFullscreen = true;
+        requestFullscreenFor(history.getSiteKey(), history.getVodId(), history.getVodName());
         start(activity, history.getSiteKey(), history.getVodId(), history.getVodName(), history.getVodPic(), null, history.getWallPic());
     }
 
-    private static boolean consumePendingFullscreen() {
-        boolean pending = sPendingFullscreen;
-        sPendingFullscreen = false;
-        return pending;
+    private static String fullscreenTarget(String key, String id) {
+        return (key == null ? "" : key) + AppDatabase.SYMBOL + (id == null ? "" : id);
+    }
+
+    private boolean takePendingFullscreen() {
+        String pending = sPendingFullscreenTarget;
+        if (pending == null) return false;
+        // 一次性消费：这次打开的是别的片子就顺手作废，避免很久以后打开同名条目突然全屏。
+        sPendingFullscreenTarget = null;
+        String pendingName = sPendingFullscreenName;
+        sPendingFullscreenName = null;
+        if (pending.equals(fullscreenTarget(getKey(), getId()))) return true;
+        return !TextUtils.isEmpty(pendingName) && pendingName.equals(getName());
     }
 
     @Override
@@ -2276,7 +2297,7 @@ private boolean runtimeSourceOnly;
     }
 
     private void checkCast() {
-        if ((consumePendingFullscreen() || isCast()) && !isFullscreen()) enterFullscreen();
+        if ((takePendingFullscreen() || isCast()) && !isFullscreen()) enterFullscreen();
         else if (mAudioStageVisible) mBinding.progressLayout.showContent();
         else if (hasInitialPreview()) showInitialPreview();
         else mBinding.progressLayout.showProgress();
