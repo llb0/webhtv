@@ -6924,6 +6924,11 @@ private boolean runtimeSourceOnly;
     }
 
     @Override
+    protected History getPlaybackHistory() {
+        return mHistory;
+    }
+
+    @Override
     protected void onStateChanged(int state) {
         switch (state) {
             case Player.STATE_BUFFERING:

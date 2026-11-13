@@ -188,6 +188,29 @@ public class WebHomeInlineVodStore {
         return result;
     }
 
+    /** 播放器截图兜底成功后回写：历史卡片与下次 detail 都直接用这张本地封面。 */
+    public static boolean setPic(String id, String pic) {
+        if (TextUtils.isEmpty(id) || TextUtils.isEmpty(pic)) return false;
+        Entry entry = ITEMS.get(id);
+        if (entry == null) {
+            loadPersisted(id);
+            entry = ITEMS.get(id);
+        }
+        if (entry == null || TextUtils.isEmpty(entry.vod)) return false;
+        try {
+            Vod vod = Vod.objectFrom(entry.vod);
+            if (vod == null) return false;
+            vod.setPic(pic);
+            Entry updated = new Entry(App.gson().toJson(vod), entry.headerSpec, entry.resolver);
+            ITEMS.put(id, updated);
+            VOD_PICS.put(id, pic);
+            persist(id, updated);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     /** 写进 Prefers。Resolver 是接口实例，无法序列化，用不到就留空。 */
     private static void persist(String id, Entry entry) {
         if (entry == null || TextUtils.isEmpty(entry.vod) || TextUtils.isEmpty(id)) return;

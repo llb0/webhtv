@@ -34,6 +34,25 @@ public class HistoryWebHomeSourceTest {
         assertTrue(pic.contains("WebHomeInlineVodStore.getPic(getVodId())"));
     }
 
+    @Test
+    public void webHomeMissingArtworkFallsBackToRenderedFrameSnapshot() throws Exception {
+        String base = read(source("main", "java", "com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
+        assertTrue(base.contains("WEBHOME_SNAPSHOT_DELAYS = {2500L, 2000L, 2000L}"));
+        assertTrue(base.contains("scheduleWebHomeSnapshot()"));
+        assertTrue(base.contains("PlaybackFrameSnapshot.capture"));
+        assertTrue(base.contains("WebHomeInlineVodStore.setPic"));
+
+        String mobile = read(source("mobile", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        String leanback = read(source("leanback", "java", "com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
+        assertTrue(mobile.contains("protected History getPlaybackHistory()"));
+        assertTrue(leanback.contains("protected History getPlaybackHistory()"));
+
+        String snapshot = read(source("main", "java", "com", "fongmi", "android", "tv", "player", "PlaybackFrameSnapshot.java"));
+        assertTrue(snapshot.contains("PixelCopy.request"));
+        assertTrue(snapshot.contains("isMostlyBlack"));
+        assertTrue(snapshot.contains("webhome_snapshot"));
+    }
+
     private static String slice(String source, String start, String end) {
         int from = source.indexOf(start);
         int to = source.indexOf(end, from);

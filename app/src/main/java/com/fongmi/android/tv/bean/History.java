@@ -228,6 +228,12 @@ public class History implements Diffable<History> {
         return AppDatabase.get().getHistoryDao().find(cid, key);
     }
 
+    /** 仅当原字段为空时写入封面，避免截图落库途中覆盖 TMDB 海报或更新中的播放进度。 */
+    public static boolean updateVodPicIfEmpty(int cid, String key, String pic) {
+        if (TextUtils.isEmpty(key) || TextUtils.isEmpty(pic)) return false;
+        return AppDatabase.get().getHistoryDao().updateVodPicIfEmpty(cid, key, pic) > 0;
+    }
+
     public static History findPlayback(String key, String vodName, List<Flag> flags) {
         return findPlayback(key, Collections.singletonList(vodName), flags);
     }

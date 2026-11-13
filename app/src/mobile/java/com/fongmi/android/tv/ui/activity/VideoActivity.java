@@ -8097,6 +8097,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     @Override
+    protected History getPlaybackHistory() {
+        return mHistory;
+    }
+
+    @Override
     protected void onStateChanged(int state) {
         switch (state) {
             case Player.STATE_BUFFERING:
