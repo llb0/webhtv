@@ -1218,15 +1218,15 @@ private boolean runtimeSourceOnly;
 
     private void updateEpisodeSeasonContext() {
         int season = currentSourceSeasonNumber();
-        mBinding.episodeTitle.setText(isTmdbSourceEnabled() && season >= 0
-                ? getString(R.string.detail_episode_season_context, season)
-                : getString(R.string.detail_episode));
         boolean selectable = isTmdbSourceEnabled()
                 && !runtimeSourceOnly
                 && mTmdbUIAdapter != null
                 && mTmdbUIAdapter.getTmdbItem() != null
                 && mTmdbUIAdapter.getTmdbItem().isTv()
                 && mTmdbUIAdapter.hasSeasonOptions();
+        mBinding.episodeTitle.setText(isTmdbSourceEnabled() && season >= 0
+                ? getString(R.string.detail_episode_season_context, season)
+                : selectable ? getString(R.string.tmdb_season_button) : getString(R.string.detail_episode));
         mBinding.episodeTitle.setClickable(selectable);
         mBinding.episodeTitle.setFocusable(selectable);
         mBinding.episodeTitle.setFocusableInTouchMode(false);
@@ -1237,6 +1237,24 @@ private boolean runtimeSourceOnly;
         if (icon != null) icon.setTint(mBinding.episodeTitle.getCurrentTextColor());
         mBinding.episodeTitle.setCompoundDrawablePadding(selectable ? ResUtil.dp2px(4) : 0);
         mBinding.episodeTitle.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, icon, null);
+    }
+
+    /** 季集富化关闭（例如“保持原始集列表”）时仍保留“季度”入口，避免无法改回绑定。 */
+    private boolean shouldKeepTmdbSeasonEntry() {
+        return isTmdbSourceEnabled()
+                && !runtimeSourceOnly
+                && mTmdbUIAdapter != null
+                && mTmdbUIAdapter.isLoaded()
+                && mTmdbUIAdapter.getTmdbItem() != null
+                && mTmdbUIAdapter.getTmdbItem().isTv()
+                && mTmdbUIAdapter.hasSeasonOptions();
+    }
+
+    private void updateEpisodeHeaderVisibility(boolean chromeVisible, boolean hasItems) {
+        boolean visible = hasItems && (chromeVisible || shouldKeepTmdbSeasonEntry());
+        mBinding.episodeHeader.setVisibility(visible ? View.VISIBLE : View.GONE);
+        // 扁平模式只保留“季度”入口，右侧排序/视图按钮都隐藏，避免焦点跳到不可见控件。
+        mBinding.episodeTitle.setNextFocusRightId(chromeVisible ? R.id.episodeReverse : View.NO_ID);
     }
 
     private boolean isResumeFromHistory() {
@@ -4023,7 +4041,7 @@ private boolean runtimeSourceOnly;
         if (useTmdbCards && hasMultiple) episodeGridMode = Setting.getTmdbEpisodeGridMode();
         if (!useTmdbCards || !hasMultiple) episodeGridMode = false;
         if (updateEpisodeChrome) {
-            mBinding.episodeHeader.setVisibility(showTmdbEpisodeChrome && !isEmpty ? View.VISIBLE : View.GONE);
+            updateEpisodeHeaderVisibility(showTmdbEpisodeChrome, !isEmpty);
             mBinding.episodeReverse.setVisibility(showTmdbEpisodeChrome && hasMultiple ? View.VISIBLE : View.GONE);
             mBinding.episodeViewMode.setVisibility(showTmdbEpisodeChrome && hasMultiple && useTmdbCards ? View.VISIBLE : View.GONE);
             mBinding.episodeFileName.setVisibility(showTmdbEpisodeChrome && hasMultiple ? View.VISIBLE : View.GONE);
@@ -4064,7 +4082,7 @@ private boolean runtimeSourceOnly;
     private void setUpstreamNativeEpisodeItems(List<Episode> items, boolean scrollToCurrent) {
         episodeGridMode = true;
         int column = EpisodeAdapter.getColumn(items);
-        mBinding.episodeHeader.setVisibility(View.GONE);
+        updateEpisodeHeaderVisibility(false, !items.isEmpty());
         mBinding.episodeReverse.setVisibility(View.GONE);
         mBinding.episodeViewMode.setVisibility(View.GONE);
         mBinding.episodeFileName.setVisibility(View.GONE);
@@ -4114,7 +4132,7 @@ private boolean runtimeSourceOnly;
         mEpisodeAdapter.setUseTmdbCard(false);
         mEpisodeGridAdapter.setUseTmdbCard(false);
         applyEpisodeViewMode(false);
-        mBinding.episodeHeader.setVisibility(View.GONE);
+        updateEpisodeHeaderVisibility(false, true);
         mBinding.episodeReverse.setVisibility(View.GONE);
         mBinding.episodeViewMode.setVisibility(View.GONE);
         mBinding.episodeFileName.setVisibility(View.GONE);
@@ -7545,7 +7563,7 @@ private boolean runtimeSourceOnly;
         // 参数传 false 时两者恰好等价，显式写成 useTmdbCards 是为了以后改策略时不会漏掉这里。
         if (useTmdbCards && hasMultiple) episodeGridMode = Setting.getTmdbEpisodeGridMode();
         if (!useTmdbCards || !hasMultiple) episodeGridMode = false;
-        mBinding.episodeHeader.setVisibility(showTmdbEpisodeChrome && !items.isEmpty() ? View.VISIBLE : View.GONE);
+        updateEpisodeHeaderVisibility(showTmdbEpisodeChrome, !items.isEmpty());
         mBinding.episodeReverse.setVisibility(showTmdbEpisodeChrome && hasMultiple ? View.VISIBLE : View.GONE);
         mBinding.episodeViewMode.setVisibility(showTmdbEpisodeChrome && hasMultiple && useTmdbCards ? View.VISIBLE : View.GONE);
         mBinding.episodeFileName.setVisibility(showTmdbEpisodeChrome && hasMultiple ? View.VISIBLE : View.GONE);

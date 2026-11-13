@@ -1177,15 +1177,15 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void updateEpisodeSeasonContext() {
         int season = currentSourceSeasonNumber();
-        mBinding.episodeTitle.setText(isTmdbSourceEnabled() && season >= 0
-                ? getString(R.string.detail_episode_season_context, season)
-                : getString(R.string.detail_episode));
         boolean selectable = isTmdbSourceEnabled()
                 && !runtimeSourceOnly
                 && mTmdbUIAdapter != null
                 && mTmdbUIAdapter.getTmdbItem() != null
                 && mTmdbUIAdapter.getTmdbItem().isTv()
                 && mTmdbUIAdapter.hasSeasonOptions();
+        mBinding.episodeTitle.setText(isTmdbSourceEnabled() && season >= 0
+                ? getString(R.string.detail_episode_season_context, season)
+                : selectable ? getString(R.string.tmdb_season_button) : getString(R.string.detail_episode));
         mBinding.episodeTitle.setClickable(selectable);
         mBinding.episodeTitle.setFocusable(selectable);
         mBinding.episodeTitle.setFocusableInTouchMode(false);
