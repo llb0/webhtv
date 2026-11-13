@@ -1330,7 +1330,20 @@ private boolean runtimeSourceOnly;
         if (preferred != null) return preferred;
         Flag selected = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.selectPlaybackFlag(
                 flags, flagKey, episodeUrl, flagName);
-        return selected == null ? flags.get(0) : selected;
+        Flag resolved = selected == null ? flags.get(0) : selected;
+        // 历史/偏好线路键可能因源站线路增删或 TMDB 季集重排而漂移。键命中了线路名，
+        // 但这条线路里根本没有目标集时，继续播只会落到该线路第一集（常常是预告/空地址）。
+        // 此时优先换到真正包含目标集的线路，全都定位不到再退回第一条。
+        Episode target = mHistory == null ? null : mHistory.getEpisode();
+        if (target != null && (!TextUtils.isEmpty(target.getUrl())
+                || (target.getTmdbEpisode() != null && target.getTmdbEpisode().getNumber() > 0))) {
+            if (resolved.find(target, true) != null) return resolved;
+            for (Flag flag : flags) {
+                if (flag != null && flag.find(target, true) != null) return flag;
+            }
+            return flags.get(0);
+        }
+        return resolved;
     }
 
     /**
@@ -1393,7 +1406,16 @@ private boolean runtimeSourceOnly;
 
     private Episode getEpisode() {
         Flag flag = getFlag();
-        if (flag != null && !flag.getEpisodes().isEmpty()) return flag.getEpisodes().get(getSelectedEpisodePosition(flag.getEpisodes()));
+        if (flag != null && !flag.getEpisodes().isEmpty()) {
+            Episode selected = flag.getEpisodes().get(getSelectedEpisodePosition(flag.getEpisodes()));
+            if (selected != null && !TextUtils.isEmpty(selected.getUrl())) return selected;
+            // TMDB 合并后同集可能有空地址条目（预告/占位）。不要把它交给 playerContent，
+            // 否则会走到「播放地址解析失败」；优先在同线路找第一条有地址的集。
+            for (Episode episode : flag.getEpisodes()) {
+                if (episode != null && !TextUtils.isEmpty(episode.getUrl())) return episode;
+            }
+            if (selected != null) return selected;
+        }
         if (mEpisodeAdapter != null && mEpisodeAdapter.getItemCount() > 0) return mEpisodeAdapter.getActivated();
         return mFastPlaybackEpisode == null ? new Episode() : mFastPlaybackEpisode;
     }
@@ -1401,20 +1423,10 @@ private boolean runtimeSourceOnly;
     private int getSelectedEpisodePosition(List<Episode> episodes) {
         for (int i = 0; i < episodes.size(); i++) if (episodes.get(i).isSelected()) return i;
         if (mHistory == null) return 0;
-        Episode historyEpisode = mHistory.getEpisode();
-        // 历史集 URL 能定位到当前列表条目时（同集多版本并存）先按 URL 锁定版本，
-        // 否则“集号相同即同集”会把用户点过的第二版本误认成第一版本；
-        // 换线路/换源/源站刷新后 URL 必然失配，交回下面的集号容错，保住跨线路续播与刷新后选中。
-        for (int i = 0; i < episodes.size(); i++) {
-            if (TextUtils.isEmpty(historyEpisode.getUrl())) break;
-            if (!TextUtils.equals(historyEpisode.getUrl(), episodes.get(i).getUrl())) continue;
-            if (episodes.get(i).getTmdbEpisode() != null && episodes.get(i).getTmdbEpisode().getNumber() > 0
-                    && historyEpisode.getTmdbEpisode() != null && historyEpisode.getTmdbEpisode().getNumber() > 0
-                    && !episodes.get(i).matchesNumber(historyEpisode)) continue;
-            return i;
-        }
-        for (int i = 0; i < episodes.size(); i++) if (episodes.get(i).matchesPlayback(historyEpisode)) return i;
-        return 0;
+        // URL 精确命中仍最优先；URL 失配后由 bestPlaybackPosition 按集名/正片优先/
+        // 可播放地址消歧，避免同一 TMDB 集号下第一条预告把历史续播带偏。
+        int best = com.fongmi.android.tv.bean.Flag.bestPlaybackPosition(episodes, mHistory.getEpisode());
+        return best < 0 ? 0 : best;
     }
 
     private String getDanmakuEpisodeName() {
