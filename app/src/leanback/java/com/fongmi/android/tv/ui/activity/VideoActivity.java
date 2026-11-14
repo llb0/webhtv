@@ -9363,6 +9363,23 @@ private boolean runtimeSourceOnly;
         return false;
     }
 
+    /**
+     * 「旋转」按钮的上键与确定键共用顺时针旋转；下键逆时针旋转。
+     * 控制栏焦点辅助会先把 UP 当成焦点移出并吞掉，必须在它之前接管。
+     */
+    private boolean dispatchRotateAdjust(KeyEvent event) {
+        if (!KeyUtil.isActionDown(event) || !isVisible(mBinding.control.getRoot())) return false;
+        if (getCurrentFocus() != mBinding.control.action.rotate) return false;
+        if (KeyUtil.isUpKey(event)) {
+            onRotateAdd();
+            return true;
+        } else if (KeyUtil.isDownKey(event)) {
+            onRotateSub();
+            return true;
+        }
+        return false;
+    }
+
     @Override
     protected boolean dispatchDiscMenuKey(KeyEvent event) {
         // Let TV controls own DPAD/ENTER while visible, including the shared
@@ -9424,6 +9441,7 @@ private boolean runtimeSourceOnly;
             setR1Callback();
             if (dispatchOpeningEndingAdjust(event)) { cancelKeySeek(); return true; }
             if (dispatchSpeedAdjust(event)) { cancelKeySeek(); return true; }
+            if (dispatchRotateAdjust(event)) { cancelKeySeek(); return true; }
             if (PlayerControlFocusHelper.handleKey(mBinding.control.getRoot(), getFocus2(), event)) { cancelKeySeek(); return true; }
             if (PlayerControlFocusHelper.containsFocus(mBinding.control.getRoot())) mFocus2 = getCurrentFocus();
         }
