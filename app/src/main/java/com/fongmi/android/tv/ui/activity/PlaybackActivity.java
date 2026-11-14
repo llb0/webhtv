@@ -506,12 +506,12 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         String pic = history.getVodPic();
         if (WebHomeInlineVodStore.KEY.equals(siteKey)) return TextUtils.isEmpty(pic);
         if (SiteApi.PUSH.equals(siteKey)) {
-            return TextUtils.isEmpty(pic) || TextUtils.equals(pic, ResUtil.getString(R.string.push_image));
+            return History.isPushPlaceholder(pic);
         }
         return false;
     }
 
-    private void scheduleWebHomeSnapshot() {
+    protected void scheduleWebHomeSnapshot() {
         History history = getPlaybackHistory();
         if (!needsPlaybackSnapshot(history)) return;
         if (TextUtils.equals(history.getKey(), webHomeSnapshotKey)) {
@@ -562,13 +562,18 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private void persistWebHomeSnapshot(int cid, String key, String vodId, String siteKey, String uri) {
         Task.execute(() -> {
             try {
+                boolean updated = false;
                 if (WebHomeInlineVodStore.KEY.equals(siteKey)) {
-                    History.updateVodPicIfEmpty(cid, key, uri);
+                    updated = History.updateVodPicIfEmpty(cid, key, uri);
                     WebHomeInlineVodStore.setPic(vodId, uri);
                 } else if (SiteApi.PUSH.equals(siteKey)) {
-                    History.updateVodPicIfEmptyOrPlaceholder(cid, key, uri, ResUtil.getString(R.string.push_image));
+                    updated = History.updateVodPicIfEmptyOrPlaceholder(cid, key, uri, ResUtil.getString(R.string.push_image));
                 }
-                App.post(RefreshEvent::history);
+                if (updated) App.post(() -> {
+                    History current = getPlaybackHistory();
+                    if (current != null && TextUtils.equals(current.getKey(), key)) current.setVodPic(uri);
+                    RefreshEvent.history();
+                });
             } catch (Throwable ignored) {
             }
         });

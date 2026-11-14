@@ -209,7 +209,14 @@ public final class PlaybackProgressWriter {
         history.setKey(key);
         history.setCid(cid);
         history.setVodName(input.vodName);
-        history.setVodPic(input.vodPic);
+        // 推送播放的截图落库后，播放进度仍会带着内存里的占位图持续回写；
+        // 这里保留库中已有的真实封面/截图，避免每次进度更新都把海报打回纸飞机。
+        if (local != null && history.isPushHistory() && History.isPushPlaceholder(input.vodPic)
+                && !History.isPushPlaceholder(local.getVodPic())) {
+            history.setVodPic(local.getVodPic());
+        } else {
+            history.setVodPic(input.vodPic);
+        }
         history.setVodFlag(input.flag);
         applySourceBindingKey(history, input);
         history.setVodRemarks(input.episodeName);

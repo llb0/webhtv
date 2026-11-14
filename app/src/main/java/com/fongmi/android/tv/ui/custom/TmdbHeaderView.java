@@ -2063,6 +2063,7 @@ public class TmdbHeaderView {
         tintAction(R.id.tmdbChangeSource, style);
         tintAction(R.id.tmdbKeep, style);
         tintAction(R.id.tmdbFollowing, style);
+        tintAction(R.id.tmdbDownload, style);
         tintAction(R.id.tmdbRematch, style);
         tintAction(R.id.tmdbThemeToggle, style);
     }

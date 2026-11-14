@@ -240,6 +240,15 @@ public class History implements Diffable<History> {
         return AppDatabase.get().getHistoryDao().updateVodPicIfEmptyOrPlaceholder(cid, key, pic, placeholder) > 0;
     }
 
+    public static boolean isPushPlaceholder(String pic) {
+        return TextUtils.isEmpty(pic) || TextUtils.equals(pic, ResUtil.getString(R.string.push_image));
+    }
+
+    /** 截图落库后为 file:// URI；用于历史卡片区分“推送截图”与普通推送占位。 */
+    public boolean isPushSnapshot() {
+        return isPushHistory() && !TextUtils.isEmpty(vodPic) && vodPic.startsWith("file://");
+    }
+
     public static History findPlayback(String key, String vodName, List<Flag> flags) {
         return findPlayback(key, Collections.singletonList(vodName), flags);
     }
@@ -1004,7 +1013,8 @@ public class History implements Diffable<History> {
 
     public String getSiteName() {
         if (getCid() != VodConfig.getCid()) return ResUtil.getString(R.string.history_other_config);
-        if (SiteApi.PUSH.equals(getSiteKey())) return "";
+        // 推送截图替换占位图后，历史左上角明确标成“推送”，和普通站点来源区分开。
+        if (SiteApi.PUSH.equals(getSiteKey())) return isPushSnapshot() ? ResUtil.getString(R.string.push) : "";
         // WebHome 嗅探记录使用合成键 webhome_inline，不是普通站点，不能按站点表判失效。
         if (WebHomeInlineVodStore.KEY.equals(getSiteKey())) {
             Site origin = WebHomeInlineVodStore.getOriginSite(getVodId());
@@ -1082,7 +1092,7 @@ public class History implements Diffable<History> {
         return isRevPlay() ? R.string.play_backward_hint : R.string.play_forward_hint;
     }
 
-    private boolean isPushHistory() {
+    public boolean isPushHistory() {
         return key != null && key.startsWith(SiteApi.PUSH + AppDatabase.SYMBOL);
     }
 
@@ -1252,6 +1262,12 @@ public class History implements Diffable<History> {
             long deletedAt = latestDeletion(PlaybackDeleteTombstoneStore.snapshot(), getKey());
             if (!writeSurvivesDeletion(getCreateTime(), deletedAt)) return null;
             before[0] = find(getCid(), getKey());
+            // 播放页退出时 mHistory 里仍是 push 占位图，直接整行覆盖会把刚写入的截图
+            // 又冲掉；沿用库里已经落下的真实封面/截图。
+            if (before[0] != null && isPushHistory() && isPushPlaceholder(vodPic)
+                    && !isPushPlaceholder(before[0].getVodPic())) {
+                setVodPic(before[0].getVodPic());
+            }
             if (mediaIdentityChanged(before[0], this)) {
                 AppDatabase.get().getTmdbSeasonProgressDao().deleteBySource(getCid(), getKey());
             }

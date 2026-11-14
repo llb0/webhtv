@@ -6411,6 +6411,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
+        // 历史就绪即预约封面截图；首帧/READY 的调用会被同一 key 去重。
+        scheduleWebHomeSnapshot();
         return true;
     }
 
@@ -8395,6 +8397,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 if (!pendingResumeSeekApplied) applyAutoIntroSkip();
                 setAdFeedbackVisible(); // 播放地址确定后按格式刷新"有广告"按钮
                 if (!mShortDramaQueueSessionActive) beginShortDramaQueue();
+                // 首帧回调可能早于历史就绪或 Surface 尚未可抓帧，READY 后再补一次；
+                // 截图任务自身有 key/次数去重，不会重复落库。
+                scheduleWebHomeSnapshot();
                 break;
             case Player.STATE_ENDED:
                 if (mShortDramaQueue.shouldSuppressLegacyAutoAdvance()) {
