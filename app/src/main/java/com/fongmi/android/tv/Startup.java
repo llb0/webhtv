@@ -8,6 +8,7 @@ import androidx.startup.Initializer;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.player.mpv.PlaybackRecoveryMonitor;
 import com.fongmi.android.tv.ui.activity.CrashActivity;
+import com.fongmi.android.tv.utils.CrashReport;
 import com.github.catvod.bean.Doh;
 import com.github.catvod.net.OkHttp;
 import com.orhanobut.logger.AndroidLogAdapter;
@@ -30,8 +31,8 @@ public class Startup implements Initializer<Void> {
     @NonNull
     @Override
     public Void create(@NonNull Context context) {
-        if (PlaybackRecoveryMonitor.isRecoveryProcess(context)) return null;
-        CaocConfig.Builder.create().trackActivities(true).backgroundMode(CaocConfig.BACKGROUND_MODE_SILENT).errorActivity(CrashActivity.class).apply();
+        if (CrashReport.isErrorProcess(context) || PlaybackRecoveryMonitor.isRecoveryProcess(context)) return null;
+        CaocConfig.Builder.create().trackActivities(true).backgroundMode(CaocConfig.BACKGROUND_MODE_SHOW_CUSTOM).errorActivity(CrashActivity.class).apply();
         Logger.addLogAdapter(new AndroidLogAdapter(PrettyFormatStrategy.newBuilder().methodCount(0).showThreadInfo(false).tag("TV").build()));
         installEventBus();
         OkHttp.dns().setDoh(() -> Doh.objectFrom(Setting.getDoh()));

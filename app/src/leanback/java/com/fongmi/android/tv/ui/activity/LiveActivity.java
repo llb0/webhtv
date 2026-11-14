@@ -78,6 +78,7 @@ import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.Formatters;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Traffic;
 import com.github.catvod.crawler.SpiderDebug;
@@ -728,6 +729,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void switchPlayerKernel(int type) {
+        cancelKeySeek();
         player().switchPlayer(type);
         setPlayerKernel();
         setDecode();
@@ -740,6 +742,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void onDecode() {
+        cancelKeySeek();
         player().toggleDecode();
         setDecode();
     }
@@ -753,6 +756,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void showUI() {
+        cancelKeySeek();
         if (isVisible(mBinding.recycler) || mGroupAdapter.getItemCount() == 0) return;
         mBinding.recycler.setVisibility(View.VISIBLE);
         setPosition();
@@ -813,6 +817,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         Track.delete(player().getKey());
         player().resetTrack();
         player().reset();
+        cancelKeySeek();
         player().stop();
         if (!mFailedThisSession) {
             mFailedThisSession = true;
@@ -843,6 +848,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         mPendingReloadMsg = msg;
         player().resetTrack();
         player().reset();
+        cancelKeySeek();
         player().stop();
         fetch();
     }
@@ -850,6 +856,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     @Override
     protected void onReclaim() {
         if (isFinishing() || isDestroyed()) return;
+        cancelKeySeek();
         Result result = mViewModel.url().getValue();
         if (result != null) start(result);
     }
@@ -879,6 +886,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     protected void onPlayingChanged(boolean isPlaying) {
         if (isFinishing() || isDestroyed()) return;
         if (isPlaying) App.removeCallbacks(mBufferingTimeout);
+        if (!isPlaying && isPaused()) cancelKeySeek();
         if (isPlaying || isPaused()) updatePlayControl(isPlaying);
     }
 
@@ -1283,6 +1291,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     private void showControl(View view) {
         // 与 mobile 一致：唤出控制栏时重算轨道类按钮，用户重新开启后不必等下一次轨道变化。
         if (service() != null) setTrackVisible();
+        cancelKeySeek();
         setPlayParamsState();
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
         // 控制栏显示时统一由 PlayerOsdController 显示标题、分辨率和时间，避免旧栏重影
@@ -1295,6 +1304,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     private void hideControl() {
         if (isFinishing() || isDestroyed()) return;
+        cancelKeySeek();
         mBinding.control.getRoot().setVisibility(View.GONE);
         mBinding.widget.top.setVisibility(View.GONE);
         if (mOsd != null) mOsd.setControlsVisible(false);
@@ -1347,6 +1357,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void onToggle() {
+        cancelKeySeek();
         if (isVisible(mBinding.control.getRoot())) hideControl();
         else if (isVisible(mBinding.recycler)) hideUI();
         else showUI();
@@ -1477,6 +1488,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void fetch(EpgData item) {
+        cancelKeySeek();
         if (mChannel == null) return;
         App.removeCallbacks(mEndRetry);
         App.removeCallbacks(mBufferingTimeout);
@@ -1490,6 +1502,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
     }
 
     private void fetch() {
+        cancelKeySeek();
         if (mChannel == null) return;
         App.removeCallbacks(mEndRetry);
         App.removeCallbacks(mBufferingTimeout);
@@ -1505,6 +1518,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     private void start(Result result) {
         if (isFinishing() || isDestroyed()) return;
+        cancelKeySeek();
         String realUrl = result.getRealUrl();
         if (isSameReloadUrl(realUrl)) {
             String msg = mPendingReloadMsg;
@@ -1624,6 +1638,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         if (mWebViewPlayer != null) mWebViewPlayer.detach();
         player().reset();
         player().clear();
+        cancelKeySeek();
         player().stop();
         resetLineFallback();
         resetAdapter();
@@ -1824,16 +1839,23 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         fetch();
     }
 
+    @Override
+    public void onSeekEnd(long time) {
+        seek(time);
+    }
+
     private void seek(long time) {
         mKeyDown.reset();
         seekTo(time);
     }
 
     private void onPaused() {
+        cancelKeySeek();
         controller().pause();
     }
 
     private void onPlay() {
+        cancelKeySeek();
         controller().play();
     }
 
@@ -1843,6 +1865,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (KeyUtil.isActionDown(event) && (!dispatch(true) || (!KeyUtil.isLeftKey(event) && !KeyUtil.isRightKey(event) && !KeyUtil.isBackKey(event)))) cancelKeySeek();
         if (isVisible(mBinding.control.getRoot())) setR1Callback();
         if (isVisible(mBinding.control.getRoot())) mFocus2 = getCurrentFocus();
         if (mKeyDown.hasEvent(event) && service() != null) mKeyDown.onKeyDown(event);
@@ -1871,9 +1894,30 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         setPosition(LiveConfig.get().findByChannelNumber(number, mGroupAdapter.unmodifiableList()));
     }
 
+    private void cancelKeySeek() {
+        if (mKeyDown != null) mKeyDown.cancelSeek();
+    }
+
+    @Override
+    public boolean canSeek() {
+        return playbackCatchup && service() != null && !isFinishing() && !isDestroyed() && !isPlaybackExiting() && !isRedirect() && isOwner() && !player().isLive()
+                && !player().isEmpty() && player().getDuration() > 0
+                && player().getPlayer().isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM);
+    }
+
+    @Override
+    public String getSeekSession() {
+        return service() == null ? com.fongmi.android.tv.player.PlaybackTrace.NONE : player().getPlaybackTraceId();
+    }
+
+    @Override
+    public void onSeekCancel() {
+        hideCenter();
+    }
+
     @Override
     public void onSeeking(long time) {
-        if (player().isLive()) return;
+        if (!canSeek()) return;
         mBinding.widget.center.setVisibility(View.VISIBLE);
         mBinding.widget.duration.setText(player().getDurationTime());
         mBinding.widget.position.setText(player().getPositionTime(time));
@@ -1895,14 +1939,12 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     public void onKeyLeft(long time) {
-        if (player().isLive()) prevLine();
-        else App.post(() -> seek(time), 250);
+        if (!playbackCatchup) prevLine();
     }
 
     @Override
     public void onKeyRight(long time) {
-        if (player().isLive()) nextLine(true);
-        else App.post(() -> seek(time), 250);
+        if (!playbackCatchup) nextLine(true);
     }
 
     @Override
@@ -1942,6 +1984,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected void onStop() {
+        cancelKeySeek();
         super.onStop();
         if (mOsd != null) mOsd.stop();
         if (mWebViewPlayer != null) mWebViewPlayer.onPause();
@@ -1950,6 +1993,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected void onBackInvoked() {
+        cancelKeySeek();
         if (isVisible(mBinding.control.getRoot())) {
             hideControl();
         } else if (isVisible(mBinding.widget.bottom)) {
@@ -1971,6 +2015,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
 
     @Override
     protected void onDestroy() {
+        cancelKeySeek();
         mClock.release();
         if (mWebViewPlayer != null) mWebViewPlayer.detach();
         Source.get().exit();

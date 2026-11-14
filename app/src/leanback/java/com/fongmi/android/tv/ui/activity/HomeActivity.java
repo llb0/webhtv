@@ -68,6 +68,8 @@ import com.fongmi.android.tv.ui.presenter.HeaderPresenter;
 import com.fongmi.android.tv.ui.presenter.ProgressPresenter;
 import com.fongmi.android.tv.ui.presenter.VodPresenter;
 import com.fongmi.android.tv.utils.Clock;
+import com.fongmi.android.tv.utils.CrashRestartMode;
+import com.fongmi.android.tv.utils.PreviousProcessCrashRecovery;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.KeyUtil;
@@ -235,6 +237,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void checkAction(Intent intent) {
+        PreviousProcessCrashRecovery.checkBeforeConfig(this, () -> handleAction(intent));
+    }
+
+    private void handleAction(Intent intent) {
         if (Intent.ACTION_SEND.equals(intent.getAction())) {
             VideoActivity.push(this, intent.getStringExtra(Intent.EXTRA_TEXT));
         } else if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
@@ -380,6 +386,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void initConfig() {
+        PreviousProcessCrashRecovery.checkBeforeConfig(this, this::loadConfig);
+    }
+
+    private void loadConfig() {
+        if (CrashRestartMode.consume()) {
+            SpiderDebug.log("startup", "skip config load once after crash restart");
+            showContent();
+            return;
+        }
         SpiderDebug.log("startup", "config load start cost=%sms", System.currentTimeMillis() - App.time());
         VodConfig.get().init().load(getCallback());
         LiveConfig.get().init().load();
@@ -1066,6 +1081,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     protected void onDestroy() {
+        PreviousProcessCrashRecovery.release(this);
         if (mWeb != null) mWeb.destroy();
         DLNARendererService.stop(this);
         LiveConfig.get().clear();

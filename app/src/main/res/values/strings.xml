@@ -1,5 +1,5 @@
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
-    
+
     <!-- App -->
    <string name="app_name">默影视</string>
    <string name="setting_app_branding">App icon</string>
@@ -273,6 +273,7 @@
     <string name="group_rule_ai_current_interface">Current VOD configuration</string>
 
     <string name="setting_home_vod_auto_load">Auto-load VOD</string>
+    <string name="setting_home_site_lock">Home source lock</string>
     <string name="setting_auto_backup">Automatic backup</string>
     <string name="setting_fullscreen_menu_key">Fullscreen menu key</string>
     <string name="setting_home_menu_key">Home menu key</string>
@@ -1093,7 +1094,9 @@
     <string name="cache_total_limit_title">Total cache limit</string>
     <string name="cache_total_limit_summary">Total limit: %1$s</string>
     <string name="cache_limit_title_exo">Playback cache limit</string>
-    <string name="cache_management_playback_budget">Playback cache %1$s (shrinks to %2$s once playback ends)</string>
+    <string name="cache_management_total_limit">Total limit %1$s (all modules · converges after playback)</string>
+    <string name="cache_management_total_unlimited">Total limit unlimited (all modules · converges after playback)</string>
+    <string name="cache_management_total_blocked">still %1$s over (protected content)</string>
     <string name="cache_cleanup_confirm_title">Clean cache?</string>
     <string name="cache_cleanup_confirm_light">Remove temporary and legacy cache data?</string>
     <string name="cache_cleanup_confirm_standard">Clean rebuildable modules such as images, lyrics, karaoke, and WebHome cache?\n\nFavorites, history, and settings are not affected.</string>
@@ -1907,9 +1910,20 @@
     <!-- Crash -->
     <string name="crash_info">An unexpected error occurred.\nSorry for the inconvenience.</string>
     <string name="crash_restart">Restart app</string>
+    <string name="crash_silent_restart">Silent restart</string>
     <string name="crash_details">Error details</string>
     <string name="crash_details_title">Error details</string>
+    <string name="crash_details_message">App version: %1$s\n\n%2$s</string>
     <string name="crash_details_close">Close</string>
+    <string name="crash_log_title">Log download address</string>
+    <string name="crash_log_hint">Open this address in a browser on a phone or computer on the same network to view and download this crash log.</string>
+    <string name="crash_log_preparing">Preparing the log service…</string>
+    <string name="crash_log_unavailable">Log service unavailable. Use Error details to read the stack trace.</string>
+    <string name="crash_log_no_lan">No LAN address found. Open locally:\n%1$s</string>
+    <string name="crash_log_service_failed">Log service unavailable</string>
+    <string name="crash_log_copy">Copy address</string>
+    <string name="crash_log_copied">Address copied</string>
+    <string name="crash_log_open">Open in browser</string>
 
     <!-- Hint -->
     <string name="copied">Copied</string>
@@ -3113,7 +3127,7 @@
     <string name="plugin_manager_entry_meta">v%1$s · %2$s · %3$s</string>
     <string name="plugin_manager_params">Parameters</string>
     <string name="plugin_manager_params_title">Parameters for %1$s</string>
-    <string name="plugin_manager_params_hint">JSON object, e.g. {&quot;DOUBAN_TOKEN&quot;:&quot;abc&quot;}</string>
+    <string name="plugin_manager_params_hint">JSON object, e.g. {\&quot;DOUBAN_TOKEN\&quot;:\&quot;abc\&quot;}</string>
     <string name="plugin_manager_params_invalid">Parameters must be a JSON object</string>
     <string name="plugin_manager_params_too_large">Parameters are too large to save</string>
     <string name="plugin_manager_remote_import">Import from URL</string>
@@ -3153,6 +3167,7 @@
     <string name="plugin_manager_perm_events">Playback events (plugin.events)</string>
     <string name="plugin_manager_perm_episode_data">Episode data (plugin.data.episode)</string>
     <string name="plugin_panel_title">Plugin panel</string>
+    <string name="crash_action_failed">Action failed. Please try again.</string>
 
     <string name="setting">Config</string>
     <string name="confirm">OK</string>
