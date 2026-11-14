@@ -104,7 +104,8 @@ public final class RemoteCommandExecutor {
         if (App.activity() == null) return RemoteCommandResult.failure("App is not open");
         String url = first(payload, "url", "text");
         if (TextUtils.isEmpty(url)) return RemoteCommandResult.failure("Missing push URL");
-        App.post(() -> ServerEvent.push(url));
+        String name = first(payload, "name", "title");
+        App.post(() -> ServerEvent.push(url, name));
         return RemoteCommandResult.success("Push posted", null);
     }
 

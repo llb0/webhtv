@@ -234,6 +234,12 @@ public class History implements Diffable<History> {
         return AppDatabase.get().getHistoryDao().updateVodPicIfEmpty(cid, key, pic) > 0;
     }
 
+    /** push 历史初始使用 push_image 占位图，截图成功后只替换占位图，不覆盖真实海报。 */
+    public static boolean updateVodPicIfEmptyOrPlaceholder(int cid, String key, String pic, String placeholder) {
+        if (TextUtils.isEmpty(key) || TextUtils.isEmpty(pic)) return false;
+        return AppDatabase.get().getHistoryDao().updateVodPicIfEmptyOrPlaceholder(cid, key, pic, placeholder) > 0;
+    }
+
     public static History findPlayback(String key, String vodName, List<Flag> flags) {
         return findPlayback(key, Collections.singletonList(vodName), flags);
     }

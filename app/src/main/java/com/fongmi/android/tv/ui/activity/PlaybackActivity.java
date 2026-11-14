@@ -42,6 +42,7 @@ import androidx.media3.ui.PlayerView;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Sub;
@@ -499,10 +500,20 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         return null;
     }
 
+    private boolean needsPlaybackSnapshot(History history) {
+        if (history == null) return false;
+        String siteKey = history.getSiteKey();
+        String pic = history.getVodPic();
+        if (WebHomeInlineVodStore.KEY.equals(siteKey)) return TextUtils.isEmpty(pic);
+        if (SiteApi.PUSH.equals(siteKey)) {
+            return TextUtils.isEmpty(pic) || TextUtils.equals(pic, ResUtil.getString(R.string.push_image));
+        }
+        return false;
+    }
+
     private void scheduleWebHomeSnapshot() {
         History history = getPlaybackHistory();
-        if (history == null || !WebHomeInlineVodStore.KEY.equals(history.getSiteKey())) return;
-        if (!TextUtils.isEmpty(history.getVodPic())) return;
+        if (!needsPlaybackSnapshot(history)) return;
         if (TextUtils.equals(history.getKey(), webHomeSnapshotKey)) {
             if (webHomeSnapshotDone || webHomeSnapshotRunning
                     || webHomeSnapshotAttempt >= WEBHOME_SNAPSHOT_DELAYS.length) return;
@@ -524,11 +535,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private void captureWebHomeSnapshot() {
         if (webHomeSnapshotDone || webHomeSnapshotRunning || isFinishing() || isDestroyed()) return;
         History history = getPlaybackHistory();
-        if (history == null || !WebHomeInlineVodStore.KEY.equals(history.getSiteKey())
-                || !TextUtils.isEmpty(history.getVodPic())) return;
+        if (!needsPlaybackSnapshot(history)) return;
         final String key = history.getKey();
         final int cid = history.getCid();
         final String vodId = history.getVodId();
+        final String siteKey = history.getSiteKey();
         webHomeSnapshotRunning = true;
         PlaybackFrameSnapshot.capture(this, getExoView(), uri -> {
             webHomeSnapshotRunning = false;
@@ -540,19 +551,23 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
                 return;
             }
             webHomeSnapshotDone = true;
-            persistWebHomeSnapshot(cid, key, vodId, uri);
+            persistWebHomeSnapshot(cid, key, vodId, siteKey, uri);
         });
     }
 
     /**
-     * 后台落库：用原子 UPDATE 只在字段仍为空时写入，避免截图期间 TMDB 海报或播放进度被覆盖。
-     * 同时回写内嵌 VOD 存储，之后从历史详情进入也能拿到本地封面。
+     * 后台落库：用原子 UPDATE 只在字段仍为空/仍是 push 占位图时写入，避免截图期间
+     * TMDB 海报或播放进度被覆盖。webhome 历史同时回写内嵌 VOD 存储。
      */
-    private void persistWebHomeSnapshot(int cid, String key, String vodId, String uri) {
+    private void persistWebHomeSnapshot(int cid, String key, String vodId, String siteKey, String uri) {
         Task.execute(() -> {
             try {
-                History.updateVodPicIfEmpty(cid, key, uri);
-                WebHomeInlineVodStore.setPic(vodId, uri);
+                if (WebHomeInlineVodStore.KEY.equals(siteKey)) {
+                    History.updateVodPicIfEmpty(cid, key, uri);
+                    WebHomeInlineVodStore.setPic(vodId, uri);
+                } else if (SiteApi.PUSH.equals(siteKey)) {
+                    History.updateVodPicIfEmptyOrPlaceholder(cid, key, uri, ResUtil.getString(R.string.push_image));
+                }
                 App.post(RefreshEvent::history);
             } catch (Throwable ignored) {
             }

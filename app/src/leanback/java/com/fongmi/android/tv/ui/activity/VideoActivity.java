@@ -5379,7 +5379,7 @@ private boolean runtimeSourceOnly;
         CastVideo video = new CastVideo(Objects.toString(mBinding.widget.title.getText(), ""), player().getUrl(), player().getPosition(), player().getHeaders());
         // webhome_inline 的 VOD 只在发送端内存里，远端拿 history 必然 not found；
         // 改写成自包含的 push_agent 推送串（真实地址 + 请求头）后再发。
-        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders())).video(video).fm(true).show(this);
+        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders(), video.name())).video(video).fm(true).show(this);
     }
 
     private void onTimer() {

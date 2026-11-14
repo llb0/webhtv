@@ -365,13 +365,17 @@ public class SiteApi {
      * 报 "WebHome inline VOD not found"；改写成自包含的 push_agent 推送串（真实地址 + 请求头）后再发。
      */
     public static History castHistory(History history, String url, Map<String, String> headers) {
+        return castHistory(history, url, headers, history == null ? "" : history.getVodName());
+    }
+
+    public static History castHistory(History history, String url, Map<String, String> headers, String name) {
         if (history == null || !WebHomeInlineVodStore.KEY.equals(history.getSiteKey())) return history;
         String base = Sniffer.gatewayTarget(url);
         if (TextUtils.isEmpty(base)) base = url;
         if (TextUtils.isEmpty(base)) return history;
         History copy = History.objectFrom(history.toString());
         if (copy == null) return history;
-        copy.setKey(PUSH + AppDatabase.SYMBOL + Sniffer.pushPayload(base, headers) + AppDatabase.SYMBOL + history.getCid());
+        copy.setKey(PUSH + AppDatabase.SYMBOL + Sniffer.pushPayload(base, headers, name) + AppDatabase.SYMBOL + history.getCid());
         return copy;
     }
 

@@ -62,6 +62,17 @@ public class Sniffer {
         return url + HEADERS_TAG + Uri.encode(App.gson().toJson(headers));
     }
 
+    /**
+     * 投屏历史用的推送串：在地址和请求头之后附带片名，远端拆出标题后可直接显示，
+     * 不需要再按裸地址做 TMDB/搜索匹配。
+     */
+    public static String pushPayload(String url, Map<String, String> headers, String name) {
+        String payload = pushPayload(url, headers);
+        if (TextUtils.isEmpty(name)) return payload;
+        String safeName = name.replace('|', ' ').replace('$', ' ').replace('\n', ' ').replace('\r', ' ').trim();
+        return TextUtils.isEmpty(safeName) ? payload : payload + "|" + safeName;
+    }
+
     /** 取推送串里的请求头（含 @Headers=<json> 与单独的头段）。 */
     public static Map<String, String> pushHeaders(String text) {
         Map<String, String> headers = new LinkedHashMap<>();
@@ -84,7 +95,10 @@ public class Sniffer {
         if (idx < 0) return "";
         String raw = text.substring(idx + tag.length());
         int end = raw.indexOf('@');
-        return end < 0 ? raw : raw.substring(0, end);
+        String value = end < 0 ? raw : raw.substring(0, end);
+        // 投屏推送串会在请求头之后追加 |标题，标题不是 header 内容，解析 header 前先去掉。
+        int title = value.lastIndexOf('|');
+        return title < 0 ? value : value.substring(0, title);
     }
 
     private static void addPushHeader(Map<String, String> headers, String text, String tag, String name) {

@@ -40,7 +40,6 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.LinearLayoutCompat;
-import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
@@ -4221,7 +4220,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         CastVideo video = new CastVideo(mBinding.name.getText().toString(), player().getUrl(), player().getPosition(), player().getHeaders());
         // webhome_inline 的 VOD 只在发送端内存里，远端拿 history 必然 not found；
         // 改写成自包含的 push_agent 推送串（真实地址 + 请求头）后再发。
-        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders())).video(video).fm(true).show(this);
+        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders(), video.name())).video(video).fm(true).show(this);
     }
 
     private void onInfo() {
@@ -6878,29 +6877,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     /** Keep the mobile download action next to the TMDB match button instead of giving it a row. */
     private void installTmdbDownloadAction(View tmdbRoot) {
         if (mTmdbDownloadAction != null || tmdbRoot == null) return;
-        ViewGroup actions = tmdbRoot.findViewById(R.id.tmdbActions);
-        if (actions == null) return;
-        MaterialButton download = new MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        download.setText(R.string.play_download);
-        download.setAllCaps(false);
-        download.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        download.setTextColor(ContextCompat.getColorStateList(this, R.color.tmdb_action_button_text));
-        download.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.tmdb_action_button_bg));
-        download.setStrokeColor(ContextCompat.getColorStateList(this, R.color.tmdb_action_button_stroke));
-        download.setStrokeWidth(ResUtil.dp2px(1));
-        download.setCornerRadius(ResUtil.dp2px(20));
-        download.setMinWidth(ResUtil.dp2px(60));
-        download.setMinHeight(ResUtil.dp2px(40));
-        download.setInsetTop(0);
-        download.setInsetBottom(0);
-        LinearLayoutCompat.LayoutParams params = new LinearLayoutCompat.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ResUtil.dp2px(40));
-        params.setMarginStart(ResUtil.dp2px(10));
-        download.setLayoutParams(params);
+        MaterialButton download = tmdbRoot.findViewById(R.id.tmdbDownload);
+        if (download == null) return;
+        download.setVisibility(View.VISIBLE);
         download.setOnClickListener(guarded(this::onDownload));
-        View rematch = tmdbRoot.findViewById(R.id.tmdbRematch);
-        int index = rematch == null ? actions.getChildCount() : actions.indexOfChild(rematch);
-        actions.addView(download, Math.max(0, index), params);
         mTmdbDownloadAction = download;
     }
 
