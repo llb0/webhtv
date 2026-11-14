@@ -442,6 +442,7 @@ private int mAudioBackgroundRandomNonce;
     private PersonalRecommendationService.RecommendationPage mNativePersonalDoubanPage;
     private PersonalRecommendationService.RecommendationPage mNativePersonalAiPage;
     private Map<String, View> mActionButtons;
+    private final Map<View, Integer> mActionRowRestore = new HashMap<>();
     private final List<View> mCustomActionViews = new ArrayList<>();
     private HorizontalScrollView mCustomLeftButtons;
     private HorizontalScrollView mCustomRightButtons;
@@ -2984,7 +2985,26 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setOriginalEnhancedActionVisibility(boolean hide) {
-        mBinding.actionRow.setVisibility(hide ? View.GONE : View.VISIBLE);
+        if (mBinding == null || mBinding.actionRow == null) return;
+        if (hide) {
+            if (mActionRowRestore.isEmpty()) {
+                for (int i = 0; i < mBinding.actionRow.getChildCount(); i++) {
+                    View child = mBinding.actionRow.getChildAt(i);
+                    mActionRowRestore.put(child, child.getVisibility());
+                }
+            }
+            for (int i = 0; i < mBinding.actionRow.getChildCount(); i++) {
+                View child = mBinding.actionRow.getChildAt(i);
+                child.setVisibility(child == mBinding.downloadAction ? View.VISIBLE : View.GONE);
+            }
+            mBinding.actionRow.setVisibility(View.VISIBLE);
+            return;
+        }
+        for (Map.Entry<View, Integer> entry : mActionRowRestore.entrySet()) {
+            entry.getKey().setVisibility(entry.getValue());
+        }
+        mActionRowRestore.clear();
+        mBinding.actionRow.setVisibility(View.VISIBLE);
     }
 
     private void setText(TextView view, int resId, String text) {
