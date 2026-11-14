@@ -228,7 +228,7 @@ public class DebugLogs implements Process {
         boolean enabled = DebugLogStore.isEnabled();
         boolean temporary = DebugLogStore.isCrashSessionTemporary();
         String status = temporary ? "崩溃会话 · 自动开启" : enabled ? "记录中" : "已关闭";
-        String clear = temporary ? "" : "<button id=\"clear\" class=\"danger\" data-debug-action=\"/debug/clear\" aria-label=\"清空日志\">清空</button>";
+        String clear = "<button id=\"clear\" class=\"danger\" data-debug-action=\"/debug/clear\" aria-label=\"清空日志\">清空</button>";
         String banner = temporary ? "<p class=\"crash-banner\">崩溃会话日志：崩溃界面自动开启，重启后恢复原设置；仅在本界面存活期间可下载。</p>" : "";
         return "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
                 + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">"
@@ -401,7 +401,7 @@ public class DebugLogs implements Process {
 
     private String toolbarScript() {
         return """
-            const drawer=document.getElementById('log-drawer'),toolsButton=document.getElementById('tools-open'),backdrop=document.getElementById('drawer-backdrop'),searchPanel=document.getElementById('search-panel'),searchToggle=document.getElementById('search-toggle'),wideSearch=matchMedia('(min-width:800px)');
+            const drawer=document.getElementById('log-drawer'),toolsButton=document.getElementById('tools-open'),backdrop=document.getElementById('drawer-backdrop'),searchPanel=document.getElementById('search-panel'),searchToggle=document.getElementById('search-toggle'),wideSearch=matchMedia('(min-width:800px)'),topBtn=document.getElementById('topBtn');
             let drawerOpener=null,activeTool='filters',searchExpanded=false;
             function toolsOpen(){return document.getElementById('log-drawer').hasAttribute('open')}
             function selectToolTab(name,focus){activeTool=name;document.querySelectorAll('[data-tool]').forEach(button=>{const active=button.dataset.tool===name;button.setAttribute('aria-selected',active);button.tabIndex=active?0:-1;document.getElementById(button.getAttribute('aria-controls')).hidden=!active;if(active&&focus)button.focus()});document.querySelector('.drawer-body').scrollTop=0}

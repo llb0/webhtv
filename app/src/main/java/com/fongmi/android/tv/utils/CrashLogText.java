@@ -1,7 +1,5 @@
 package com.fongmi.android.tv.utils;
 
-import com.github.catvod.crawler.diagnostics.DiagnosticText;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -37,7 +35,7 @@ public final class CrashLogText {
             String stack) {
     }
 
-    /** Crash report written by the dying process. Every field is redacted and kept on one line. */
+    /** Crash report written by the dying process. Every field is cleaned and kept on one line. */
     public static String format(Facts facts) {
         StringBuilder out = new StringBuilder(4096);
         line(out, REPORT_HEADER);
@@ -190,10 +188,10 @@ public final class CrashLogText {
         return out.toString();
     }
 
-    /** Redacted, single-line form used for every untrusted text field. */
+    /** Single-line form used for every untrusted text field; no length cap. */
     public static String oneLine(String value) {
         if (value == null || value.isEmpty()) return "";
-        return DiagnosticText.clean(value).text();
+        return value.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ');
     }
 
     private static void line(StringBuilder out, String text) {

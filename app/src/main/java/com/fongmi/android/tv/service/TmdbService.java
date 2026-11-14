@@ -783,6 +783,7 @@ public class TmdbService {
 
     public static String redactMessage(String message) {
         if (TextUtils.isEmpty(message) || message.trim().isEmpty()) return "TMDB request failed";
+        if (SpiderDebug.isEnabled()) return message;
         String redacted = message.replaceAll("(?i)([?&](?:api_key|apikey|key|token|access_token)=)[^&\\s]+", "$1<redacted>");
         redacted = redacted.replaceAll("(?i)(Bearer\\s+)[A-Za-z0-9._~+/-]+=*", "$1<redacted>");
         return redacted;
