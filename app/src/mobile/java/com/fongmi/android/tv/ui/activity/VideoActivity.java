@@ -40,6 +40,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.LinearLayoutCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
@@ -442,7 +443,7 @@ private int mAudioBackgroundRandomNonce;
     private PersonalRecommendationService.RecommendationPage mNativePersonalDoubanPage;
     private PersonalRecommendationService.RecommendationPage mNativePersonalAiPage;
     private Map<String, View> mActionButtons;
-    private final Map<View, Integer> mActionRowRestore = new HashMap<>();
+    private MaterialButton mTmdbDownloadAction;
     private final List<View> mCustomActionViews = new ArrayList<>();
     private HorizontalScrollView mCustomLeftButtons;
     private HorizontalScrollView mCustomRightButtons;
@@ -2985,26 +2986,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setOriginalEnhancedActionVisibility(boolean hide) {
-        if (mBinding == null || mBinding.actionRow == null) return;
-        if (hide) {
-            if (mActionRowRestore.isEmpty()) {
-                for (int i = 0; i < mBinding.actionRow.getChildCount(); i++) {
-                    View child = mBinding.actionRow.getChildAt(i);
-                    mActionRowRestore.put(child, child.getVisibility());
-                }
-            }
-            for (int i = 0; i < mBinding.actionRow.getChildCount(); i++) {
-                View child = mBinding.actionRow.getChildAt(i);
-                child.setVisibility(child == mBinding.downloadAction ? View.VISIBLE : View.GONE);
-            }
-            mBinding.actionRow.setVisibility(View.VISIBLE);
-            return;
-        }
-        for (Map.Entry<View, Integer> entry : mActionRowRestore.entrySet()) {
-            entry.getKey().setVisibility(entry.getValue());
-        }
-        mActionRowRestore.clear();
-        mBinding.actionRow.setVisibility(View.VISIBLE);
+        mBinding.actionRow.setVisibility(hide ? View.GONE : View.VISIBLE);
     }
 
     private void setText(TextView view, int resId, String text) {
@@ -6893,6 +6875,34 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         refreshLyrics();
     }
 
+    /** Keep the mobile download action next to the TMDB match button instead of giving it a row. */
+    private void installTmdbDownloadAction(View tmdbRoot) {
+        if (mTmdbDownloadAction != null || tmdbRoot == null) return;
+        ViewGroup actions = tmdbRoot.findViewById(R.id.tmdbActions);
+        if (actions == null) return;
+        MaterialButton download = new MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        download.setText(R.string.play_download);
+        download.setTextAllCaps(false);
+        download.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        download.setTextColor(ContextCompat.getColorStateList(this, R.color.tmdb_action_button_text));
+        download.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.tmdb_action_button_bg));
+        download.setStrokeColor(ContextCompat.getColorStateList(this, R.color.tmdb_action_button_stroke));
+        download.setStrokeWidth(ResUtil.dp2px(1));
+        download.setCornerRadius(ResUtil.dp2px(20));
+        download.setMinWidth(ResUtil.dp2px(60));
+        download.setMinHeight(ResUtil.dp2px(40));
+        download.setInsetTop(0);
+        download.setInsetBottom(0);
+        LinearLayoutCompat.LayoutParams params = new LinearLayoutCompat.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ResUtil.dp2px(40));
+        params.setMarginStart(ResUtil.dp2px(10));
+        download.setLayoutParams(params);
+        download.setOnClickListener(guarded(this::onDownload));
+        View rematch = tmdbRoot.findViewById(R.id.tmdbRematch);
+        int index = rematch == null ? actions.getChildCount() : actions.indexOfChild(rematch);
+        actions.addView(download, Math.max(0, index), params);
+        mTmdbDownloadAction = download;
+    }
 
     private void refreshTmdbRecommendations() {
         if (mTmdbHeaderView == null || mTmdbUIAdapter == null || !mTmdbUIAdapter.isLoaded()) return;
@@ -9080,6 +9090,7 @@ private void checkOrientation() {
         mTmdbHeaderView = new com.fongmi.android.tv.ui.custom.TmdbHeaderView(this, scrollContainer);
         mTmdbHeaderView.setDetailThemeMode(getFusionDetailThemeMode());
         mTmdbHeaderView.inflate();
+        installTmdbDownloadAction(mTmdbHeaderView.getHeaderRoot());
         mTmdbHeaderView.setActionListener(new com.fongmi.android.tv.ui.custom.TmdbHeaderView.ActionListener() {
             @Override
             public void onChangeSource() {
