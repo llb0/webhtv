@@ -215,16 +215,19 @@ jobs:
         run: |
           chmod +x ./gradlew
           rm -rf Release/apk
-          # 与 fish 相同的单次并行调用；仅加 --max-workers=2 护栏：fork 比 fish 多
-          # nodejs 模块与更多依赖，R8 峰值内存更高，4 worker 全并行时在标准 runner
-          # 上会被系统 OOM 杀掉（无堆栈的 IncrementalSplitterRunnable 失败）。
-          ./gradlew \
-            :app:assembleMobileArm64_v8aRelease \
-            :app:assembleMobileArmeabi_v7aRelease \
-            :app:assembleLeanbackArm64_v8aRelease \
-            :app:assembleLeanbackArmeabi_v7aRelease \
-            --max-workers=2 \
-            --no-daemon
+          # 先按两个 worker 并行构建，保留接近 beta 的打包速度；若标准 runner
+          # 仍因 R8/package 峰值内存被杀（无堆栈的 IncrementalSplitterRunnable），
+          # 再自动用单 worker 重试，失败重试不会被当成最终失败。
+          TASKS=(
+            :app:assembleMobileArm64_v8aRelease
+            :app:assembleMobileArmeabi_v7aRelease
+            :app:assembleLeanbackArm64_v8aRelease
+            :app:assembleLeanbackArmeabi_v7aRelease
+          )
+          if ! ./gradlew "${TASKS[@]}" --max-workers=2 --no-daemon; then
+            echo "并行构建失败，改用单 worker 串行重试"
+            ./gradlew "${TASKS[@]}" --max-workers=1 --no-daemon
+          fi
 
       - name: Collect artifacts
         run: |
