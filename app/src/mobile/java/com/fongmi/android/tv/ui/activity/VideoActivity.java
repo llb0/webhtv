@@ -6882,7 +6882,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (actions == null) return;
         MaterialButton download = new MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
         download.setText(R.string.play_download);
-        download.setTextAllCaps(false);
+        download.setAllCaps(false);
         download.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         download.setTextColor(ContextCompat.getColorStateList(this, R.color.tmdb_action_button_text));
         download.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.tmdb_action_button_bg));
