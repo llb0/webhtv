@@ -375,8 +375,17 @@ public class SiteApi {
         if (TextUtils.isEmpty(base)) return history;
         History copy = History.objectFrom(history.toString());
         if (copy == null) return history;
+        // 发送端的本地截图文件在远端不存在，带过去只会让远端卡片退化成标题首字；
+        // 清掉本地路径，让远端重新用自己设备上的非黑屏截图兜底。
+        copy.setVodPic(clearLocalArtwork(copy.getVodPic()));
+        copy.setWallPic(clearLocalArtwork(copy.getWallPic()));
         copy.setKey(PUSH + AppDatabase.SYMBOL + Sniffer.pushPayload(base, headers, name) + AppDatabase.SYMBOL + history.getCid());
         return copy;
+    }
+
+    private static String clearLocalArtwork(String pic) {
+        if (TextUtils.isEmpty(pic)) return pic;
+        return pic.startsWith("file://") || pic.startsWith("content://") ? "" : pic;
     }
 
     static boolean isLocalFileUrl(String url) {

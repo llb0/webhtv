@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.bean;
 
+import android.net.Uri;
 import android.text.TextUtils;
 import android.view.View;
 
@@ -35,6 +36,7 @@ import com.fongmi.android.tv.web.WebHomeInlineVodStore;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 
+import java.io.File;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -240,13 +242,24 @@ public class History implements Diffable<History> {
         return AppDatabase.get().getHistoryDao().updateVodPicIfEmptyOrPlaceholder(cid, key, pic, placeholder) > 0;
     }
 
-    public static boolean isPushPlaceholder(String pic) {
-        return TextUtils.isEmpty(pic) || TextUtils.equals(pic, ResUtil.getString(R.string.push_image));
+    /**
+     * 历史封面是否为空或不可用。push 初始占位图、空串，以及跨设备同步过来的
+     * file:// 路径（远端文件不存在）都视为缺失，交给截图兜底。
+     */
+    public static boolean isMissingArtwork(String pic) {
+        if (TextUtils.isEmpty(pic) || TextUtils.equals(pic, ResUtil.getString(R.string.push_image))) return true;
+        if (!pic.startsWith("file://")) return false;
+        try {
+            File file = new File(Uri.parse(pic).getPath());
+            return !file.isFile() || file.length() <= 0;
+        } catch (Throwable ignored) {
+            return true;
+        }
     }
 
     /** 截图落库后为 file:// URI；用于历史卡片区分“推送截图”与普通推送占位。 */
     public boolean isPushSnapshot() {
-        return isPushHistory() && !TextUtils.isEmpty(vodPic) && vodPic.startsWith("file://");
+        return isPushHistory() && !isMissingArtwork(vodPic) && vodPic.startsWith("file://");
     }
 
     public static History findPlayback(String key, String vodName, List<Flag> flags) {
@@ -1262,10 +1275,10 @@ public class History implements Diffable<History> {
             long deletedAt = latestDeletion(PlaybackDeleteTombstoneStore.snapshot(), getKey());
             if (!writeSurvivesDeletion(getCreateTime(), deletedAt)) return null;
             before[0] = find(getCid(), getKey());
-            // 播放页退出时 mHistory 里仍是 push 占位图，直接整行覆盖会把刚写入的截图
-            // 又冲掉；沿用库里已经落下的真实封面/截图。
-            if (before[0] != null && isPushHistory() && isPushPlaceholder(vodPic)
-                    && !isPushPlaceholder(before[0].getVodPic())) {
+            // 播放页退出时 mHistory 可能还带着空封面/占位图，直接整行覆盖会把
+            // 详情页海报或刚写入的截图又冲掉；沿用库里已经落下的可用封面。
+            if (before[0] != null && isMissingArtwork(vodPic)
+                    && !isMissingArtwork(before[0].getVodPic())) {
                 setVodPic(before[0].getVodPic());
             }
             if (mediaIdentityChanged(before[0], this)) {

@@ -42,7 +42,6 @@ import androidx.media3.ui.PlayerView;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Sub;
@@ -502,13 +501,9 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     private boolean needsPlaybackSnapshot(History history) {
         if (history == null) return false;
-        String siteKey = history.getSiteKey();
-        String pic = history.getVodPic();
-        if (WebHomeInlineVodStore.KEY.equals(siteKey)) return TextUtils.isEmpty(pic);
-        if (SiteApi.PUSH.equals(siteKey)) {
-            return History.isPushPlaceholder(pic);
-        }
-        return false;
+        // 普通站源也参与兜底：详情页没给海报（或跨设备 file:// 已失效）时，
+        // 用当前播放画面的非黑屏截图补历史卡片。
+        return History.isMissingArtwork(history.getVodPic());
     }
 
     protected void scheduleWebHomeSnapshot() {
@@ -556,19 +551,15 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     /**
-     * 后台落库：用原子 UPDATE 只在字段仍为空/仍是 push 占位图时写入，避免截图期间
-     * TMDB 海报或播放进度被覆盖。webhome 历史同时回写内嵌 VOD 存储。
+     * 后台落库：用原子 UPDATE 只在字段仍为空、仍是 push 占位图或仍是失效的
+     * file:// 路径时写入，避免截图期间 TMDB 海报或播放进度被覆盖。webhome 历史同时回写内嵌 VOD 存储。
      */
     private void persistWebHomeSnapshot(int cid, String key, String vodId, String siteKey, String uri) {
         Task.execute(() -> {
             try {
-                boolean updated = false;
-                if (WebHomeInlineVodStore.KEY.equals(siteKey)) {
-                    updated = History.updateVodPicIfEmpty(cid, key, uri);
-                    WebHomeInlineVodStore.setPic(vodId, uri);
-                } else if (SiteApi.PUSH.equals(siteKey)) {
-                    updated = History.updateVodPicIfEmptyOrPlaceholder(cid, key, uri, ResUtil.getString(R.string.push_image));
-                }
+                boolean webhome = WebHomeInlineVodStore.KEY.equals(siteKey);
+                boolean updated = History.updateVodPicIfEmptyOrPlaceholder(cid, key, uri, ResUtil.getString(R.string.push_image));
+                if (webhome) WebHomeInlineVodStore.setPic(vodId, uri);
                 if (updated) App.post(() -> {
                     History current = getPlaybackHistory();
                     if (current != null && TextUtils.equals(current.getKey(), key)) current.setVodPic(uri);

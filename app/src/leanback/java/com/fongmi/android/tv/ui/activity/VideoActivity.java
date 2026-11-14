@@ -2785,7 +2785,7 @@ private boolean runtimeSourceOnly;
         long start = System.currentTimeMillis();
         boolean cacheHit = applyFastTmdbDetailCache(item);
         String content = firstNonEmpty(item.getContent(), getTmdbVodContent(), getContent());
-        String artwork = firstNonEmpty(getInitialArtwork(item), getTmdbVodPic(), getPic());
+        String artwork = firstNonEmpty(getHistoryTmdbArtwork(), getInitialArtwork(item), getPic());
         String wall = firstNonEmpty(cachedFastTmdbBackdrop(), getWallPic(), mHistory == null ? "" : mHistory.getWallPic());
         if (!TextUtils.isEmpty(content)) {
             item.setContent(content);
@@ -2811,9 +2811,12 @@ private boolean runtimeSourceOnly;
             if (!TextUtils.isEmpty(item.getName())) mHistory.setVodName(historyVodName(item));
             enrichHistoryMeta(item);
             if (!TextUtils.isEmpty(wall)) mHistory.setWallPic(wall);
-            if (!TextUtils.isEmpty(artwork)) {
+            if (History.isMissingArtwork(mHistory.getVodPic())
+                    && !TextUtils.isEmpty(artwork) && !History.isMissingArtwork(artwork)) {
                 mHistory.setVodPic(artwork);
-                loadArtwork(artwork);
+            }
+            if (!TextUtils.isEmpty(mHistory.getVodPic())) {
+                loadArtwork(mHistory.getVodPic());
                 updateEpisodeFallbackStillUrl();
             }
             setMetadata();
@@ -2948,7 +2951,7 @@ private boolean runtimeSourceOnly;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
         mHistory.setVodName(historyVodName(item));
-        if (!TextUtils.isEmpty(getInitialArtwork(item))) mHistory.setVodPic(getInitialArtwork(item));
+        applyInitialHistoryArtwork(item);
         enrichHistoryMeta(item);
         selectFastTmdbPlaybackEpisode(item, flag, episode);
         updateFastTmdbPlaybackHistory(flag, episode);
@@ -6190,7 +6193,10 @@ private boolean runtimeSourceOnly;
     }
 
     private void setArtwork(String url) {
-        if (mHistory != null) mHistory.setVodPic(url);
+        // 历史卡片已经拿到可用海报/截图后不再改写，避免详情页空图把卡片打回首字占位。
+        if (mHistory != null && !TextUtils.isEmpty(url) && History.isMissingArtwork(mHistory.getVodPic())) {
+            mHistory.setVodPic(url);
+        }
         loadArtwork(url);
         setContextWall(getContextWall());
         updateEpisodeFallbackStillUrl();
@@ -6353,7 +6359,7 @@ private boolean runtimeSourceOnly;
         float speed = getPlaybackSpeed();
         mBinding.control.action.speed.setText(player().setSpeed(speed));
         mHistory.setVodName(historyVodName(item));
-        mHistory.setVodPic(getInitialArtwork(item));
+        applyInitialHistoryArtwork(item);
         enrichHistoryMeta(item);
         PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
@@ -6365,11 +6371,43 @@ private boolean runtimeSourceOnly;
     }
 
     private boolean shouldKeepPushArtwork() {
-        return SiteApi.PUSH.equals(getKey()) && !TextUtils.isEmpty(getPic());
+        return SiteApi.PUSH.equals(getKey()) && !TextUtils.isEmpty(getPic()) && !History.isMissingArtwork(getPic());
     }
 
     private String getInitialArtwork(Vod item) {
         return shouldKeepPushArtwork() ? getPic() : item.getPic();
+    }
+
+    /**
+     * 历史已有可用海报/截图就保留；为空或失效时按 TMDB 海报、详情页图、分类图
+     * 依次回填，都没有再由播放画面截图兜底。推送历史例外：保留截图优先。
+     */
+    private void applyInitialHistoryArtwork(Vod item) {
+        if (mHistory == null || !History.isMissingArtwork(mHistory.getVodPic())) return;
+        if (mHistory.isPushHistory()) {
+            String artwork = item == null ? "" : getInitialArtwork(item);
+            if (!TextUtils.isEmpty(artwork)) mHistory.setVodPic(artwork);
+            return;
+        }
+        String tmdb = getHistoryTmdbArtwork();
+        if (!TextUtils.isEmpty(tmdb) && !History.isMissingArtwork(tmdb)) {
+            mHistory.setVodPic(tmdb);
+            return;
+        }
+        String detail = item == null ? "" : item.getPic();
+        if (!TextUtils.isEmpty(detail) && !History.isMissingArtwork(detail)) {
+            mHistory.setVodPic(detail);
+            return;
+        }
+        if (!TextUtils.isEmpty(getPic()) && !History.isMissingArtwork(getPic())) mHistory.setVodPic(getPic());
+    }
+
+    private String getHistoryTmdbArtwork() {
+        if (mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
+            String poster = mTmdbUIAdapter.getPosterUrl();
+            if (!TextUtils.isEmpty(poster)) return poster;
+        }
+        return getTmdbVodPic();
     }
 
     private void applySearchArtwork(Vod item) {
