@@ -141,7 +141,6 @@ public final class CacheScheduler {
         // 冷启动这一轮必须真的跑：开关打开后用户退出重进，期待看到缓存被清理，
         // 而周期/低空间门槛（shouldTrigger）在空间充足时不会放行，等于开机永远不清理。
         trigger("startup", null, true);
-        enforceTotalLimit();
     }
 
     private void periodicCheck() {
