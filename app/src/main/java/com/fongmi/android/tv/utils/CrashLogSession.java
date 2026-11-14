@@ -44,9 +44,7 @@ public final class CrashLogSession {
             if (discardReport(history, report)) report = null;
             List<String> logcat = logcatTail(historyPid > 0 ? historyPid : reportPid);
             String body = withHistory(CrashLogText.composeSession(report, logcat, logcat != null && !logcat.isEmpty(), report != null, !temporary), history);
-            for (String line : body.split("\n", -1)) {
-                if (!line.isEmpty()) DebugLogStore.appendCrashContext(line);
-            }
+            DebugLogStore.appendCrashContextRaw(body);
         } catch (Throwable error) {
             try {
                 DebugLogStore.appendCrashContext("# crash-session unavailable: " + error.getClass().getName());

@@ -154,6 +154,20 @@ public final class DiagnosticLogBuffer implements AutoCloseable {
     }
 
     /**
+     * Crash-only raw append. The crash screen already redacts its fields and needs one complete
+     * entry, so this path deliberately skips the 12k single-entry cap used by live logging.
+     */
+    public void addRaw(String tag, String message, boolean critical) {
+        if (!enabled || message == null || message.isEmpty()) return;
+        long captured = clock.monotonicNanos();
+        long epoch = generation();
+        long sourceSeq = sourceSequence.incrementAndGet();
+        String safeTag = safeTag(tag);
+        if (safeTag.isEmpty()) return;
+        offer(safeTag, message, null, critical, false, captured, sourceSeq, false, List.of(), epoch);
+    }
+
+    /**
      * Producer-side entry that reuses an already-cleaned message. {@code raw} is the pre-clean text,
      * needed only for origin suggestions.
      */
