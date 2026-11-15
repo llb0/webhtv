@@ -1603,6 +1603,9 @@
     <string name="subtitle_realtime_model_deleting">Deleting...</string>
     <string name="subtitle_realtime_model_download_success">Real-time subtitle model downloaded</string>
     <string name="subtitle_realtime_model_download_failed">Model download failed: %1$s</string>
+    <string name="subtitle_realtime_native_download_failed">Speech engine download failed: %1$s</string>
+    <string name="subtitle_realtime_native_checksum_error">Speech engine checksum failed: %1$s</string>
+    <string name="subtitle_realtime_native_load_error">Cannot load speech engine: %1$s</string>
     <string name="subtitle_realtime_model_delete_title">Delete real-time subtitle model</string>
     <string name="subtitle_realtime_model_delete_message">Delete the downloaded model and disable real-time AI subtitles?</string>
     <string name="subtitle_realtime_model_delete_success">Real-time subtitle model deleted</string>

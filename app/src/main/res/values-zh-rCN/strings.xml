@@ -1596,6 +1596,9 @@
     <string name="subtitle_realtime_model_deleting">删除中...</string>
     <string name="subtitle_realtime_model_download_success">实时字幕模型下载完成</string>
     <string name="subtitle_realtime_model_download_failed">模型下载失败：%1$s</string>
+    <string name="subtitle_realtime_native_download_failed">语音识别引擎下载失败：%1$s</string>
+    <string name="subtitle_realtime_native_checksum_error">语音识别引擎校验失败：%1$s</string>
+    <string name="subtitle_realtime_native_load_error">无法加载语音识别引擎：%1$s</string>
     <string name="subtitle_realtime_model_delete_title">删除实时字幕模型</string>
     <string name="subtitle_realtime_model_delete_message">删除已下载的模型并关闭实时 AI 字幕？</string>
     <string name="subtitle_realtime_model_delete_success">实时字幕模型已删除</string>

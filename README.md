@@ -292,6 +292,8 @@ bash gradlew :app:assembleMobileArm64_v8aRelease -PfastRelease=true
 
 脚本默认使用 `config/module-default.sh` 全量 FFmpeg 配置，编入 AVI、WMV/ASF、RM/RMVB、VOB 等老容器所需的解复用器与解码器（MPEG-4/DivX/Xvid、MS-MPEG4、WMV1/2/3、VC-1、RV30/40、Cook、AC-3、DTS、MP2 等）。旧的精简配置仍可用 `--module module-lite.sh` 或 `IJK_MODULE=module-lite.sh` 显式选择。全量库会明显增大 `libijkffmpeg.so` 和 APK 体积，这是兼容老视频换来的代价。
 
+为抵消这部分增量，`libsherpa-onnx-jni.so` 已从 `app/src/main/jniLibs` 移除，改为首次使用实时字幕时按 ABI 下载，缓存在应用私有目录 `sherpa-libs/<abi>/`。下载地址是 `https://github.com/llb0/webhtv/releases/download/native-sherpa-v1.13.4/`，会跟随“关于”页配置的 GitHub 加速器依次尝试，失败后回退直链；文件下载完按固定 SHA-256 校验，再通过 `System.load` 加载。arm64 约 22.5 MiB、armeabi-v7a 约 15.4 MiB，因此 APK 在本机只保留当前 ABI 的 IJK 后总体积仍会下降。
+
 Ubuntu 下重建 32 位 IJK：
 
 ```bash

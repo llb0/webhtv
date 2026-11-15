@@ -524,6 +524,7 @@ public final class RealtimeSubtitleController {
     }
 
     private boolean isModelReady(ModelSpec spec) {
+        if (!SherpaNative.installed(App.get())) return false;
         for (ModelFile model : RealtimeSubtitleModelCatalog.downloads(spec)) {
             File target = modelFile(spec, model);
             if (!RealtimeSubtitleModelVerifier.isVerified(target, model.size(), model.sha256())) return false;
@@ -547,6 +548,14 @@ public final class RealtimeSubtitleController {
         validateStorage(spec);
         long total = totalBytes(spec);
         long completed = 0L;
+        long nativeSize = SherpaNative.size(App.get());
+        boolean nativeReady = SherpaNative.installed(App.get());
+        SherpaNative.Progress nativeProgress = null;
+        if (!nativeReady) nativeProgress = (done, size) -> reportProgress(progress,
+                (int) Math.min(99L, done * 100L / Math.max(1L, total)),
+                "libsherpa-onnx-jni.so");
+        SherpaNative.ensure(App.get(), nativeProgress, cancelled);
+        completed += nativeSize;
         for (ModelFile model : downloads) {
             File target = modelFile(spec, model);
             if (RealtimeSubtitleModelVerifier.isVerified(target, model.size(), model.sha256())) {
@@ -679,7 +688,7 @@ public final class RealtimeSubtitleController {
     }
 
     private long missingBytes(ModelSpec spec) {
-        long bytes = 0L;
+        long bytes = SherpaNative.remainingBytes(App.get());
         for (ModelFile model : RealtimeSubtitleModelCatalog.downloads(spec)) {
             File target = modelFile(spec, model);
             if (RealtimeSubtitleModelVerifier.isVerified(target, model.size(), model.sha256())) continue;
@@ -690,7 +699,7 @@ public final class RealtimeSubtitleController {
     }
 
     private long totalBytes(ModelSpec spec) {
-        long bytes = 0L;
+        long bytes = SherpaNative.size(App.get());
         for (ModelFile model : RealtimeSubtitleModelCatalog.downloads(spec)) bytes += model.size();
         return bytes;
     }
