@@ -133,6 +133,8 @@ public class Sniffer {
         // 资源网关地址形如 /webResource?url=<encoded>&headers=...，真实地址藏在被编码的 url 参数里
         String inner = gatewayTarget(url);
         if (!TextUtils.isEmpty(inner)) url = inner;
+        // 本地 SMB 代理显式带 smb=1：URL 保留 AVI/WMV 等真实后缀，不再靠补 .mp4 绕过嗅探。
+        if (url.startsWith("http://127.0.0.1:") && url.contains("smb=1")) return true;
         // 推送串带 @Headers= 时同样要剥掉，否则 .m3u8@Headers= 匹配不上
         url = pushUrl(url);
         Rule rule = getRule(UrlUtil.uri(url));

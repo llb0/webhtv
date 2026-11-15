@@ -3224,6 +3224,9 @@ private boolean runtimeSourceOnly;
 
     private void setDetail(Vod item) {
         mSourceEpisodeSeasonCache.clear();
+        // SMB 的源站详情名是代理 URL；详情回调在任何标题写入前统一还原为文件名，
+        // 否则标题会先显示文件名，紧接着被 pushDetail 的 URL 覆盖。
+        if (isSmbSource() && !TextUtils.isEmpty(getName())) item.setName(getName());
         mSourceVodName = item.getName();
         mVod = item;
         resetPendingTmdbBind();
@@ -3498,13 +3501,18 @@ private boolean runtimeSourceOnly;
         else refreshEpisodeTitles();
     }
 
+    private String getDisplaySiteName() {
+        // PUSH 不是配置里的站源，getSite() 经常拿到空名字；SMB/推送播放统一显示“推送”。
+        return isSmbSource() || SiteApi.PUSH.equals(getKey()) ? getString(R.string.push) : getSite().getDisplayName();
+    }
+
     private void setText(Vod item) {
         mBinding.content.setTag(item.getContent());
         setDetailLyrics(item.getContent());
         setText(mBinding.year, R.string.detail_year, item.getYear());
         setText(mBinding.area, R.string.detail_area, item.getArea());
         setText(mBinding.type, R.string.detail_type, item.getTypeName());
-        setText(mBinding.site, R.string.detail_site, getSite().getDisplayName());
+        setText(mBinding.site, R.string.detail_site, getDisplaySiteName());
         setText(mBinding.director, R.string.detail_director, item.getDirector());
         setText(mBinding.actor, R.string.detail_actor, item.getActor());
         setText(mBinding.remark, 0, item.getRemarks());
@@ -5411,7 +5419,7 @@ private boolean runtimeSourceOnly;
         CastVideo video = new CastVideo(Objects.toString(mBinding.widget.title.getText(), ""), player().getUrl(), player().getPosition(), player().getHeaders());
         // webhome_inline 的 VOD 只在发送端内存里，远端拿 history 必然 not found；
         // 改写成自包含的 push_agent 推送串（真实地址 + 请求头）后再发。
-        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders(), video.name())).video(video).fm(true).show(this);
+        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders(), video.name()), video.name()).video(video).fm(true).show(this);
     }
 
     private void onTimer() {
@@ -5892,7 +5900,12 @@ private boolean runtimeSourceOnly;
     }
 
     private void onExternalPlayer() {
-        PlayerHelper.choose(this, player().getUrl(), player().getHeaders(), player().isVod(), player().getPosition(), mBinding.widget.title.getText());
+        // 外调播放器按后缀识别格式；从 SMB 代理 token 换回同 token 的真实文件后缀地址，
+        // 避免 AVI/WMV 被当成 MP4 或打不开。
+        String externalUrl = isSmbSource()
+                ? com.fongmi.android.tv.smb.SmbPlaybackProxy.externalUrl(player().getUrl())
+                : player().getUrl();
+        PlayerHelper.choose(this, externalUrl, player().getHeaders(), player().isVod(), player().getPosition(), mBinding.widget.title.getText());
         setRedirect(true);
     }
 

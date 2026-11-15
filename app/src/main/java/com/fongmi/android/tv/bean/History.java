@@ -445,6 +445,13 @@ public class History implements Diffable<History> {
     }
 
     public static void delete(int cid) {
+        // 清空历史前先把本配置引用的兜底截图一并删除，避免用户还要手动清应用缓存。
+        try {
+            for (History item : AppDatabase.get().getHistoryDao().findAll(cid)) {
+                com.fongmi.android.tv.player.PlaybackFrameSnapshot.delete(item.getVodPic());
+            }
+        } catch (Throwable ignored) {
+        }
         int deleted = AppDatabase.get().getHistoryDao().delete(cid);
         AppDatabase.get().getTmdbSeasonProgressDao().deleteByCid(cid);
         if (deleted > 0) notifyChanged();

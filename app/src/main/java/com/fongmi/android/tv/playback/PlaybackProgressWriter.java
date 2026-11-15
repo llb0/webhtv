@@ -465,6 +465,8 @@ public final class PlaybackProgressWriter {
             AppDatabase.get().getTmdbSeasonProgressDao().deleteBySource(cid, history.getKey());
             int count = dao.delete(cid, history.getKey());
             if (count <= 0) continue;
+            // 历史记录删除后它的兜底截图也不再被引用，随记录一起删除，避免长期占用应用私有目录。
+            com.fongmi.android.tv.player.PlaybackFrameSnapshot.delete(history.getVodPic());
             AppDatabase.get().getTrackDao().delete(history.getKey());
             if (TmdbSeasonProgressStore.isEligible(history)) {
                 String identity = history.getCid() + ":" + history.getMediaType() + ":"
@@ -563,8 +565,12 @@ public final class PlaybackProgressWriter {
                 affected++;
             }
             for (String key : plan.deleteRouteKeys()) {
+                History route = AppDatabase.get().getHistoryDao().find(cid, key);
                 int count = AppDatabase.get().getHistoryDao().delete(cid, key);
-                if (count > 0) AppDatabase.get().getTrackDao().delete(key);
+                if (count > 0) {
+                    if (route != null) com.fongmi.android.tv.player.PlaybackFrameSnapshot.delete(route.getVodPic());
+                    AppDatabase.get().getTrackDao().delete(key);
+                }
                 affected += count;
             }
             return affected;

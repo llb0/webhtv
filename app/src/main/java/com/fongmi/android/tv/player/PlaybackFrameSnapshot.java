@@ -127,6 +127,27 @@ public final class PlaybackFrameSnapshot {
         return Uri.fromFile(file).toString();
     }
 
+    /** 删除某条历史对应的截图缓存；只接受本站 webhome_snapshot 目录下的 file:// 地址。 */
+    public static void delete(String uri) {
+        if (uri == null || !uri.startsWith("file://")) return;
+        try {
+            File file = new File(Uri.parse(uri).getPath()).getAbsoluteFile();
+            File root = new File(App.get().getFilesDir(), "webhome_snapshot").getAbsoluteFile();
+            if (file.getParentFile() != null && file.getParentFile().equals(root)) file.delete();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 清空全部兜底截图缓存；用于清空整个历史或恢复备份前。 */
+    public static void deleteAll() {
+        File root = new File(App.get().getFilesDir(), "webhome_snapshot");
+        File[] files = root.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            if (file.isFile()) file.delete();
+        }
+    }
+
     private static int[] targetSize(int width, int height) {
         if (width >= height) {
             int targetWidth = Math.min(width, TARGET_MAX_EDGE);

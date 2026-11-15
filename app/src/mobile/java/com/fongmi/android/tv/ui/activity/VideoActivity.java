@@ -2803,6 +2803,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             return;
         }
         mSourceEpisodeSeasonCache.clear();
+        // SMB 的源站详情名是代理 URL；详情回调在任何标题写入前统一还原为文件名，
+        // 否则标题会先显示文件名，紧接着被 pushDetail 的 URL 覆盖。
+        if (isSmbSource() && !TextUtils.isEmpty(getName())) item.setName(getName());
         mSourceVodName = item.getName();
         mVod = item;
         item.checkPic(getPic());
@@ -2892,6 +2895,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         }
     }
 
+    private String getDisplaySiteName() {
+        // PUSH 不是配置里的站源，getSite() 经常拿到空名字；SMB/推送播放统一显示“推送”。
+        return isSmbSource() || SiteApi.PUSH.equals(getKey()) ? getString(R.string.push) : getSite().getDisplayName();
+    }
+
     private void setText(Vod item) {
         setDetailLyrics(item.getContent());
         // 富集仍在进行时不填充会被 TMDB 覆盖的站源文本：骨架可以先揭开，
@@ -2900,7 +2908,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             applyFusionNativeTextColors();
             return;
         }
-        setText(mBinding.site, R.string.detail_site, getSite().getDisplayName());
+        setText(mBinding.site, R.string.detail_site, getDisplaySiteName());
 
         // 非 TMDB 模式才填充原生字段
         // 基于 TMDB 开关和配置是否就绪
@@ -2989,7 +2997,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (!shouldUseTmdbTabletWideLayout()) return;
         setPlainText(mBinding.name, item.getName());
         setPlainText(mBinding.remark, item.getRemarks());
-        setPlainText(mBinding.site, getString(R.string.detail_site, getSite().getDisplayName()));
+        setPlainText(mBinding.site, getString(R.string.detail_site, getDisplaySiteName()));
         setOther(mBinding.other, item);
         mBinding.director.setVisibility(View.GONE);
         mBinding.actor.setVisibility(View.GONE);
@@ -4249,7 +4257,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         CastVideo video = new CastVideo(mBinding.name.getText().toString(), player().getUrl(), player().getPosition(), player().getHeaders());
         // webhome_inline 的 VOD 只在发送端内存里，远端拿 history 必然 not found；
         // 改写成自包含的 push_agent 推送串（真实地址 + 请求头）后再发。
-        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders(), video.name())).video(video).fm(true).show(this);
+        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders(), video.name()), video.name()).video(video).fm(true).show(this);
     }
 
     private void onInfo() {
@@ -5804,7 +5812,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 }
             } else {
                 playerKernelSwitchRequestId++;
-                PlayerHelper.choose(this, player().getUrl(), player().getHeaders(), player().isVod(), player().getPosition(), mBinding.control.title.getText());
+                // 外调播放器按后缀识别格式；从 SMB 代理 token 换回同 token 的真实文件后缀地址，
+                // 避免 AVI/WMV 被当成 MP4 或打不开。
+                String externalUrl = isSmbSource()
+                        ? com.fongmi.android.tv.smb.SmbPlaybackProxy.externalUrl(player().getUrl())
+                        : player().getUrl();
+                PlayerHelper.choose(this, externalUrl, player().getHeaders(), player().isVod(), player().getPosition(), mBinding.control.title.getText());
                 setRedirect(true);
             }
         }).show();

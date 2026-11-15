@@ -80,6 +80,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
     private static final int REQUEST_LOCAL_NETWORK = 7301;
     private static final int REQUEST_INSTALL_APK_PERMISSION = 7302;
     private static final String LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK";
+    private static final String PREF_HIDDEN_PASSWORD = "hidden_password";
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final List<String> displayItems = new ArrayList<>();
@@ -158,7 +159,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
         MaterialButton favoritesButton = themedButton("收藏夹");
         favoritesButton.setOnClickListener(v -> showFavorites());
         MaterialButton hiddenButton = themedButton("显示隐藏");
-        hiddenButton.setOnClickListener(v -> showHiddenItems());
+        hiddenButton.setOnClickListener(v -> requestShowHiddenItems());
         back.setId(View.generateViewId());
         favoritesButton.setId(View.generateViewId());
         hiddenButton.setId(View.generateViewId());
@@ -194,28 +195,8 @@ public class SmbBrowserActivity extends AppCompatActivity {
         });
         list.setOnItemClickListener((parent, view, position, id) -> onItemClick(position));
         list.setOnItemLongClickListener((parent, view, position, id) -> {
-            if (showingHiddenHosts || showingHiddenFolders) {
-                if (!isTvDevice()) activateHiddenItem(position);
-                return true;
-            }
-            if (showingFavorites) {
-                showFavoriteActions(position);
-                return true;
-            }
-            if (mode == Mode.SHARES && position >= 0 && position < shares.size()) {
-                showShareActions(shares.get(position));
-                return true;
-            }
-            if (mode == Mode.FILES) {
-                int filePosition = position;
-                if(filePosition>=0&&filePosition<visibleFiles.size()) {
-                    SmbClient.Entry entry=visibleFiles.get(filePosition);
-                    String remote=path.isEmpty()?entry.name:path+"\\"+entry.name;
-                    showFileActions(remote,entry.directory); return true;
-                }
-            }
-            if (mode != Mode.HOSTS || position < 0 || position >= hosts.size()) return false;
-            showHostActions(hosts.get(position));
+            // 手机端长按与电视端菜单键共用同一套菜单：当前条目操作 + 收藏夹/显示隐藏/隐藏密码/主机/关闭。
+            showContextMenu(position);
             return true;
         });
         root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -390,6 +371,71 @@ public class SmbBrowserActivity extends AppCompatActivity {
         return normalized.toLowerCase(java.util.Locale.ROOT);
     }
 
+    private String hiddenPassword() {
+        return getSharedPreferences("smb_hosts", MODE_PRIVATE).getString(PREF_HIDDEN_PASSWORD, "");
+    }
+
+    private void requestShowHiddenItems() {
+        String saved = hiddenPassword();
+        if (saved.isEmpty()) {
+            showHiddenItems();
+            return;
+        }
+        EditText input = field("输入隐藏密码", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("显示隐藏")
+                .setView(input)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton("确定", null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (saved.equals(input.getText().toString())) {
+                dialog.dismiss();
+                showHiddenItems();
+            } else {
+                Toast.makeText(this, "隐藏密码不正确", Toast.LENGTH_SHORT).show();
+            }
+        }));
+        dialog.show();
+    }
+
+    private void showHiddenPasswordDialog() {
+        EditText input = field("设置隐藏密码（不能为空）",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("设置隐藏密码")
+                .setMessage("设置后，点击“显示隐藏”需要先输入密码；可在同一菜单取消。")
+                .setView(input)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton("保存", null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String value = input.getText().toString().trim();
+            if (value.isEmpty()) {
+                Toast.makeText(this, "隐藏密码不能为空", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            getSharedPreferences("smb_hosts", MODE_PRIVATE).edit()
+                    .putString(PREF_HIDDEN_PASSWORD, value).commit();
+            Toast.makeText(this, "已设置隐藏密码", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        }));
+        dialog.show();
+    }
+
+    private void clearHiddenPassword() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("取消隐藏密码")
+                .setMessage("取消后，显示隐藏项目不再需要密码。")
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton("取消密码", (dialog, which) -> {
+                    getSharedPreferences("smb_hosts", MODE_PRIVATE).edit()
+                            .remove(PREF_HIDDEN_PASSWORD).commit();
+                    Toast.makeText(this, "已取消隐藏密码", Toast.LENGTH_SHORT).show();
+                })
+                .show();
+    }
+
     private void showHiddenItems() {
         showingHiddenHosts=true; showingHiddenFolders=true; showingFavorites=false;
         mode=Mode.HIDDEN_FOLDERS; title.setText("显示隐藏"); hiddenEntries.clear();
@@ -522,6 +568,145 @@ public class SmbBrowserActivity extends AppCompatActivity {
                 .show();
     }
 
+    private void showHostsAndRescan() {
+        showingFavorites = false;
+        showingHiddenHosts = false;
+        showingHiddenFolders = false;
+        scanNetworkInternal();
+    }
+
+    /**
+     * 电视菜单键/手机长按的统一菜单。先列当前条目自身操作，再追加全局操作，
+     * 这样主机页、目录页、收藏夹和隐藏列表都至少能调到收藏夹/显示隐藏/主机/关闭。
+     */
+    private void showContextMenu(int position) {
+        List<String> labels = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        if (showingHiddenHosts || showingHiddenFolders) {
+            if (position >= 0 && position < hiddenEntries.size()) {
+                int target = position;
+                labels.add("恢复显示");
+                actions.add(() -> activateHiddenItem(target));
+            }
+        } else if (showingFavorites) {
+            List<String> values = new ArrayList<>(favorites);
+            if (position >= 0 && position < values.size()) {
+                String favorite = values.get(position);
+                labels.add("取消收藏");
+                actions.add(() -> removeFavorite(favorite));
+            }
+        } else if (mode == Mode.HOSTS) {
+            if (position >= 0 && position < hosts.size()) addHostMenuActions(hosts.get(position), labels, actions);
+        } else if (mode == Mode.SHARES) {
+            if (position >= 0 && position < shares.size()) {
+                String shareName = shares.get(position);
+                labels.add("隐藏此路径");
+                actions.add(() -> hideShare(shareName));
+            }
+        } else if (mode == Mode.FILES) {
+            if (position >= 0 && position < visibleFiles.size()) {
+                SmbClient.Entry entry = visibleFiles.get(position);
+                String remote = path.isEmpty() ? entry.name : path + "\\" + entry.name;
+                addFileMenuActions(remote, entry.directory, labels, actions);
+            }
+        }
+        labels.add("收藏夹");
+        actions.add(this::showFavorites);
+        labels.add("显示隐藏");
+        actions.add(this::requestShowHiddenItems);
+        boolean hasPassword = !hiddenPassword().isEmpty();
+        labels.add(hasPassword ? "取消隐藏密码" : "设置隐藏密码");
+        actions.add(hasPassword ? this::clearHiddenPassword : this::showHiddenPasswordDialog);
+        labels.add("主机");
+        actions.add(this::showHostsAndRescan);
+        labels.add("关闭");
+        actions.add(this::finish);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("SMB 菜单")
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    d.dismiss();
+                    if (which >= 0 && which < actions.size()) actions.get(which).run();
+                })
+                .create();
+        dialog.setOnShowListener(d -> installMenuFocusLoop(dialog));
+        dialog.show();
+    }
+
+    private void installMenuFocusLoop(AlertDialog dialog) {
+        ListView menuList = dialog.getListView();
+        if (menuList == null) return;
+        menuList.setOnKeyListener((view, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            int count = menuList.getAdapter() == null ? 0 : menuList.getAdapter().getCount();
+            if (count <= 0) return false;
+            int selected = menuList.getSelectedItemPosition();
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP && selected <= 0) {
+                menuList.setSelection(count - 1);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && selected >= count - 1) {
+                menuList.setSelection(0);
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private void addHostMenuActions(String value, List<String> labels, List<Runnable> actions) {
+        boolean saved = savedHosts.containsKey(value);
+        boolean hasCredential = SmbCredentialStore.has(this, value);
+        if (saved) {
+            labels.add("修改备注");
+            actions.add(() -> showHostNoteDialog(value));
+            labels.add("取消保存");
+            actions.add(() -> {
+                savedHosts.remove(value);
+                persistSavedHosts();
+                setItems(hostLabels());
+            });
+        } else {
+            labels.add("保存并备注");
+            actions.add(() -> showHostNoteDialog(value));
+        }
+        labels.add("隐藏此地址");
+        actions.add(() -> hideHost(value));
+        if (hasCredential) {
+            labels.add("清除登录信息");
+            actions.add(() -> {
+                SmbCredentialStore.clear(this, value);
+                if (host != null && host.equals(value)) {
+                    username = "";
+                    password = "";
+                    domain = "";
+                }
+                Toast.makeText(this, R.string.smb_credentials_cleared, Toast.LENGTH_SHORT).show();
+            });
+        }
+    }
+
+    private void addFileMenuActions(String remote, boolean directory, List<String> labels, List<Runnable> actions) {
+        String key = favoriteKey(remote, directory);
+        boolean saved = favorites.contains(key);
+        if (directory) {
+            labels.add("隐藏此文件夹");
+            actions.add(() -> hideFolder(remote));
+        }
+        labels.add(saved ? "取消收藏" : "加入收藏夹");
+        actions.add(() -> {
+            if (saved) favorites.remove(key);
+            else favorites.add(key);
+            persistStringSet("favorites", favorites);
+        });
+    }
+
+    private void removeFavorite(String favorite) {
+        if (!favorites.remove(favorite)) return;
+        persistStringSet("favorites", favorites);
+        showFavorites();
+        Toast.makeText(this, "已取消收藏", Toast.LENGTH_SHORT).show();
+    }
+
     private boolean isTvDevice() {
         return getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
     }
@@ -645,6 +830,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
     private void scanNetworkInternal() {
         showingHiddenHosts = false;
         showingHiddenFolders = false;
+        showingFavorites = false;
         mode = Mode.HOSTS;
         host = null;
         share = null;
@@ -679,7 +865,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
 
     private void onItemClick(int position) {
         if(showingFavorites) { openFavorite(position); return; }
-        if(showingHiddenHosts||showingHiddenFolders) { if(isTvDevice()) activateHiddenItem(position); return; }
+        if(showingHiddenHosts||showingHiddenFolders) { activateHiddenItem(position); return; }
         if (mode == Mode.HOSTS) {
             if (position < hosts.size()) connectHost(hosts.get(position), false);
             return;
@@ -737,6 +923,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
                     }
                     mode = Mode.SHARES;
                     path = "";
+                    showingFavorites = false;
+                    showingHiddenHosts = false;
+                    showingHiddenFolders = false;
                     title.setText(host);
                     setItems(shares);
                     if (found.isEmpty()) {
@@ -824,6 +1013,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
                                 }
                                 mode = Mode.SHARES;
                                 path = "";
+                                showingFavorites = false;
+                                showingHiddenHosts = false;
+                                showingHiddenFolders = false;
                                 title.setText(host);
                                 setItems(shares);
                                 setStatus(found.isEmpty() ? getString(R.string.smb_no_shares) : "选择共享目录");
@@ -834,6 +1026,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
                                     } catch (Exception saveError) {
                                         Toast.makeText(this, R.string.smb_credentials_save_failed, Toast.LENGTH_SHORT).show();
                                     }
+                                } else if (stored != null) {
+                                    // 用户取消勾选“保存登录信息”：本次登录成功后清理旧凭据，选择才算真正生效。
+                                    SmbCredentialStore.clear(this, host);
                                 }
                                 if (found.isEmpty()) {
                                     setStatus(getString(R.string.smb_no_shares));
@@ -873,6 +1068,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
     }
 
     private void openShare(String value) {
+        showingFavorites = false;
         share = value;
         path = "";
         title.setText(host + " / " + share);
@@ -880,6 +1076,11 @@ public class SmbBrowserActivity extends AppCompatActivity {
     }
 
     private void loadDirectory() {
+        // 目录列表一旦接管列表控件，收藏夹视图必须退出；否则点击下标会落到收藏夹上，
+        // 看起来像有一层看不见的收藏列表盖在目录上。
+        showingFavorites = false;
+        showingHiddenHosts = false;
+        showingHiddenFolders = false;
         mode = Mode.FILES;
         setStatus("正在读取目录…");
         worker.execute(() -> {
@@ -1231,22 +1432,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (isTvDevice() && (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BUTTON_MODE)) {
             int position = list == null ? ListView.INVALID_POSITION : list.getSelectedItemPosition();
-            if (mode == Mode.SHARES && position >= 0 && position < shares.size()) {
-                showShareActions(shares.get(position));
-                return true;
-            }
-            if (mode == Mode.FILES) {
-                int filePosition=position;
-                if(filePosition>=0&&filePosition<visibleFiles.size()) {
-                    SmbClient.Entry entry=visibleFiles.get(filePosition);
-                    String remote=path.isEmpty()?entry.name:path+"\\"+entry.name;
-                    showFileActions(remote,entry.directory); return true;
-                }
-            }
-            if (mode == Mode.FAVORITES && position >= 0 && position < favorites.size()) {
-                showFavoriteActions(position);
-                return true;
-            }
+            // 菜单键不再只服务当前条目：主机页没有条目时也能调出收藏夹/显示隐藏/隐藏密码/主机/关闭。
+            showContextMenu(position);
+            return true;
         }
         return super.onKeyDown(keyCode, event);
     }

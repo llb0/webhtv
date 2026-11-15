@@ -41,16 +41,30 @@ public final class SmbPlaybackProxy {
         // 否则 127.0.0.1 的代理地址会被当作待嗅探页面，解析超时后报“播放地址解析失败”。
         String name = path == null ? "" : path.substring(path.lastIndexOf((char) 92) + 1);
         if (name.isEmpty()) name = "media";
-        // SMB 还支持 wmv/flac/ape 等嗅探器不认识扩展名的格式；给 URL 补一个已知媒体后缀，
-        // 保证所有 SMB 媒体都走直链，不被当成网页进入 30 秒嗅探流程。
-        String lower = name.toLowerCase(Locale.ROOT);
-        if (!lower.endsWith(".mp4") && !lower.endsWith(".mkv") && !lower.endsWith(".flv")
-                && !lower.endsWith(".m3u8") && !lower.endsWith(".mp3") && !lower.endsWith(".m4a")
-                && !lower.endsWith(".aac") && !lower.endsWith(".mpd")) {
-            name = name + ".mp4";
-        }
+        // 保留真实后缀（AVI/WMV 也照原样），用 smb=1 明确告诉嗅探器这是直链。
+        // 以前给未知后缀补 .mp4 会让 Exo 按 MP4 解析旧 AVI/WMV，外调播放器也会误判格式。
         return "http://127.0.0.1:" + server.getListeningPort() + "/" + token + "/"
-                + java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20");
+                + java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20") + "?smb=1";
+    }
+
+    /**
+     * 外调播放器专用地址：内部 URL 已保留真实文件名后缀并带 smb=1；
+     * 这里从 token 反查真实文件名，保证外部播放器按 AVI/WMV 等原后缀识别格式，
+     * 不再出现补过 .mp4 导致打不开的问题。路径仍由代理按 SMB 原文件读取。
+     */
+    public static synchronized String externalUrl(String internalUrl) {
+        if (internalUrl == null || internalUrl.isEmpty() || server == null) return internalUrl;
+        String prefix = "http://127.0.0.1:" + server.getListeningPort() + "/";
+        if (!internalUrl.startsWith(prefix)) return internalUrl;
+        String rest = internalUrl.substring(prefix.length());
+        int slash = rest.indexOf('/');
+        if (slash <= 0) return internalUrl;
+        String token = rest.substring(0, slash);
+        FileRef ref = FILES.get(token);
+        if (ref == null) return internalUrl;
+        String name = ref.path == null ? "" : ref.path.substring(ref.path.lastIndexOf((char) 92) + 1);
+        if (name.isEmpty()) name = "media";
+        return prefix + token + "/" + java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20") + "?smb=1";
     }
 
     private static void ensureServer() throws IOException {
@@ -61,7 +75,10 @@ public final class SmbPlaybackProxy {
 
     private static final class ProxyServer extends NanoHTTPD {
         ProxyServer() {
-            super("127.0.0.1", 0);
+            // 投屏/推送会把 127.0.0.1 换成局域网地址再发给接收端；只绑回环地址时
+            // 接收端会连到发送端的 127.0.0.1 而不是代理，表现为“网络读取失败”。
+            // 监听全部网卡，本机播放仍走 127.0.0.1，局域网接收端也能访问同一个 token。
+            super("0.0.0.0", 0);
         }
 
         @Override
@@ -182,6 +199,9 @@ public final class SmbPlaybackProxy {
         if (value.endsWith(".mkv")) return "video/x-matroska";
         if (value.endsWith(".ts") || value.endsWith(".m2ts")) return "video/mp2t";
         if (value.endsWith(".avi")) return "video/x-msvideo";
+        if (value.endsWith(".wmv") || value.endsWith(".asf")) return "video/x-ms-wmv";
+        if (value.endsWith(".rmvb") || value.endsWith(".rm")) return "application/vnd.rn-realmedia";
+        if (value.endsWith(".vob")) return "video/dvd";
         if (value.endsWith(".webm")) return "video/webm";
         if (value.endsWith(".mov")) return "video/quicktime";
         if (value.endsWith(".mpg") || value.endsWith(".mpeg")) return "video/mpeg";
