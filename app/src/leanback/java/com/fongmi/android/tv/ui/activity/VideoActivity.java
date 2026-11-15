@@ -1249,7 +1249,9 @@ private boolean runtimeSourceOnly;
 
     /** 本地 SMB 播放：源站 Vod 名只是代理地址，不能用它覆盖文件名。 */
     private boolean isSmbSource() {
-        return getIntent().getBooleanExtra("smb_source", false);
+        if (getIntent().getBooleanExtra("smb_source", false)) return true;
+        // 从历史再次播放时 smb_source 不一定会重新写入，代理地址本身仍能识别。
+        return SiteApi.PUSH.equals(getKey()) && getId().startsWith("http://127.0.0.1:");
     }
 
     private String getPic() {
@@ -6392,6 +6394,9 @@ private boolean runtimeSourceOnly;
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
         setPartAdapter();
+        // 首次播放可能还没有历史行；先落一条空封面记录，截图回调才能按 key 更新，
+        // 而不是等到退出播放才插入，导致第一张历史卡片一直停在纸飞机/首字占位。
+        syncHistory();
         // 历史就绪即预约封面截图；首帧/READY 的调用会被同一 key 去重。
         scheduleWebHomeSnapshot();
         return true;
@@ -6588,6 +6593,9 @@ private boolean runtimeSourceOnly;
         History history = new History();
         history.setKey(getHistoryKey());
         history.setCid(VodConfig.getCid());
+        // 提前写入创建时间：首播时历史行要先落库，截图回调才能按 key 更新；
+        // createTime 为 0 会被删除墓碑逻辑挡掉。
+        history.setCreateTime(System.currentTimeMillis());
         history.setVodName(historyVodName(item));
         history.setVodPic(getInitialArtwork(item));
         history.setWallPic(getWallPic());
@@ -6893,6 +6901,9 @@ private boolean runtimeSourceOnly;
         boolean episodeTitleChanged = refreshCurrentHistoryEpisodeTitle();
         CharSequence playbackTitle = getPlaybackControlTitle();
         if (!TextUtils.equals(mBinding.widget.title.getText(), playbackTitle)) mBinding.widget.title.setText(playbackTitle);
+        // 详情页加载完成后才拿到的海报，也要回填到仍为空的历史；已有真实海报不覆盖，
+        // 仍为空时再交给后面的非黑屏截图兜底。
+        if (pic) applyInitialHistoryArtwork(item);
         if (pic) setArtwork(item.getPic());
         if (pic || name) setMetadata();
         // key 迁移后必须写回，避免 replace 删旧 key 后未 save 导致历史消失

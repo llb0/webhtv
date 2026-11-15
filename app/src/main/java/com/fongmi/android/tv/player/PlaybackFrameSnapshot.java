@@ -19,10 +19,9 @@ import com.fongmi.android.tv.utils.Task;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.util.Arrays;
 
 /**
- * 从当前播放视图抓一帧，作为 WebHome 嗅探历史缺失海报时的兜底封面。
+ * 从当前播放视图抓一帧，作为历史缺失海报（推送占位/普通站源空图）时的兜底封面。
  *
  * <p>只做一次 PixelCopy/TextureView 截图，不 seek、不改播放位置；黑屏帧由调用方丢弃后重试。
  * 截图缩到最长边 {@link #TARGET_MAX_EDGE}，保存为私有目录下的 JPEG，返回 {@code file://} URI，
@@ -32,7 +31,6 @@ public final class PlaybackFrameSnapshot {
 
     private static final int TARGET_MAX_EDGE = 640;
     private static final int JPEG_QUALITY = 82;
-    private static final int MAX_SNAPSHOTS = 80;
     private static final float BLACK_LUMA = 26f;
     private static final float MOSTLY_BLACK_RATIO = 0.85f;
 
@@ -126,15 +124,7 @@ public final class PlaybackFrameSnapshot {
                 return "";
             }
         }
-        trim(directory);
         return Uri.fromFile(file).toString();
-    }
-
-    private static void trim(File directory) {
-        File[] files = directory.listFiles((dir, name) -> name.startsWith("snapshot-") && name.endsWith(".jpg"));
-        if (files == null || files.length <= MAX_SNAPSHOTS) return;
-        Arrays.sort(files, (left, right) -> Long.compare(left.lastModified(), right.lastModified()));
-        for (int i = 0; i < files.length - MAX_SNAPSHOTS; i++) files[i].delete();
     }
 
     private static int[] targetSize(int width, int height) {

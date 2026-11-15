@@ -132,6 +132,11 @@ public class ImgUtil {
         }
     }
 
+    /** 当前进程内已经加载失败、历史卡片实际退化为标题首字的图片地址。 */
+    public static boolean isFailed(@Nullable String url) {
+        return !TextUtils.isEmpty(url) && failed.contains(url);
+    }
+
     public static Object getUrl(String url) {
         String param = null;
         url = UrlUtil.convert(url);
