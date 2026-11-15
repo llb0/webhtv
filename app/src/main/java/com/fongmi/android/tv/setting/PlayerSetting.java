@@ -86,8 +86,15 @@ public class PlayerSetting {
      * 由 PlayerManager 在建引擎/切引擎时写入，volatile 以便工作线程（取播放地址）读到最新值。
      */
     private static volatile int activePlayer = NONE;
+    /**
+     * 仅本次播放会话生效的内核覆盖，例如 SMB 播放需要临时走 EXO。
+     * 不写回设置里的全局默认内核；退出对应播放页后由调用方清除。
+     */
+    private static volatile int runtimePlayerOverride = NONE;
 
     public static int getPlayer() {
+        int runtimePlayer = runtimePlayerOverride;
+        if (isPlayer(runtimePlayer)) return runtimePlayer;
         int player = Prefers.getInt("player", EXO);
         if (isPlayer(player)) return player;
         putPlayer(EXO);
@@ -96,6 +103,14 @@ public class PlayerSetting {
 
     public static void putPlayer(int player) {
         Prefers.put("player", sanitizePlayer(player));
+    }
+
+    public static void setRuntimePlayerOverride(int player) {
+        runtimePlayerOverride = isPlayer(player) ? sanitizePlayer(player) : NONE;
+    }
+
+    public static void clearRuntimePlayerOverride() {
+        runtimePlayerOverride = NONE;
     }
 
     /**

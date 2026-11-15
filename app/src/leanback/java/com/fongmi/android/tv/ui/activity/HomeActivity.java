@@ -119,6 +119,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private boolean loadingHomeCategory;
     private boolean mStartupActionDone;
     private int mMenuButtonCount;
+    /** 本次首页菜单是否插入“本地SMB”项；与 mMenuButtonCount 同一次构建，避免点击时设置已变化。 */
+    private boolean mMenuSmbVisible;
     /** 首页按钮行的内容宽度（由子项几何算出），0 表示还没算出来。 */
     private int funcContentWidth;
     private int funcFitAttempts;
@@ -800,12 +802,16 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         List<Func> funcs = getFuncItems(true);
         boolean hasRecommend = mHomeResult != null && !mHomeResult.getList().isEmpty();
         List<Class> types = mHomeResult == null ? new ArrayList<>() : mHomeResult.getTypes();
-        mMenuButtonCount = 2 + funcs.size(); // 选站 + 多仓 + funcs
+        mMenuSmbVisible = Setting.isSmbEntryEnabled();
+        int fixedCount = mMenuSmbVisible ? 3 : 2; // 选站 + (本地SMB) + 多仓
+        mMenuButtonCount = fixedCount + funcs.size();
         int categoryCount = (hasRecommend ? 1 : 0) + types.size();
         String[] items = new String[mMenuButtonCount + 1 + categoryCount];
         items[0] = ResUtil.getString(R.string.home_switch);
-        items[1] = ResUtil.getString(R.string.multi_repo);
-        for (int i = 0; i < funcs.size(); i++) items[2 + i] = funcs.get(i).getText();
+        int next = 1;
+        if (mMenuSmbVisible) items[next++] = ResUtil.getString(R.string.home_smb_order);
+        items[next++] = ResUtil.getString(R.string.multi_repo);
+        for (int i = 0; i < funcs.size(); i++) items[fixedCount + i] = funcs.get(i).getText();
         items[mMenuButtonCount] = ResUtil.getString(R.string.home_refresh);
         int offset = mMenuButtonCount + 1;
         if (hasRecommend) items[offset++] = ResUtil.getString(R.string.home_recommend);
@@ -819,12 +825,19 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             showDialog();
             return;
         }
-        if (which == 1) {
+        int smbIndex = 1;
+        int multiRepoIndex = mMenuSmbVisible ? 2 : 1;
+        int funcStart = mMenuSmbVisible ? 3 : 2;
+        if (mMenuSmbVisible && which == smbIndex) {
+            SmbBrowserActivity.start(this);
+            return;
+        }
+        if (which == multiRepoIndex) {
             MultiRepoDialog.show(this);
             return;
         }
-        if (which >= 2 && which < mMenuButtonCount) {
-            onItemClick(getFuncItems(true).get(which - 2));
+        if (which >= funcStart && which < mMenuButtonCount) {
+            onItemClick(getFuncItems(true).get(which - funcStart));
             return;
         }
         if (which == mMenuButtonCount) {

@@ -66,6 +66,7 @@ public class SettingPersonalFragment extends BaseFragment {
         mBinding.searchThread.setOnClickListener(this::setSearchThread);
         mBinding.following.setOnClickListener(this::setFollowing);
         mBinding.autoBackup.setOnClickListener(this::setAutoBackup);
+        mBinding.smbEntry.setOnClickListener(this::setSmbEntry);
         mBinding.playbackOverlay.setOnClickListener(this::setPlaybackOverlay);
         mBinding.playBackToDetail.setOnClickListener(this::setPlayBackToDetail);
         mBinding.episodeHistory.setOnClickListener(this::setEpisodeHistory);
@@ -96,6 +97,7 @@ public class SettingPersonalFragment extends BaseFragment {
         mBinding.searchThreadText.setText(String.valueOf(Setting.getSearchThread()));
         mBinding.followingText.setText(getSwitch(FollowingSettings.isEnabled()));
         mBinding.autoBackupText.setText(getSwitch(isAutoBackupEnabled()));
+        mBinding.smbEntryText.setText(getSwitch(Setting.isSmbEntryEnabled()));
         mBinding.playbackOverlayText.setText(getSwitch(Setting.isPlaybackOverlayEnabled()));
         mBinding.playBackToDetailText.setText(getSwitch(Setting.isPlayBackToDetail()));
         mBinding.episodeHistoryText.setText(getSwitch(Setting.isEpisodeHistory()));
@@ -162,6 +164,13 @@ public class SettingPersonalFragment extends BaseFragment {
 
     private boolean isAutoBackupEnabled() {
         return AutoBackupPolicy.isEffective(Setting.isAutoBackup(), Setting.hasFileAccess());
+    }
+
+    /** 控制手机底栏 SMB 项是否显示；ConfigEvent.common() 让 HomeActivity 立即重排底栏。 */
+    private void setSmbEntry(View view) {
+        Setting.putSmbEntryEnabled(!Setting.isSmbEntryEnabled());
+        ConfigEvent.common();
+        setText();
     }
 
     private void setPlaybackOverlay(View view) {

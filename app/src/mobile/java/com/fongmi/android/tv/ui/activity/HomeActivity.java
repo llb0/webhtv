@@ -126,7 +126,8 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     protected void onResume() {
         super.onResume();
         if (mBinding.navigation.getMenu().findItem(R.id.lab).isVisible() != LabConfig.get().getNavEntry()
-                || mBinding.navigation.getMenu().findItem(R.id.following).isVisible() != FollowingSettings.isEnabled()) setNavigation();
+                || mBinding.navigation.getMenu().findItem(R.id.following).isVisible() != FollowingSettings.isEnabled()
+                || mBinding.navigation.getMenu().findItem(R.id.smb).isVisible() != Setting.isSmbEntryEnabled()) setNavigation();
         updateFollowingBadge();
     }
 
@@ -284,6 +285,11 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         mBinding.navigation.getMenu().findItem(R.id.lab).setVisible(LabConfig.get().getNavEntry());
         mBinding.navigation.getMenu().findItem(R.id.live).setVisible(LiveConfig.hasUrl());
         mBinding.navigation.getMenu().findItem(R.id.following).setVisible(FollowingSettings.isEnabled());
+        MenuItem smb = mBinding.navigation.getMenu().findItem(R.id.smb);
+        if (smb != null) {
+            androidx.core.view.MenuItemCompat.setIconTintList(smb, null);
+            smb.setVisible(Setting.isSmbEntryEnabled());
+        }
         updateFollowingBadge();
         syncNavigationSelection();
     }
@@ -355,6 +361,11 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         if (item.getItemId() == R.id.live) return openLive();
         if (item.getItemId() == R.id.following) {
             FollowingActivity.start(this, null);
+            return false;
+        }
+        if (item.getItemId() == R.id.smb) {
+            SmbBrowserActivity.start(this);
+            syncNavigationSelection();
             return false;
         }
         return false;

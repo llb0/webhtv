@@ -38,6 +38,7 @@ public class SettingPersonalActivity extends BaseActivity {
     private static final int[] FOCUS_ROWS = {
             R.id.following,
             R.id.autoBackup,
+            R.id.smbEntry,
             R.id.fullscreenMenuKey,
             R.id.homeMenuKey,
             R.id.playBackToDetail,
@@ -87,6 +88,7 @@ public class SettingPersonalActivity extends BaseActivity {
     protected void initEvent() {
         mBinding.following.setOnClickListener(this::setFollowing);
         mBinding.autoBackup.setOnClickListener(this::setAutoBackup);
+        mBinding.smbEntry.setOnClickListener(this::setSmbEntry);
         mBinding.fullscreenMenuKey.setOnClickListener(this::setFullscreenMenuKey);
         mBinding.homeMenuKey.setOnClickListener(this::setHomeMenuKey);
         mBinding.playBackToDetail.setOnClickListener(this::setPlayBackToDetail);
@@ -141,6 +143,7 @@ public class SettingPersonalActivity extends BaseActivity {
     private void setText() {
         mBinding.followingText.setText(getSwitch(FollowingSettings.isEnabled()));
         mBinding.autoBackupText.setText(getSwitch(isAutoBackupEnabled()));
+        mBinding.smbEntryText.setText(getSwitch(Setting.isSmbEntryEnabled()));
         mBinding.fullscreenMenuKeyText.setText((fullscreenMenuKey = getResources().getStringArray(R.array.select_fullscreen_menu_key))[Setting.getFullscreenMenuKey()]);
         mBinding.homeMenuKeyText.setText((homeMenuKey = getResources().getStringArray(R.array.select_home_menu_key))[Setting.getHomeMenuKey()]);
         mBinding.playBackToDetailText.setText(getSwitch(Setting.isPlayBackToDetail()));
@@ -203,6 +206,13 @@ public class SettingPersonalActivity extends BaseActivity {
 
     private boolean isAutoBackupEnabled() {
         return AutoBackupPolicy.isEffective(Setting.isAutoBackup(), Setting.hasFileAccess());
+    }
+
+    /** 控制电视首页菜单是否显示“本地SMB”；ConfigEvent.common() 让首页立即重排功能区。 */
+    private void setSmbEntry(View view) {
+        Setting.putSmbEntryEnabled(!Setting.isSmbEntryEnabled());
+        ConfigEvent.common();
+        setText();
     }
 
     private void setFullscreenMenuKey(View view) {
