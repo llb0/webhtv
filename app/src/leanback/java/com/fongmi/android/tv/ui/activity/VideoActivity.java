@@ -2451,8 +2451,17 @@ private boolean runtimeSourceOnly;
      * 没有记录时 getPlayerOrDefault 会退回设置页的全局默认。
      * 播放服务还没连上时先只记会话内核（取址在工作线程上读它），引擎由 onServiceConnected 补齐。
      */
-    private int applyHistoryPlayerKernel(boolean forcePrepare) {
+    private int applyHistoryPlayerKernel(String sourceUrl, boolean forcePrepare) {
         int kernel = mHistory == null ? PlayerSetting.getPlayer() : mHistory.getPlayerOrDefault();
+        // 老容器（AVI/WMV/RMVB 等）Exo 没有解复用器；首次播放且用户没在历史里
+        // 明确选过内核时，自动改走带 FFmpeg 的 IJK，避免“有声音没图像”或被直接判解析失败。
+        if (sourceUrl != null && kernel == PlayerSetting.EXO
+                && (mHistory == null || !mHistory.hasPlayer())
+                && PlayerSetting.isLegacyContainer(sourceUrl)) {
+            kernel = PlayerSetting.IJK;
+            // 覆盖 SMB 入口 setRuntimePlayerOverride(EXO)，否则取址/重建仍有路径读回 EXO。
+            PlayerSetting.setRuntimePlayerOverride(PlayerSetting.IJK);
+        }
         PlayerSetting.putActivePlayer(kernel);
         if (service() == null) {
             mPendingPlayerKernel = kernel;
@@ -2469,8 +2478,12 @@ private boolean runtimeSourceOnly;
         return kernel;
     }
 
-    private int applyHistoryPlayerKernel() {
-        return applyHistoryPlayerKernel(false);
+    private int applyHistoryPlayerKernel(boolean forcePrepare) {
+        return applyHistoryPlayerKernel(null, forcePrepare);
+    }
+
+    private int applyHistoryPlayerKernel(String sourceUrl) {
+        return applyHistoryPlayerKernel(sourceUrl, false);
     }
 
     /**
@@ -2781,7 +2794,7 @@ private boolean runtimeSourceOnly;
         publishPluginEpisodeContext(episode);
         beginPlayerContentRequest(getKey(), flag.getFlag(), episode.getUrl());
         mPlaybackFlagKey = playbackFlagKey(flag);
-        mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl(), applyHistoryPlayerKernel());
+        mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl(), applyHistoryPlayerKernel(episode.getUrl()));
         mBinding.getRoot().post(() -> hydrateFastTmdbPlaybackDetail(item));
         applyFastTmdbPlaybackFullDetailNextFrame(item);
     }
@@ -3648,7 +3661,7 @@ private boolean runtimeSourceOnly;
                 showOriginError("原源会话已结束，请返回后重新打开");
                 return;
             }
-        } else mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel());
+        } else mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel(episode.getUrl()));
         mBinding.widget.title.setSelected(true);
         updateHistory(episode);
         showProgress();

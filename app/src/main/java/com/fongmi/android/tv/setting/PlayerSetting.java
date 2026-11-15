@@ -216,6 +216,22 @@ public class PlayerSetting {
         return true;
     }
 
+    /**
+     * Exo 没有 AVI/WMV/RMVB 等老容器的解复用器，选中 Exo 时这些文件会“有声音没图像”
+     * 或直接解析失败。识别出老容器后，首次播放自动改走带 FFmpeg 的 IJK；
+     * 用户在历史里明确选过内核时不覆盖。
+     */
+    public static boolean isLegacyContainer(String url) {
+        if (url == null) return false;
+        int query = url.indexOf('?');
+        String path = query >= 0 ? url.substring(0, query) : url;
+        String lower = path.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".avi") || lower.endsWith(".wmv") || lower.endsWith(".asf")
+                || lower.endsWith(".rmvb") || lower.endsWith(".rm") || lower.endsWith(".vob")
+                || lower.endsWith(".flv") || lower.endsWith(".f4v") || lower.endsWith(".mpg")
+                || lower.endsWith(".mpeg") || lower.endsWith(".divx") || lower.endsWith(".xvid");
+    }
+
     public static int kernelCount() {
         return KERNEL_ORDER.length;
     }

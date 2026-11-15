@@ -329,11 +329,14 @@ public class App extends Application implements Application.ActivityLifecycleCal
             // 但开启调试日志时交由崩溃处理器落盘并进入崩溃页，否则调试日志永远拿不到
             // “选择打开方式后闪退”这类后台线程崩溃的现场。
             if (thread.getId() != Looper.getMainLooper().getThread().getId()
+                    && !(throwable instanceof Error)
                     && !com.github.catvod.crawler.DebugLogStore.isEnabled()) {
                 return;
             }
-            // 第三方 jar 的异常只记录，不拉崩溃页；应用自身异常统一交给默认处理器。
-            if (isFromThirdPartyJar(throwable)) {
+            // 后台线程的第三方 jar 异常只记录；主线程异常（包括站源抛出到 UI 线程的异常）
+            // 必须交给崩溃处理器，否则用户只会看到 app 直接闪退、没有崩溃页。
+            if (thread.getId() != Looper.getMainLooper().getThread().getId()
+                    && isFromThirdPartyJar(throwable)) {
                 return;
             }
             // 应用自身代码的主线程异常：交给默认处理器
