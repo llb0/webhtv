@@ -6,6 +6,7 @@ WebHomeTV 是基于 [FongMi](https://github.com/FongMi/TV) / CatVod 生态二次
 
 ### 增强功能
 
+- **本地 SMB 播放**:移植于[klcb2010](https://github.com/klcb2010/webhtv)，扫描并浏览同一局域网内的 SMB/NAS/Windows 共享,直接播放视频/音乐、预览图片或安装 APK;入口默认关闭,手机端在“设置 → 个性设置 → 本地SMB播放入口”开启后显示底栏 SMB,电视端开启后显示在首页菜单“选站”和“多仓”之间。支持匿名/Guest、账号密码、共享目录手动输入、主机收藏/隐藏和隐藏目录;密码只保留在当前页面内存。实现说明见 [本地 SMB 播放](docs/smb-local-browser.md)。
 - **来源屏蔽**:用于屏蔽不使用，又想保留的站点来源。本应用支持接口源和文件源，【接口源】：设置页点播、直播地址，【点播文件源】：存在/tvbox/中指定文件夹的XBPQ、JS、PY配置文件，以及包含完整key、name、api等必须信息的单个站点json文件，这些指定文件夹分别是sites-json、sites-js、sites-py、sites。【直播文件源】：存在/tvbox/lives/中的txt、m3u等文件。
 - **文件源默认配置**:文件源的默认配置通过文件名附加参数实现，命名规则：文件名.开关-样式.扩展名。对照如下：【文件名】⇨ "name":"文件名" 。【开关】⇨ S→表示只搜索不展示"hide":1 ；N→表示禁止搜索"searchable":0,"quickSearch":0,"changeable":2 ；【样式】⇨ H→横图展示"ratio": 1.33 ；S→方图展示"ratio": 1.0 ；数字→指定ratio，按比例展示。
 - **网盘检测**:内置网盘分享链接有效性检测,WebHome 和本地 HTTP API 均可调用。

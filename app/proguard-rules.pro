@@ -127,6 +127,10 @@
 # Nano
 -keep class fi.iki.elonen.** { *; }
 
+# SMBJ / Rapid7 DCERPC
+# Android 没有 java.rmi；Rapid7 只在异常 RPC 响应路径引用该异常类，运行时不会加载。
+-dontwarn java.rmi.UnmarshalException
+
 # NewPipeExtractor
 -keep class javax.script.** { *; }
 -keep class jdk.dynalink.** { *; }

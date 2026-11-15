@@ -261,6 +261,12 @@
            android:screenOrientation="sensorLandscape" />
 
         <activity
+            android:name=".ui.activity.SmbBrowserActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
             android:name=".ui.activity.SettingAppearanceActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:screenOrientation="sensorLandscape" />

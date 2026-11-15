@@ -840,6 +840,22 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         startPush(activity, PushParser.fromText(url));
     }
 
+    /**
+     * 本地 SMB 播放入口：id 是 {@link com.fongmi.android.tv.smb.SmbPlaybackProxy} 生成的
+     * 本机 HTTP 地址，name 是 SMB 文件名。写入 smb_source 让播放页在本次会话临时使用
+     * EXO，并在退出时恢复用户设置的默认内核。
+     */
+    public static void startSmb(Activity activity, String key, String id, String name) {
+        Intent intent = new Intent(activity, VideoActivity.class);
+        intent.putExtra("collect", false);
+        intent.putExtra("cast", false);
+        intent.putExtra("name", name);
+        intent.putExtra("key", key);
+        intent.putExtra("id", id);
+        intent.putExtra("smb_source", true);
+        activity.startActivity(intent);
+    }
+
     private static void startPush(Activity activity, PushParser.Parsed push) {
         if (dispatchToContentHandler(activity, push.getUrl(), push.getTitle())) return;
         start(activity, SiteApi.PUSH, push.getId(), push.getName());
@@ -1836,6 +1852,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // SMB 代理地址在部分 MPV 设备上会先失败再回退；在 PlaybackActivity 绑定服务前
+        // 临时把本次会话切到 EXO，避免用户在 SMB 页面播放时还要手动换内核。
+        if (getIntent().getBooleanExtra("smb_source", false)) {
+            PlayerSetting.setRuntimePlayerOverride(PlayerSetting.EXO);
+            PlayerSetting.putActivePlayer(PlayerSetting.EXO);
+        }
         initializeRuntimeDetailMode();
         mTmdbDetailTimeout = this::showTmdbDetailFallback;
         super.initView(savedInstanceState);
@@ -10668,6 +10690,10 @@ private void checkOrientation() {
         SiteHealthStore.flush();
         if (mKeyDown != null) mKeyDown.release();
         super.onDestroy();
+        // SMB 的临时内核覆盖只在本次播放页有效；配置变更重建时保留，避免重建后又回到 MPV。
+        if (getIntent().getBooleanExtra("smb_source", false) && !isChangingConfigurations()) {
+            PlayerSetting.clearRuntimePlayerOverride();
+        }
     }
 
     @Override
