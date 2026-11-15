@@ -8,7 +8,9 @@ import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
@@ -101,7 +103,7 @@ public class PlayerHelper {
             intent.putExtra("title", title).putExtra("return_result", isVod);
             intent.putExtra("headers", list.toArray(String[]::new));
             if (isVod) intent.putExtra("position", (int) position);
-            activity.startActivityForResult(getChooser(intent), 1001);
+            chooseExternal(activity, intent);
         } catch (Exception ignored) {
         }
     }
@@ -113,6 +115,49 @@ public class PlayerHelper {
             String endBy = data.getExtras().getString("end_by", "");
             if ("playback_completion".equals(endBy)) App.post(onNext);
             if ("user".equals(endBy)) seekTo.accept(position);
+        } catch (Exception ignored) {
+        }
+    }
+
+
+    /**
+     * 自带应用选择器：部分 MIUI/电视固件的系统 chooser 会直接使用默认应用，
+     * 或在一个外部播放器上停留后闪退。这里先枚举真实可处理 video/* 的应用，
+     * 由应用自己的列表让用户选择，选中后再带 Component 启动。
+     */
+    private static void chooseExternal(Activity activity, Intent intent) {
+        try {
+            List<ResolveInfo> infos = App.get().getPackageManager().queryIntentActivities(intent, 0);
+            List<ResolveInfo> candidates = new ArrayList<>();
+            for (ResolveInfo info : infos) {
+                if (info == null || info.activityInfo == null) continue;
+                if (App.get().getPackageName().equals(info.activityInfo.packageName)) continue;
+                candidates.add(info);
+            }
+            if (candidates.isEmpty()) {
+                Toast.makeText(activity, "没有可用的外部播放器", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String[] labels = new String[candidates.size()];
+            for (int i = 0; i < candidates.size(); i++) {
+                ResolveInfo info = candidates.get(i);
+                labels[i] = String.valueOf(info.loadLabel(App.get().getPackageManager()));
+            }
+            new AlertDialog.Builder(activity)
+                    .setTitle("选择打开方式")
+                    .setItems(labels, (dialog, which) -> {
+                        try {
+                            ResolveInfo info = candidates.get(which);
+                            Intent launch = new Intent(intent);
+                            launch.setFlags(launch.getFlags() & ~Intent.FLAG_ACTIVITY_NEW_TASK);
+                            launch.setComponent(new ComponentName(info.activityInfo.packageName, info.activityInfo.name));
+                            launch.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            activity.startActivityForResult(launch, 1001);
+                        } catch (Exception ignored) {
+                            Toast.makeText(activity, "该应用无法打开此视频", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .show();
         } catch (Exception ignored) {
         }
     }

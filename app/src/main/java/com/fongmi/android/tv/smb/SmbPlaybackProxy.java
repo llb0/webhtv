@@ -54,9 +54,15 @@ public final class SmbPlaybackProxy {
      */
     public static synchronized String externalUrl(String internalUrl) {
         if (internalUrl == null || internalUrl.isEmpty() || server == null) return internalUrl;
-        String prefix = "http://127.0.0.1:" + server.getListeningPort() + "/";
-        if (!internalUrl.startsWith(prefix)) return internalUrl;
-        String rest = internalUrl.substring(prefix.length());
+        // 外调播放器运行在同一台设备上，但部分系统播放器会拒绝回环地址；
+        // 代理已监听 0.0.0.0，这里改用局域网地址，仍使用同一个 token 和真实文件名。
+        String host = com.github.catvod.utils.Util.getIp();
+        if (host == null || host.isEmpty()) host = "127.0.0.1";
+        String prefix = "http://" + host + ":" + server.getListeningPort() + "/";
+        String internalPrefix = "http://127.0.0.1:" + server.getListeningPort() + "/";
+        if (!internalUrl.startsWith(internalPrefix)) return internalUrl;
+        internalUrl = internalPrefix + internalUrl.substring(internalPrefix.length());
+        String rest = internalUrl.substring(internalPrefix.length());
         int slash = rest.indexOf('/');
         if (slash <= 0) return internalUrl;
         String token = rest.substring(0, slash);

@@ -325,11 +325,14 @@ public class App extends Application implements Application.ActivityLifecycleCal
                 if (throwable != null) throwable.printStackTrace();
             } catch (Throwable ignored) {
             }
-            // 非主线程异常：直接吞掉，不让进程崩溃
-            if (thread.getId() != Looper.getMainLooper().getThread().getId()) {
+            // 非主线程异常默认吞掉，避免播放器/网络后台线程的小问题打断播放；
+            // 但开启调试日志时交由崩溃处理器落盘并进入崩溃页，否则调试日志永远拿不到
+            // “选择打开方式后闪退”这类后台线程崩溃的现场。
+            if (thread.getId() != Looper.getMainLooper().getThread().getId()
+                    && !com.github.catvod.crawler.DebugLogStore.isEnabled()) {
                 return;
             }
-            // 主线程异常：判断是否来自第三方 jar，是则吞掉
+            // 第三方 jar 的异常只记录，不拉崩溃页；应用自身异常统一交给默认处理器。
             if (isFromThirdPartyJar(throwable)) {
                 return;
             }

@@ -95,7 +95,7 @@ public final class UsageHelpDialog {
                             视频包括 mp4、mkv、avi、mov、m4v、ts、m2ts、wmv、flv、webm、mpg/mpeg、vob、3gp/3g2、mts、mxf、ogv 等；音频包括 mp3、flac、m4a/m4b、aac、wav、ogg/opus、wma、ape、aiff/aif、amr、mid/midi、mka、ac3、dts 等。
                             图片包括 jpg/jpeg/jpe、png、gif、bmp、webp、heic/heif、avif、tif/tiff；APK 只负责交给系统安装器，不会静默安装。
                             播放时 SmbPlaybackProxy 把 SMB 文件暴露成本机 127.0.0.1 的 HTTP 地址并支持 Range，播放器可以正常 seek；代理 token 只在进程内存，最多保留 24 个。
-                            代理 URL 保留真实文件名后缀并追加 smb=1 直链标记，不再把 AVI/WMV 补成 .mp4；播放页“外调/选择打开方式”使用同一 token 的真实后缀地址，避免外调播放器按 MP4 解析而打不开。
+                            代理 URL 保留真实文件名后缀并追加 smb=1 直链标记，不再把 AVI/WMV 补成 .mp4；播放页“外调/选择打开方式”使用同一 token 的真实后缀地址和局域网 IP，避免外调播放器按 MP4 解析或拒绝 127.0.0.1；打开方式列表由应用内提供，系统没有可用播放器时会提示。
                             代理同时监听 0.0.0.0，本机仍走 127.0.0.1；投屏/推送到远端时接收端可通过局域网访问发送端代理，不再因为只绑回环地址报“网络读取失败”。
                             SMB 播放页会在本次会话临时使用 EXO，退出后恢复设置里的默认内核；这个覆盖不写回全局播放设置。
                             """),

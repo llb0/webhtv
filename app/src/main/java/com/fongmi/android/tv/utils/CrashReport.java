@@ -82,9 +82,17 @@ public final class CrashReport {
         intent.putExtra("cat.ereza.customactivityoncrash.EXTRA_STACK_TRACE", details);
         try {
             PreviousProcessCrashRecovery.decorateJavaCrashIntent(context, intent);
-        } catch (Throwable ignored) {
+        } catch (Throwable errorDecorate) {
+            Log.e("crash-report", "decorate crash intent failed", errorDecorate);
         }
-        context.startActivity(intent);
+        try {
+            context.startActivity(intent);
+        } catch (Throwable errorStart) {
+            // 崩溃页起不来时至少把原因留在 logcat/调试日志里；TV 固件限制后台启动 Activity
+            // 时，这里是最容易看到的现场。
+            Log.e("crash-report", "launch crash activity failed", errorStart);
+            com.github.catvod.crawler.SpiderDebug.log("crash-report", "launch crash activity failed: %s", errorStart);
+        }
     }
 
     private static void terminateProcess() {
