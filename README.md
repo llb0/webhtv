@@ -290,6 +290,8 @@ bash scripts/build_ijk_native.sh --abi arm64-v8a --install
 bash gradlew :app:assembleMobileArm64_v8aRelease -PfastRelease=true
 ```
 
+脚本默认使用 `config/module-default.sh` 全量 FFmpeg 配置，编入 AVI、WMV/ASF、RM/RMVB、VOB 等老容器所需的解复用器与解码器（MPEG-4/DivX/Xvid、MS-MPEG4、WMV1/2/3、VC-1、RV30/40、Cook、AC-3、DTS、MP2 等）。旧的精简配置仍可用 `--module module-lite.sh` 或 `IJK_MODULE=module-lite.sh` 显式选择。全量库会明显增大 `libijkffmpeg.so` 和 APK 体积，这是兼容老视频换来的代价。
+
 Ubuntu 下重建 32 位 IJK：
 
 ```bash

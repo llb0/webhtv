@@ -13,6 +13,7 @@
       "third_party/patches/ijk-ffmpeg4-ndk28.patch"
     ],
     "ffmpeg4_config_revision": "96598d75",
+    "ffmpeg_module": "module-default.sh",
     "ffmpeg_repository": "https://github.com/ShikinChen/FFmpeg.git",
     "ffmpeg_tag": "ff4.0--ijk0.8.8--20210426--001",
     "openssl_tag": "openssl-3.2"

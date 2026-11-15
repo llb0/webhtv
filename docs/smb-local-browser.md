@@ -52,7 +52,7 @@ SMB 文件不会直接以 `smb://` 地址交给播放器。点击视频/音乐�
 1. `SmbPlaybackProxy.createUrl(...)` 启动一个 NanoHTTPD 代理，为当前文件生成短期 token；URL 保留真实文件名后缀并追加 `smb=1` 直链标记，让嗅探器/播放器把代理地址识别为视频直链，而不是网页嗅探地址。不会再给 AVI/WMV 补 `.mp4`，避免 Exo 按 MP4 解析旧格式。
 2. 代理按 Range 请求读取 SMB 文件，播放器拿到的是普通 HTTP 地址，因此可以正常 seek、拖动和断点续播。
 3. `VideoActivity.startSmb(...)` 写入 `smb_source=true` 启动播放页。
-4. 播放页 `initView` 在绑定播放服务前把本次会话的内核临时覆盖为 **EXO**，避免部分设备用 MPV 播放本地代理地址时出现兼容问题；如果文件是 AVI/WMV/RMVB/VOB 等 Exo 不支持解复用的老容器，首次播放会自动改走带 FFmpeg 的 IJK。退出播放页且不是配置变更重建时清除覆盖，**不会修改设置里的默认内核**。
+4. 播放页 `initView` 在绑定播放服务前把本次会话的内核临时覆盖为 **EXO**，避免部分设备用 MPV 播放本地代理地址时出现兼容问题；如果文件是 AVI/WMV/RMVB/VOB 等 Exo 不支持解复用的老容器，首次播放会自动改走带完整 FFmpeg 的 IJK。随包 IJK 由 `module-default.sh` 构建，已编入 AVI/ASF/RM 解复用器和 MPEG-4/DivX/Xvid、MS-MPEG4、WMV1/2/3、VC-1、RV30/40、Cook、AC-3、DTS 等老视频解码器。退出播放页且不是配置变更重建时清除覆盖，**不会修改设置里的默认内核**。
 5. 代理监听 `0.0.0.0`，本机仍通过 `127.0.0.1` 播放；投屏/推送时远端把回环地址替换成局域网地址后也能访问同一 token，避免只绑回环地址导致“网络读取失败”。
 6. 外调播放器使用 `SmbPlaybackProxy.externalUrl(...)` 返回的同 token 真实后缀地址，不再附加 `.mp4`；地址改用局域网 IP（代理监听 `0.0.0.0`），避免部分系统播放器拒绝 `127.0.0.1`。外调列表由应用内“选择打开方式”提供，不依赖系统 chooser。
 7. token 和本次登录的账号密码只存在进程内存；代理最多保留 24 个 token，不写磁盘。若用户勾选保存登录信息，账号密码按主机写入 `smb_credentials`，使用 Android Keystore 的 AES/GCM 加密。
