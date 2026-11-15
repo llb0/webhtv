@@ -208,7 +208,7 @@ public final class PlaybackProgressWriter {
         boolean sameEpisode = isSameEpisode(local, input);
         history.setKey(key);
         history.setCid(cid);
-        history.setVodName(input.vodName);
+        history.setVodName(History.preferStableVodName(local == null ? "" : local.getVodName(), input.vodName));
         // 播放进度仍会带着内存里的空封面/占位图持续回写；这里保留库中已有的
         // 详情页海报或真实截图，避免每次进度更新都把海报冲掉。
         if (local != null && History.isMissingArtwork(input.vodPic)

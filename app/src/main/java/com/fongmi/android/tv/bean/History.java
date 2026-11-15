@@ -46,6 +46,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 @Entity
 public class History implements Diffable<History> {
@@ -55,6 +56,7 @@ public class History implements Diffable<History> {
     private static final long NEAR_END_MIN_MS = TimeUnit.SECONDS.toMillis(5);
     private static final long NEAR_END_MAX_MS = TimeUnit.SECONDS.toMillis(30);
     private static final long ENDING_MIN_PLAYED_MS = TimeUnit.MINUTES.toMillis(1);
+    private static final Pattern EPISODE_ONLY_NAME = Pattern.compile("^(?:第\\s*)?[0-9零〇一二三四五六七八九十百]+\\s*(?:[集话話回期章节節])$");
 
     @NonNull
     @PrimaryKey
@@ -719,6 +721,30 @@ public class History implements Diffable<History> {
         this.vodName = vodName;
     }
 
+    /**
+     * 历史标题是否可作为稳定标题。空串、URL、纯集号以及 null/undefined 这类
+     * 进度载荷占位值不算真实标题；真实标题一旦落库，后续播放进度不再覆盖它。
+     */
+    public static boolean isRealVodName(String name) {
+        if (name == null) return false;
+        String value = name.trim();
+        if (value.isEmpty()) return false;
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (lower.equals("null") || lower.equals("undefined") || value.equals("-")) return false;
+        if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("file://")) return false;
+        return !EPISODE_ONLY_NAME.matcher(value).matches();
+    }
+
+    /**
+     * 与封面策略保持一致：只补空/占位标题，已有真实标题不被后续播放或远端进度覆盖。
+     * 显示投影需要改标题时直接走 {@link #setVodName(String)}，不要经过这里。
+     */
+    public static String preferStableVodName(String existing, String incoming) {
+        String stable = existing == null ? "" : existing;
+        if (isRealVodName(stable)) return stable;
+        return incoming == null ? "" : incoming;
+    }
+
     public String getVodFlag() {
         return vodFlag;
     }
@@ -1213,6 +1239,7 @@ public class History implements Diffable<History> {
             long deletedAt = Math.max(latestDeletion(tombstones, previous), latestDeletion(tombstones, key));
             if (!writeSurvivesDeletion(getCreateTime(), deletedAt)) return null;
             before[0] = find(getCid(), previous);
+            if (before[0] != null) setVodName(preferStableVodName(before[0].getVodName(), vodName));
             if (!TextUtils.isEmpty(previous)) {
                 AppDatabase.get().getTmdbSeasonProgressDao().replaceSourceHistoryKey(getCid(), previous, key);
                 AppDatabase.get().getHistoryDao().delete(getCid(), previous);
@@ -1243,6 +1270,7 @@ public class History implements Diffable<History> {
             if (before == null || before.getTmdbId() != getTmdbId()) return null;
             long deletedAt = latestDeletion(PlaybackDeleteTombstoneStore.snapshot(), getKey());
             if (!writeSurvivesDeletion(getCreateTime(), deletedAt)) return null;
+            setVodName(preferStableVodName(before.getVodName(), vodName));
             position = Math.max(0, originPosition);
             if (originDuration > 0) duration = originDuration;
             createTime = updateTime = System.currentTimeMillis();
@@ -1277,9 +1305,11 @@ public class History implements Diffable<History> {
             before[0] = find(getCid(), getKey());
             // 播放页退出时 mHistory 可能还带着空封面/占位图，直接整行覆盖会把
             // 详情页海报或刚写入的截图又冲掉；沿用库里已经落下的可用封面。
-            if (before[0] != null && isMissingArtwork(vodPic)
-                    && !isMissingArtwork(before[0].getVodPic())) {
-                setVodPic(before[0].getVodPic());
+            if (before[0] != null) {
+                setVodName(preferStableVodName(before[0].getVodName(), vodName));
+                if (isMissingArtwork(vodPic) && !isMissingArtwork(before[0].getVodPic())) {
+                    setVodPic(before[0].getVodPic());
+                }
             }
             if (mediaIdentityChanged(before[0], this)) {
                 AppDatabase.get().getTmdbSeasonProgressDao().deleteBySource(getCid(), getKey());
