@@ -3260,4 +3260,9 @@
     <string name="smb_share_name">Share name</string>
     <string name="smb_open_share">Open share</string>
     <string name="smb_local_network_permission">SMB playback needs local network access. Allow the permission and try again.</string>
+    <string name="smb_save_login">Save sign-in info (fill in next time)</string>
+    <string name="smb_clear_login">Clear saved sign-in info</string>
+    <string name="smb_credentials_saved">Sign-in info saved</string>
+    <string name="smb_credentials_cleared">Saved sign-in info cleared</string>
+    <string name="smb_credentials_save_failed">Could not save sign-in info on this device</string>
 </resources>

@@ -4,13 +4,15 @@ package com.fongmi.android.tv.smb;
  * 本机 SMB 播放代理：把一个 SMB 文件登记成短期 token，通过 127.0.0.1 上的
  * NanoHTTPD 暴露为 HTTP 地址，供 Exo/IJK 等播放器按普通网络地址播放，并支持 Range 请求。
  *
- * <p>token 只保存在进程内存，最多保留 24 个；不落盘、不保存账号密码。代理随播放器请求
+ * <p>token 只保存在进程内存，最多保留 24 个；不落盘。账号密码默认只在内存，若用户在登录页
+ * 勾选保存，则由 {@link SmbCredentialStore} 按主机加密存储，与本代理无关。代理随播放器请求
  * 打开远程文件，播放结束或进程退出后失效。SMB 播放统一走这里，不要让播放器直接接收
  * smb:// 地址。</p>
  */
 
 import fi.iki.elonen.NanoHTTPD;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.LinkedHashMap;
@@ -35,7 +37,20 @@ public final class SmbPlaybackProxy {
             String first = FILES.keySet().iterator().next();
             FILES.remove(first);
         }
-        return "http://127.0.0.1:" + server.getListeningPort() + "/" + token;
+        // 末尾保留真实扩展名：播放器/推送解析器会据此判断这是视频直链而不是网页，
+        // 否则 127.0.0.1 的代理地址会被当作待嗅探页面，解析超时后报“播放地址解析失败”。
+        String name = path == null ? "" : path.substring(path.lastIndexOf((char) 92) + 1);
+        if (name.isEmpty()) name = "media";
+        // SMB 还支持 wmv/flac/ape 等嗅探器不认识扩展名的格式；给 URL 补一个已知媒体后缀，
+        // 保证所有 SMB 媒体都走直链，不被当成网页进入 30 秒嗅探流程。
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (!lower.endsWith(".mp4") && !lower.endsWith(".mkv") && !lower.endsWith(".flv")
+                && !lower.endsWith(".m3u8") && !lower.endsWith(".mp3") && !lower.endsWith(".m4a")
+                && !lower.endsWith(".aac") && !lower.endsWith(".mpd")) {
+            name = name + ".mp4";
+        }
+        return "http://127.0.0.1:" + server.getListeningPort() + "/" + token + "/"
+                + java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20");
     }
 
     private static void ensureServer() throws IOException {
@@ -52,7 +67,11 @@ public final class SmbPlaybackProxy {
         @Override
         public Response serve(IHTTPSession request) {
             String uri = request.getUri();
+            if (uri != null && uri.indexOf('?') >= 0) uri = uri.substring(0, uri.indexOf('?'));
             String token = uri == null ? "" : uri.replaceFirst("^/", "");
+            // URL 形如 /<token>/<文件名>；token 只取第一段，文件名仅用于让播放器识别扩展名。
+            int slash = token.indexOf('/');
+            if (slash >= 0) token = token.substring(0, slash);
             FileRef ref;
             synchronized (SmbPlaybackProxy.class) {
                 ref = FILES.get(token);
@@ -90,8 +109,10 @@ public final class SmbPlaybackProxy {
                 }
                 if (request.getMethod() == Method.HEAD) {
                     remote.close();
-                    Response head = newFixedLengthResponse(Response.Status.OK, mime, "");
-                    head.addHeader("Content-Length", String.valueOf(size));
+                    // 不能用空字符串构造 fixed-length 响应：NanoHTTPD 会先把 Content-Length 设为 0，
+                    // 后面再 addHeader 也不会覆盖，播放器因此认为文件时长为 0。
+                    Response head = newFixedLengthResponse(Response.Status.OK, mime,
+                            new ByteArrayInputStream(new byte[0]), size);
                     head.addHeader("Accept-Ranges", "bytes");
                     return head;
                 }

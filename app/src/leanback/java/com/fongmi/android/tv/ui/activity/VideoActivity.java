@@ -1247,6 +1247,11 @@ private boolean runtimeSourceOnly;
         return Objects.toString(getIntent().getStringExtra("name"), "");
     }
 
+    /** 本地 SMB 播放：源站 Vod 名只是代理地址，不能用它覆盖文件名。 */
+    private boolean isSmbSource() {
+        return getIntent().getBooleanExtra("smb_source", false);
+    }
+
     private String getPic() {
         return Objects.toString(getIntent().getStringExtra("pic"), "");
     }
@@ -6568,6 +6573,10 @@ private boolean runtimeSourceOnly;
      */
     private String historyVodName(Vod item) {
         String name = item == null ? "" : item.getName();
+        if (isSmbSource()) {
+            String smbName = getName();
+            if (!smbName.isEmpty()) return smbName;
+        }
         if (!SiteApi.PUSH.equals(getKey())) return name;
         PushParser.Parsed push = PushParser.fromId(getId());
         if (push.hasExplicitTitle()) return push.getTitle();
@@ -6855,6 +6864,8 @@ private boolean runtimeSourceOnly;
 
     private void updateVod(Vod item) {
         mSourceEpisodeSeasonCache.clear();
+        // SMB 的源站名是代理地址；详情加载后统一用 Intent 里的文件名，避免标题/历史/弹幕被 URL 覆盖。
+        if (isSmbSource() && !TextUtils.isEmpty(getName())) item.setName(getName());
         mVod = item;
         boolean id = !item.getId().isEmpty();
         boolean pic = !item.getPic().isEmpty();

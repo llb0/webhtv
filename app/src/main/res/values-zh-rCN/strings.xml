@@ -3250,4 +3250,9 @@
     <string name="smb_share_name">共享名称</string>
     <string name="smb_open_share">打开共享</string>
     <string name="smb_local_network_permission">SMB播放需要本地网络访问权限，请允许后重试</string>
+    <string name="smb_save_login">保存登录信息（下次自动填写）</string>
+    <string name="smb_clear_login">清除已保存的登录信息</string>
+    <string name="smb_credentials_saved">登录信息已保存</string>
+    <string name="smb_credentials_cleared">已清除保存的登录信息</string>
+    <string name="smb_credentials_save_failed">当前设备无法保存登录信息</string>
 </resources>

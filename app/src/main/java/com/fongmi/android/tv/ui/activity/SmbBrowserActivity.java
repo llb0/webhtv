@@ -7,7 +7,8 @@ package com.fongmi.android.tv.ui.activity;
  * 电视端显示首页菜单“选站”和“多仓”之间的“本地SMB”。视频/音乐通过
  * {@link com.fongmi.android.tv.smb.SmbPlaybackProxy} 生成临时 HTTP 地址后交给
  * {@link VideoActivity#startSmb} 播放；图片在当前页预览，APK 交给系统安装器。
- * 主机备注、收藏和隐藏项保存在 SharedPreferences("smb_hosts")，登录密码只保留在本次页面内存中。</p>
+ * 主机备注、收藏和隐藏项保存在 SharedPreferences("smb_hosts")；登录密码默认只保留在本次页面内存，
+ * 用户勾选“保存登录信息”后才按主机写入经 Android Keystore 加密的 smb_credentials，可随时清除。</p>
  */
 
 import android.app.Activity;
@@ -31,6 +32,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -50,6 +52,7 @@ import com.bumptech.glide.load.resource.bitmap.DownsampleStrategy;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.smb.SmbClient;
+import com.fongmi.android.tv.smb.SmbCredentialStore;
 import com.fongmi.android.tv.smb.SmbNetworkScanner;
 import com.fongmi.android.tv.smb.SmbPlaybackProxy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -452,10 +455,31 @@ public class SmbBrowserActivity extends AppCompatActivity {
         List<String> values=new ArrayList<>(favorites);
         if(position<0||position>=values.size()) return;
         String[] p=values.get(position).split("\\n",4); if(p.length!=4)return;
-        host=p[0]; share=p[1]; String remote=p[2]; boolean dir=p[3].equals("D");
-        if(dir) { path=remote; if(path.isEmpty()) openShare(share); else loadDirectory(); return; }
+        // 收藏夹只是主机/目录之上的临时视图；打开收藏项后必须退出该视图，
+        // 否则列表已经换成目标文件夹，点击仍会按收藏夹的下标执行（看起来像一层透明列表挡着）。
+        showingFavorites=false;
+        if (host == null || !host.equals(p[0])) {
+            host=p[0];
+            username=""; password=""; domain="";
+            SmbCredentialStore.Stored stored = SmbCredentialStore.load(this, host);
+            if (stored != null) {
+                username=stored.username;
+                password=stored.password;
+                domain=stored.domain;
+            }
+        }
+        share=p[1]; String remote=p[2]; boolean dir=p[3].equals("D");
+        if(dir) {
+            path=remote;
+            mode=Mode.FILES;
+            if(path.isEmpty()) openShare(share); else loadDirectory();
+            return;
+        }
         int cut=remote.lastIndexOf((char)92); String name=cut<0?remote:remote.substring(cut+1);
         path=cut<0?"":remote.substring(0,cut);
+        mode=Mode.FILES;
+        // 先回到文件所在目录，播放/预览返回时列表就是真实目录，而不是残留的收藏夹。
+        loadDirectory();
         if(SmbClient.isVideo(name)||SmbClient.isAudio(name)) play(remote);
         else if(SmbClient.isImage(name)) showImage(remote);
         else if(SmbClient.isApk(name)) installApk(remote);
@@ -548,13 +572,29 @@ public class SmbBrowserActivity extends AppCompatActivity {
 
     private void showHostActions(String value) {
         boolean saved = savedHosts.containsKey(value);
-        String[] actions = saved
-                ? new String[]{"修改备注", "取消保存", "隐藏此地址"}
-                : new String[]{"保存并备注", "隐藏此地址"};
+        boolean hasCredential = SmbCredentialStore.has(this, value);
+        List<String> actions = new ArrayList<>();
+        if (saved) {
+            actions.add("修改备注");
+            actions.add("取消保存");
+        } else {
+            actions.add("保存并备注");
+        }
+        actions.add("隐藏此地址");
+        if (hasCredential) actions.add("清除登录信息");
+        String[] items = actions.toArray(new String[0]);
         new MaterialAlertDialogBuilder(this)
                 .setTitle(value)
-                .setItems(actions, (dialog, which) -> {
-                    if ((!saved && which == 0) || (saved && which == 0)) {
+                .setItems(items, (dialog, which) -> {
+                    if (hasCredential && which == actions.size() - 1) {
+                        SmbCredentialStore.clear(this, value);
+                        if (host != null && host.equals(value)) {
+                            username = "";
+                            password = "";
+                            domain = "";
+                        }
+                        Toast.makeText(this, R.string.smb_credentials_cleared, Toast.LENGTH_SHORT).show();
+                    } else if ((!saved && which == 0) || (saved && which == 0)) {
                         showHostNoteDialog(value);
                     } else if (saved && which == 1) {
                         savedHosts.remove(value);
@@ -668,7 +708,22 @@ public class SmbBrowserActivity extends AppCompatActivity {
     }
 
     private void connectHost(String value, boolean withCredentials) {
+        String previousHost = host;
         host = value;
+        if (!value.equals(previousHost)) {
+            username = "";
+            password = "";
+            domain = "";
+        }
+        if (!withCredentials && username.isEmpty()) {
+            // 保存过登录信息的主机优先用保存的账号，避免每次都先走匿名再弹登录框。
+            SmbCredentialStore.Stored stored = SmbCredentialStore.load(this, host);
+            if (stored != null) {
+                username = stored.username;
+                password = stored.password;
+                domain = stored.domain;
+            }
+        }
         loginAttempted = false;
         setStatus("正在连接 " + value + " …");
         worker.execute(() -> {
@@ -704,6 +759,12 @@ public class SmbBrowserActivity extends AppCompatActivity {
 
     private void showAuthDialog() {
         loginAttempted = true;
+        SmbCredentialStore.Stored stored = SmbCredentialStore.load(this, host);
+        if (stored != null && username.isEmpty()) {
+            username = stored.username;
+            password = stored.password;
+            domain = stored.domain;
+        }
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(22), dp(8), dp(22), 0);
@@ -713,10 +774,36 @@ public class SmbBrowserActivity extends AppCompatActivity {
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         EditText realm = field(getString(R.string.smb_domain), InputType.TYPE_CLASS_TEXT);
         user.setText(username);
+        pass.setText(password);
         realm.setText(domain);
         form.addView(user);
         form.addView(pass);
         form.addView(realm);
+
+        CheckBox save = new CheckBox(this);
+        save.setText(R.string.smb_save_login);
+        save.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, 0xFFFFFFFF));
+        save.setChecked(stored != null);
+        save.setPadding(0, dp(6), 0, 0);
+        form.addView(save);
+
+        MaterialButton clear = themedButton(getString(R.string.smb_clear_login));
+        clear.setVisibility(stored == null ? View.GONE : View.VISIBLE);
+        clear.setOnClickListener(v -> {
+            SmbCredentialStore.clear(this, host);
+            username = "";
+            password = "";
+            domain = "";
+            user.setText("");
+            pass.setText("");
+            realm.setText("");
+            save.setChecked(false);
+            clear.setVisibility(View.GONE);
+            Toast.makeText(this, R.string.smb_credentials_cleared, Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(-1, dp(44));
+        clearParams.topMargin = dp(4);
+        form.addView(clear, clearParams);
 
         new MaterialAlertDialogBuilder(this)
                 .setTitle(getString(R.string.smb_auth_title) + " · " + host)
@@ -726,6 +813,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
                     username = user.getText().toString().trim();
                     password = pass.getText().toString();
                     domain = realm.getText().toString().trim();
+                    boolean saveLogin = save.isChecked();
                     worker.execute(() -> {
                         try {
                             List<String> found = SmbClient.listShares(host, username, password, domain);
@@ -739,6 +827,14 @@ public class SmbBrowserActivity extends AppCompatActivity {
                                 title.setText(host);
                                 setItems(shares);
                                 setStatus(found.isEmpty() ? getString(R.string.smb_no_shares) : "选择共享目录");
+                                if (saveLogin) {
+                                    try {
+                                        SmbCredentialStore.save(this, host, username, password, domain);
+                                        Toast.makeText(this, R.string.smb_credentials_saved, Toast.LENGTH_SHORT).show();
+                                    } catch (Exception saveError) {
+                                        Toast.makeText(this, R.string.smb_credentials_save_failed, Toast.LENGTH_SHORT).show();
+                                    }
+                                }
                                 if (found.isEmpty()) {
                                     setStatus(getString(R.string.smb_no_shares));
                                     showManualShareDialog();
