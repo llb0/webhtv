@@ -1,5 +1,7 @@
 package androidx.media3.mpvplayer;
 
+import com.github.catvod.crawler.DebugLogStore;
+
 import java.util.Locale;
 import java.util.Arrays;
 import java.util.regex.Pattern;
@@ -83,6 +85,7 @@ final class MpvDiagnosticsPolicy {
 
     static String redactSensitive(String text) {
         if (text == null || text.isEmpty()) return "";
+        if (DebugLogStore.isEnabled()) return text;
         String safe = URL.matcher(text).replaceAll("<url>");
         return SENSITIVE_HEADER.matcher(safe).replaceAll("$1=<redacted>");
     }

@@ -365,14 +365,27 @@ public class SiteApi {
      * 报 "WebHome inline VOD not found"；改写成自包含的 push_agent 推送串（真实地址 + 请求头）后再发。
      */
     public static History castHistory(History history, String url, Map<String, String> headers) {
+        return castHistory(history, url, headers, history == null ? "" : history.getVodName());
+    }
+
+    public static History castHistory(History history, String url, Map<String, String> headers, String name) {
         if (history == null || !WebHomeInlineVodStore.KEY.equals(history.getSiteKey())) return history;
         String base = Sniffer.gatewayTarget(url);
         if (TextUtils.isEmpty(base)) base = url;
         if (TextUtils.isEmpty(base)) return history;
         History copy = History.objectFrom(history.toString());
         if (copy == null) return history;
-        copy.setKey(PUSH + AppDatabase.SYMBOL + Sniffer.pushPayload(base, headers) + AppDatabase.SYMBOL + history.getCid());
+        // 发送端的本地截图文件在远端不存在，带过去只会让远端卡片退化成标题首字；
+        // 清掉本地路径，让远端重新用自己设备上的非黑屏截图兜底。
+        copy.setVodPic(clearLocalArtwork(copy.getVodPic()));
+        copy.setWallPic(clearLocalArtwork(copy.getWallPic()));
+        copy.setKey(PUSH + AppDatabase.SYMBOL + Sniffer.pushPayload(base, headers, name) + AppDatabase.SYMBOL + history.getCid());
         return copy;
+    }
+
+    private static String clearLocalArtwork(String pic) {
+        if (TextUtils.isEmpty(pic)) return pic;
+        return pic.startsWith("file://") || pic.startsWith("content://") ? "" : pic;
     }
 
     static boolean isLocalFileUrl(String url) {

@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.bean;
 
+import android.net.Uri;
 import android.text.TextUtils;
 import android.view.View;
 
@@ -35,6 +36,7 @@ import com.fongmi.android.tv.web.WebHomeInlineVodStore;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 
+import java.io.File;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,6 +46,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 @Entity
 public class History implements Diffable<History> {
@@ -53,6 +56,7 @@ public class History implements Diffable<History> {
     private static final long NEAR_END_MIN_MS = TimeUnit.SECONDS.toMillis(5);
     private static final long NEAR_END_MAX_MS = TimeUnit.SECONDS.toMillis(30);
     private static final long ENDING_MIN_PLAYED_MS = TimeUnit.MINUTES.toMillis(1);
+    private static final Pattern EPISODE_ONLY_NAME = Pattern.compile("^(?:第\\s*)?[0-9零〇一二三四五六七八九十百]+\\s*(?:[集话話回期章节節])$");
 
     @NonNull
     @PrimaryKey
@@ -232,6 +236,32 @@ public class History implements Diffable<History> {
     public static boolean updateVodPicIfEmpty(int cid, String key, String pic) {
         if (TextUtils.isEmpty(key) || TextUtils.isEmpty(pic)) return false;
         return AppDatabase.get().getHistoryDao().updateVodPicIfEmpty(cid, key, pic) > 0;
+    }
+
+    /** push 历史初始使用 push_image 占位图，截图成功后只替换占位图，不覆盖真实海报。 */
+    public static boolean updateVodPicIfEmptyOrPlaceholder(int cid, String key, String pic, String placeholder) {
+        if (TextUtils.isEmpty(key) || TextUtils.isEmpty(pic)) return false;
+        return AppDatabase.get().getHistoryDao().updateVodPicIfEmptyOrPlaceholder(cid, key, pic, placeholder) > 0;
+    }
+
+    /**
+     * 历史封面是否为空或不可用。push 初始占位图、空串，以及跨设备同步过来的
+     * file:// 路径（远端文件不存在）都视为缺失，交给截图兜底。
+     */
+    public static boolean isMissingArtwork(String pic) {
+        if (TextUtils.isEmpty(pic) || TextUtils.equals(pic, ResUtil.getString(R.string.push_image))) return true;
+        if (!pic.startsWith("file://")) return false;
+        try {
+            File file = new File(Uri.parse(pic).getPath());
+            return !file.isFile() || file.length() <= 0;
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    /** 截图落库后为 file:// URI；用于历史卡片区分“推送截图”与普通推送占位。 */
+    public boolean isPushSnapshot() {
+        return isPushHistory() && !isMissingArtwork(vodPic) && vodPic.startsWith("file://");
     }
 
     public static History findPlayback(String key, String vodName, List<Flag> flags) {
@@ -691,6 +721,30 @@ public class History implements Diffable<History> {
         this.vodName = vodName;
     }
 
+    /**
+     * 历史标题是否可作为稳定标题。空串、URL、纯集号以及 null/undefined 这类
+     * 进度载荷占位值不算真实标题；真实标题一旦落库，后续播放进度不再覆盖它。
+     */
+    public static boolean isRealVodName(String name) {
+        if (name == null) return false;
+        String value = name.trim();
+        if (value.isEmpty()) return false;
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (lower.equals("null") || lower.equals("undefined") || value.equals("-")) return false;
+        if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("file://")) return false;
+        return !EPISODE_ONLY_NAME.matcher(value).matches();
+    }
+
+    /**
+     * 与封面策略保持一致：只补空/占位标题，已有真实标题不被后续播放或远端进度覆盖。
+     * 显示投影需要改标题时直接走 {@link #setVodName(String)}，不要经过这里。
+     */
+    public static String preferStableVodName(String existing, String incoming) {
+        String stable = existing == null ? "" : existing;
+        if (isRealVodName(stable)) return stable;
+        return incoming == null ? "" : incoming;
+    }
+
     public String getVodFlag() {
         return vodFlag;
     }
@@ -998,7 +1052,8 @@ public class History implements Diffable<History> {
 
     public String getSiteName() {
         if (getCid() != VodConfig.getCid()) return ResUtil.getString(R.string.history_other_config);
-        if (SiteApi.PUSH.equals(getSiteKey())) return "";
+        // 推送截图替换占位图后，历史左上角明确标成“推送”，和普通站点来源区分开。
+        if (SiteApi.PUSH.equals(getSiteKey())) return isPushSnapshot() ? ResUtil.getString(R.string.push) : "";
         // WebHome 嗅探记录使用合成键 webhome_inline，不是普通站点，不能按站点表判失效。
         if (WebHomeInlineVodStore.KEY.equals(getSiteKey())) {
             Site origin = WebHomeInlineVodStore.getOriginSite(getVodId());
@@ -1076,7 +1131,7 @@ public class History implements Diffable<History> {
         return isRevPlay() ? R.string.play_backward_hint : R.string.play_forward_hint;
     }
 
-    private boolean isPushHistory() {
+    public boolean isPushHistory() {
         return key != null && key.startsWith(SiteApi.PUSH + AppDatabase.SYMBOL);
     }
 
@@ -1184,6 +1239,7 @@ public class History implements Diffable<History> {
             long deletedAt = Math.max(latestDeletion(tombstones, previous), latestDeletion(tombstones, key));
             if (!writeSurvivesDeletion(getCreateTime(), deletedAt)) return null;
             before[0] = find(getCid(), previous);
+            if (before[0] != null) setVodName(preferStableVodName(before[0].getVodName(), vodName));
             if (!TextUtils.isEmpty(previous)) {
                 AppDatabase.get().getTmdbSeasonProgressDao().replaceSourceHistoryKey(getCid(), previous, key);
                 AppDatabase.get().getHistoryDao().delete(getCid(), previous);
@@ -1202,6 +1258,30 @@ public class History implements Diffable<History> {
         return cid(cid).merge(true).save();
     }
 
+    /**
+     * 原源租约进度写回：只按本行显式 cid/key 落库，保留删除墓碑／季进度事务，
+     * 但不走当前配置的 TMDB enrich，也不新建已被删除的记录。
+     */
+    public History saveOriginProgress(long originPosition, long originDuration) {
+        if (originPosition < 0 && originDuration <= 0) return this;
+        boolean[] saved = {false};
+        TmdbSeasonProgressStore.runInTransaction(() -> {
+            History before = find(getCid(), getKey());
+            if (before == null || before.getTmdbId() != getTmdbId()) return null;
+            long deletedAt = latestDeletion(PlaybackDeleteTombstoneStore.snapshot(), getKey());
+            if (!writeSurvivesDeletion(getCreateTime(), deletedAt)) return null;
+            setVodName(preferStableVodName(before.getVodName(), vodName));
+            position = Math.max(0, originPosition);
+            if (originDuration > 0) duration = originDuration;
+            createTime = updateTime = System.currentTimeMillis();
+            AppDatabase.get().getHistoryDao().insertOrUpdate(this);
+            TmdbSeasonProgressStore.write(this);
+            saved[0] = true;
+            return null;
+        });
+        if (saved[0]) notifyChanged();
+        return this;
+    }
     private void enrichTmdbId() {
         if (tmdbId > 0 || !Setting.isHistoryAggregationEffective()) return;
         String siteKey = getSiteKey();
@@ -1223,6 +1303,14 @@ public class History implements Diffable<History> {
             long deletedAt = latestDeletion(PlaybackDeleteTombstoneStore.snapshot(), getKey());
             if (!writeSurvivesDeletion(getCreateTime(), deletedAt)) return null;
             before[0] = find(getCid(), getKey());
+            // 播放页退出时 mHistory 可能还带着空封面/占位图，直接整行覆盖会把
+            // 详情页海报或刚写入的截图又冲掉；沿用库里已经落下的可用封面。
+            if (before[0] != null) {
+                setVodName(preferStableVodName(before[0].getVodName(), vodName));
+                if (isMissingArtwork(vodPic) && !isMissingArtwork(before[0].getVodPic())) {
+                    setVodPic(before[0].getVodPic());
+                }
+            }
             if (mediaIdentityChanged(before[0], this)) {
                 AppDatabase.get().getTmdbSeasonProgressDao().deleteBySource(getCid(), getKey());
             }

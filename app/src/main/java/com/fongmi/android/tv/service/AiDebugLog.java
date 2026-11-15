@@ -9,8 +9,6 @@ import java.util.Objects;
 
 final class AiDebugLog {
 
-    private static final int MAX_TEXT = 20 * 1024;
-
     private AiDebugLog() {
     }
 
@@ -32,14 +30,16 @@ final class AiDebugLog {
     }
 
     static String clip(String text) {
-        String value = Objects.toString(text, "").replace('\r', ' ').replace('\n', ' ').trim();
-        if (value.length() <= MAX_TEXT) return value;
-        return value.substring(0, MAX_TEXT) + "...<truncated " + (value.length() - MAX_TEXT) + " chars>";
+        return Objects.toString(text, "").replace('\r', ' ').replace('\n', ' ').trim();
     }
 
     static Map<String, String> redactedHeaders(Map<String, String> headers) {
         Map<String, String> result = new LinkedHashMap<>();
         if (headers == null) return result;
+        if (SpiderDebug.isEnabled()) {
+            result.putAll(headers);
+            return result;
+        }
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             String key = entry.getKey();
             String lower = key == null ? "" : key.toLowerCase();

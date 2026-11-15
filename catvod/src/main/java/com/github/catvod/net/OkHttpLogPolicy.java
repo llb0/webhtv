@@ -1,5 +1,7 @@
 package com.github.catvod.net;
 
+import com.github.catvod.crawler.DebugLogStore;
+
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -15,6 +17,7 @@ public final class OkHttpLogPolicy {
 
     public static String redactUrl(HttpUrl url) {
         if (url == null) return "<none>";
+        if (DebugLogStore.isEnabled()) return url.toString();
         String host = redactHost(url.host());
         int defaultPort = url.isHttps() ? 443 : 80;
         String port = portLabel(url.port(), defaultPort, isLoopback(url.host()));
@@ -23,6 +26,7 @@ public final class OkHttpLogPolicy {
 
     public static String redactUri(URI uri) {
         if (uri == null) return "<none>";
+        if (DebugLogStore.isEnabled()) return uri.toString();
         String scheme = uri.getScheme() == null ? "other" : uri.getScheme().toLowerCase(Locale.US);
         String host = redactHost(uri.getHost());
         int portValue = uri.getPort();
@@ -33,6 +37,7 @@ public final class OkHttpLogPolicy {
 
     public static String redactHost(String host) {
         if (host == null || host.isBlank()) return "unknown-host";
+        if (DebugLogStore.isEnabled()) return host;
         String normalized = host.toLowerCase(Locale.US);
         return isLoopback(normalized) ? "loopback" : "remote-" + shortHash(normalized);
     }
@@ -57,6 +62,7 @@ public final class OkHttpLogPolicy {
 
     private static String sanitizeRange(String value) {
         String range = value.trim();
+        if (DebugLogStore.isEnabled()) return range;
         return range.matches("bytes=\\d*-\\d*(,\\d*-\\d*)*") ? range : "<redacted>";
     }
 

@@ -66,6 +66,24 @@ public class HistoryTest {
         assertFalse(history.isSameContent(updated));
     }
 
+    @Test
+    public void preferStableVodName_keepsExistingRealTitle() {
+        assertEquals("真实剧名", History.preferStableVodName("真实剧名", "后续播放的另一个名字"));
+        assertEquals("真实剧名", History.preferStableVodName("真实剧名", ""));
+        assertEquals("真实剧名", History.preferStableVodName("真实剧名", null));
+    }
+
+    @Test
+    public void preferStableVodName_onlyFillsMissingOrPlaceholderTitle() {
+        assertEquals("Ep1", History.preferStableVodName("", "Ep1"));
+        assertEquals("真实剧名", History.preferStableVodName("第01集", "真实剧名"));
+        assertEquals("真实剧名", History.preferStableVodName("https://example.com/play", "真实剧名"));
+        assertFalse(History.isRealVodName("第01集"));
+        assertFalse(History.isRealVodName("https://example.com/play"));
+        assertFalse(History.isRealVodName("null"));
+        assertTrue(History.isRealVodName("真实剧名"));
+    }
+
     private static History coverHistory() {
         History history = new History();
         history.setKey("test@@@cover");

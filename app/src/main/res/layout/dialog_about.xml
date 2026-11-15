@@ -128,21 +128,50 @@
 
         </androidx.appcompat.widget.LinearLayoutCompat>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/confirm"
-            style="@style/Widget.Material3.Button"
+        <androidx.appcompat.widget.LinearLayoutCompat
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:minHeight="44dp"
-            android:nextFocusUp="@id/checkUpdate"
-            android:text="@string/about_acknowledge"
-            android:textColor="@color/dialog_primary_button_text"
-            android:textSize="14sp"
-            app:backgroundTint="@color/dialog_primary_button_bg"
-            app:cornerRadius="8dp"
-            app:strokeColor="@color/focus_ring_primary_container"
-            app:strokeWidth="@dimen/webhtv_focus_ring_width" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/confirm"
+                style="@style/Widget.Material3.Button"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:minHeight="44dp"
+                android:nextFocusUp="@id/checkUpdate"
+                android:nextFocusRight="@id/help"
+                android:text="@string/about_acknowledge"
+                android:textColor="@color/dialog_primary_button_text"
+                android:textSize="14sp"
+                app:backgroundTint="@color/dialog_primary_button_bg"
+                app:cornerRadius="8dp"
+                app:strokeColor="@color/focus_ring_primary_container"
+                app:strokeWidth="@dimen/webhtv_focus_ring_width" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/help"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginStart="10dp"
+                android:minHeight="44dp"
+                android:minWidth="104dp"
+                android:nextFocusLeft="@id/confirm"
+                android:nextFocusUp="@id/checkUpdate"
+                android:text="@string/about_usage_help"
+                android:textAllCaps="false"
+                android:textColor="@color/dialog_outlined_button_text"
+                android:textSize="14sp"
+                app:backgroundTint="@color/dialog_outlined_button_bg"
+                app:cornerRadius="8dp"
+                app:strokeColor="@color/dialog_outlined_button_stroke"
+                app:strokeWidth="1dp" />
+
+        </androidx.appcompat.widget.LinearLayoutCompat>
 
 
     </androidx.appcompat.widget.LinearLayoutCompat>
