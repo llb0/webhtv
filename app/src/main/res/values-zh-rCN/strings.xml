@@ -1596,6 +1596,9 @@
     <string name="subtitle_realtime_model_deleting">删除中...</string>
     <string name="subtitle_realtime_model_download_success">实时字幕模型下载完成</string>
     <string name="subtitle_realtime_model_download_failed">模型下载失败：%1$s</string>
+    <string name="subtitle_realtime_native_download_failed">语音识别引擎下载失败：%1$s</string>
+    <string name="subtitle_realtime_native_checksum_error">语音识别引擎校验失败：%1$s</string>
+    <string name="subtitle_realtime_native_load_error">无法加载语音识别引擎：%1$s</string>
     <string name="subtitle_realtime_model_delete_title">删除实时字幕模型</string>
     <string name="subtitle_realtime_model_delete_message">删除已下载的模型并关闭实时 AI 字幕？</string>
     <string name="subtitle_realtime_model_delete_success">实时字幕模型已删除</string>
@@ -3250,4 +3253,9 @@
     <string name="smb_share_name">共享名称</string>
     <string name="smb_open_share">打开共享</string>
     <string name="smb_local_network_permission">SMB播放需要本地网络访问权限，请允许后重试</string>
+    <string name="smb_save_login">保存登录信息（下次自动填写）</string>
+    <string name="smb_clear_login">清除已保存的登录信息</string>
+    <string name="smb_credentials_saved">登录信息已保存</string>
+    <string name="smb_credentials_cleared">已清除保存的登录信息</string>
+    <string name="smb_credentials_save_failed">当前设备无法保存登录信息</string>
 </resources>

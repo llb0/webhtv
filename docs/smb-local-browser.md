@@ -1,6 +1,6 @@
 # 本地 SMB 浏览与播放
 
-本文说明 WebHTV 的本地 SMB 能力：入口在哪里、如何连接 NAS/Windows 共享、支持哪些文件、播放器如何处理，以及常见故障怎么排查。实现以当前仓库的 `SmbBrowserActivity`、`SmbClient`、`SmbNetworkScanner`、`SmbPlaybackProxy` 为准。
+本文说明 WebHTV 的本地 SMB 能力：入口在哪里、如何连接 NAS/Windows 共享、支持哪些文件、播放器如何处理，以及常见故障怎么排查。实现以当前仓库的 `SmbBrowserActivity`、`SmbClient`、`SmbNetworkScanner`、`SmbPlaybackProxy`、`SmbCredentialStore` 为准。
 
 ## 入口与开关
 
@@ -20,6 +20,8 @@
 3. 点选主机后登录：
    - 用户名留空：先尝试匿名会话，失败后回退 Guest；适合开放共享或来宾共享。
    - 有账号密码：填写用户名、密码；域可选，Windows 域共享或部分 NAS 才需要。
+   - 需要下次自动填写时，在登录界面勾选 **保存登录信息**；保存后再次连接该主机会先用保存的账号尝试。登录界面同时提供 **清除已保存的登录信息**。
+   - 如果取消勾选“保存登录信息”并成功登录，会同时清除该主机此前保存的旧凭据，让“是否保存”真正随本次勾选生效。
    - 共享目录没有自动列出时，可以用“手动输入共享名”直接打开，例如 `video`、`media`。
 4. 进入共享目录后浏览文件夹。视频/音乐点按播放，图片点按预览，APK 点按交给系统安装器。
 5. 返回键逐级退回：文件 → 共享目录 → 主机列表 → 关闭页面。电视端用方向键移动焦点，OK 确认，菜单键可打开当前共享/文件的更多操作。
@@ -36,19 +38,24 @@
 页面还提供：
 
 - **收藏夹**：保存常用主机/共享/目录；主机可写备注，收藏项可直接打开。
-- **显示隐藏**：恢复被隐藏的主机或目录；电视端短按、手机端长按执行恢复。
-- 主机/共享/文件长按或菜单键：收藏、隐藏、手动输入共享名等操作。
+- **显示隐藏**：恢复被隐藏的主机或目录；电视端短按、手机端长按执行恢复。设置了隐藏密码时，先输入密码，校验通过才显示隐藏项目。
+- 电视端菜单键 / 手机端长按会打开统一菜单：当前条目的操作之后固定追加 **收藏夹 / 显示隐藏 / 设置或取消隐藏密码 / 主机 / 关闭**。主机页没有选中条目时也能调出这五项；电视端菜单列表焦点在首/末项支持上下环跳。
+- 隐藏密码保存在 `SharedPreferences("smb_hosts")` 的 `hidden_password`；设置非空密码后，菜单项变为“取消隐藏密码”，清除后恢复“设置隐藏密码”。
+- 主机长按或菜单键：保存并备注、修改备注、清除登录信息、隐藏此地址；共享/文件长按或菜单键：收藏、隐藏、手动输入共享名等操作。
+- “主机”表示回到主机列表并重新扫描一次；“关闭”等同页面关闭按钮。
 - 图片预览：手机竖屏可旋转/全屏查看，电视端可直接全屏显示。
 
 ## 播放路径与内核
 
 SMB 文件不会直接以 `smb://` 地址交给播放器。点击视频/音乐时：
 
-1. `SmbPlaybackProxy.createUrl(...)` 在 `127.0.0.1` 启动一个只在本机可访问的 NanoHTTPD 代理，并为当前文件生成短期 token。
+1. `SmbPlaybackProxy.createUrl(...)` 启动一个 NanoHTTPD 代理，为当前文件生成短期 token；URL 保留真实文件名后缀并追加 `smb=1` 直链标记，让嗅探器/播放器把代理地址识别为视频直链，而不是网页嗅探地址。不会再给 AVI/WMV 补 `.mp4`，避免 Exo 按 MP4 解析旧格式。
 2. 代理按 Range 请求读取 SMB 文件，播放器拿到的是普通 HTTP 地址，因此可以正常 seek、拖动和断点续播。
 3. `VideoActivity.startSmb(...)` 写入 `smb_source=true` 启动播放页。
-4. 播放页 `initView` 在绑定播放服务前把本次会话的内核临时覆盖为 **EXO**，避免部分设备用 MPV 播放本地代理地址时出现兼容问题；退出播放页且不是配置变更重建时清除覆盖，**不会修改设置里的默认内核**。
-5. token 和账号密码只存在进程内存；代理最多保留 24 个 token，不写磁盘。
+4. 播放页 `initView` 在绑定播放服务前把本次会话的内核临时覆盖为 **EXO**，避免部分设备用 MPV 播放本地代理地址时出现兼容问题；如果文件是 AVI/WMV/RMVB/VOB 等 Exo 不支持解复用的老容器，首次播放会自动改走带完整 FFmpeg 的 IJK。随包 IJK 由 `module-default.sh` 构建，已编入 AVI/ASF/RM 解复用器和 MPEG-4/DivX/Xvid、MS-MPEG4、WMV1/2/3、VC-1、RV30/40、Cook、AC-3、DTS 等老视频解码器。退出播放页且不是配置变更重建时清除覆盖，**不会修改设置里的默认内核**。
+5. 代理监听 `0.0.0.0`，本机仍通过 `127.0.0.1` 播放；投屏/推送时远端把回环地址替换成局域网地址后也能访问同一 token，避免只绑回环地址导致“网络读取失败”。
+6. 外调播放器使用 `SmbPlaybackProxy.externalUrl(...)` 返回的同 token 真实后缀地址，不再附加 `.mp4`；地址改用局域网 IP（代理监听 `0.0.0.0`），避免部分系统播放器拒绝 `127.0.0.1`。外调列表由应用内“选择打开方式”提供，不依赖系统 chooser。
+7. token 和本次登录的账号密码只存在进程内存；代理最多保留 24 个 token，不写磁盘。若用户勾选保存登录信息，账号密码按主机写入 `smb_credentials`，使用 Android Keystore 的 AES/GCM 加密。
 
 ## 权限与网络
 
@@ -63,8 +70,9 @@ SMB 文件不会直接以 `smb://` 地址交给播放器。点击视频/音乐�
 使用独立的 `SharedPreferences("smb_hosts")`：
 
 - 保存主机地址和备注、收藏项、隐藏主机、隐藏目录。
-- **不保存登录密码**；用户名/密码/域只在当前浏览页面内存中使用，页面销毁后不再保留。
-- 播放代理的 token 不落盘；清除应用数据会同时清除主机收藏/隐藏记录。
+- **登录信息默认不保存**；用户名/密码/域只在当前浏览页面内存中使用。用户勾选“保存登录信息”后，账号密码按主机保存到 `smb_credentials`，值用 Android Keystore 的 AES/GCM 加密；登录界面的“清除已保存的登录信息”只删除当前主机。
+- 播放代理的 token 不落盘；清除应用数据会同时清除主机收藏/隐藏记录和已保存的登录信息。
+- 播放历史缺失海报时的兜底截图保存在应用私有目录 `webhome_snapshot`；不会只按数量自动清理，删除对应历史记录或清空历史/恢复备份时会同步删除对应的截图文件。
 
 ## 常见问题
 
@@ -78,6 +86,7 @@ SMB 文件不会直接以 `smb://` 地址交给播放器。点击视频/音乐�
 
 - 检查用户名、密码、域；Windows 共享可尝试 `域\用户名` 或留空域。
 - 匿名失败会自动回退 Guest；如果服务器关闭 Guest，必须填写有权限的账号。
+- 保存过登录信息但自动登录失败时，打开登录界面核对或“清除已保存的登录信息”后重新输入；密码不会以明文保存。
 - 账号能登录但看不到共享，通常是共享权限或 SMB 版本不匹配；在 NAS/Windows 侧检查该账号的共享权限。
 
 **共享列表为空**
@@ -101,7 +110,9 @@ SMB 文件不会直接以 `smb://` 地址交给播放器。点击视频/音乐�
 - `app/src/main/java/com/fongmi/android/tv/ui/activity/SmbBrowserActivity.java`：扫描、登录、目录浏览、收藏/隐藏、图片预览、APK 安装和播放入口。
 - `app/src/main/java/com/fongmi/android/tv/smb/SmbClient.java`：SMB2/SMB3 连接、共享/目录枚举、远程文件读取。
 - `app/src/main/java/com/fongmi/android/tv/smb/SmbNetworkScanner.java`：局域网主机扫描。
-- `app/src/main/java/com/fongmi/android/tv/smb/SmbPlaybackProxy.java`：本机 HTTP Range 代理。
+- `app/src/main/java/com/fongmi/android/tv/smb/SmbPlaybackProxy.java`：本机 HTTP Range 代理；监听 `0.0.0.0`、URL 保留真实文件后缀并带 `smb=1`，支持外调使用真实后缀地址。
+- `app/src/main/java/com/fongmi/android/tv/player/PlaybackFrameSnapshot.java`：历史缺失海报的播放画面兜底截图；删除历史/清空历史时同步删除对应截图缓存。
+- `app/src/main/java/com/fongmi/android/tv/smb/SmbCredentialStore.java`：可选的按主机登录信息存储，Android Keystore AES/GCM 加密；不勾选保存时不写入。
 - `app/src/main/java/com/fongmi/android/tv/setting/Setting.java`：`smb_entry_enabled` 开关。
 - 手机入口：`app/src/mobile/res/menu/menu_nav.xml`、`app/src/mobile/java/com/fongmi/android/tv/ui/activity/HomeActivity.java`、`SettingPersonalFragment.java`。
 - 电视入口：`app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java` 的首页菜单、`SettingPersonalActivity.java`。

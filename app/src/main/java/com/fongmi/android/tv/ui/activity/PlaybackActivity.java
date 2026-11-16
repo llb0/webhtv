@@ -555,10 +555,26 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
      * file:// 路径时写入，避免截图期间 TMDB 海报或播放进度被覆盖。webhome 历史同时回写内嵌 VOD 存储。
      */
     private void persistWebHomeSnapshot(int cid, String key, String vodId, String siteKey, String uri) {
+        final History currentHistory = getPlaybackHistory();
         Task.execute(() -> {
             try {
                 boolean webhome = WebHomeInlineVodStore.KEY.equals(siteKey);
                 boolean updated = History.updateVodPicIfEmptyOrPlaceholder(cid, key, uri, ResUtil.getString(R.string.push_image));
+                // 首次播放时历史行可能还没插入，原子 UPDATE 会返回 0；此时用当前
+                // 正在播放的历史补插/补写，确保第一张卡片也能拿到截图，而不是等下次播放。
+                if (!updated && currentHistory != null && TextUtils.equals(currentHistory.getKey(), key)) {
+                    History row = History.find(cid, key);
+                    if (row == null) {
+                        History snapshot = currentHistory.copy();
+                        snapshot.setVodPic(uri);
+                        snapshot.save();
+                        updated = true;
+                    } else if (History.isMissingArtwork(row.getVodPic())) {
+                        row.setVodPic(uri);
+                        row.save();
+                        updated = true;
+                    }
+                }
                 if (webhome) WebHomeInlineVodStore.setPic(vodId, uri);
                 if (updated) App.post(() -> {
                     History current = getPlaybackHistory();

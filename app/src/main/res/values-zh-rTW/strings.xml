@@ -1549,6 +1549,9 @@
     <string name="subtitle_realtime_model_deleting">刪除中...</string>
     <string name="subtitle_realtime_model_download_success">即時字幕模型下載完成</string>
     <string name="subtitle_realtime_model_download_failed">模型下載失敗：%1$s</string>
+    <string name="subtitle_realtime_native_download_failed">語音辨識引擎下載失敗：%1$s</string>
+    <string name="subtitle_realtime_native_checksum_error">語音辨識引擎校驗失敗：%1$s</string>
+    <string name="subtitle_realtime_native_load_error">無法載入語音辨識引擎：%1$s</string>
     <string name="subtitle_realtime_model_delete_title">刪除即時字幕模型</string>
     <string name="subtitle_realtime_model_delete_message">刪除已下載的模型並關閉即時 AI 字幕？</string>
     <string name="subtitle_realtime_model_delete_success">即時字幕模型已刪除</string>
@@ -3155,4 +3158,9 @@
     <string name="smb_share_name">共享名稱</string>
     <string name="smb_open_share">開啟共享</string>
     <string name="smb_local_network_permission">SMB播放需要區域網路存取權限，請允許後重試</string>
+    <string name="smb_save_login">儲存登入資訊（下次自動填寫）</string>
+    <string name="smb_clear_login">清除已儲存的登入資訊</string>
+    <string name="smb_credentials_saved">登入資訊已儲存</string>
+    <string name="smb_credentials_cleared">已清除儲存的登入資訊</string>
+    <string name="smb_credentials_save_failed">目前裝置無法儲存登入資訊</string>
 </resources>

@@ -54,6 +54,7 @@ public class CastDialog extends BaseBottomSheetDialog implements DeviceAdapter.O
     private CastVideo video;
     private boolean historyReady;
     private boolean fm;
+    private String historyName;
 
     public CastDialog() {
         scanTask = new ScanTask(this);
@@ -74,9 +75,20 @@ public class CastDialog extends BaseBottomSheetDialog implements DeviceAdapter.O
         if (fd.startsWith("/")) fd = Server.get().getAddress() + "/file" + fd.replace(Path.rootPath(), "");
         if (fd.startsWith("file")) fd = Server.get().getAddress() + "/" + fd.replace(Path.rootPath(), "").replace("://", "");
         if (fd.contains("127.0.0.1")) fd = fd.replace("127.0.0.1", Util.getIp());
-        body.add("history", history.toString().replace(id, fd));
+        History copy = History.objectFrom(history.toString());
+        if (copy == null) return this;
+        // 发送端的本地截图在远端不存在，占位图/坏图也一并清空，让接收端按自己的非黑屏截图重新兜底。
+        if (History.isMissingArtwork(copy.getVodPic())) copy.setVodPic("");
+        if (History.isMissingArtwork(copy.getWallPic())) copy.setWallPic("");
+        if (!TextUtils.isEmpty(historyName)) copy.setVodName(historyName);
+        body.add("history", copy.toString().replace(copy.getVodId(), fd));
         historyReady = true;
         return this;
+    }
+
+    public CastDialog history(History history, String name) {
+        this.historyName = name;
+        return history(history);
     }
 
     public CastDialog video(CastVideo video) {

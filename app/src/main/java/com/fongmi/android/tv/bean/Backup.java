@@ -163,6 +163,7 @@ public class Backup {
         if (options.isHistory()) {
             if (force) AppDatabase.get().getHistoryDao().delete();
             if (force) AppDatabase.get().getTmdbSeasonProgressDao().deleteAll();
+            if (force) com.fongmi.android.tv.player.PlaybackFrameSnapshot.deleteAll();
             for (History item : getHistory()) if (cids.containsKey(item.getCid())) item.setCid(cids.get(item.getCid()));
             AppDatabase.get().getHistoryDao().insertOrUpdate(getHistory());
             restoreTmdbSeasonProgress(cids);

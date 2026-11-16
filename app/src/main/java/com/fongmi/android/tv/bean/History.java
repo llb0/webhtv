@@ -250,6 +250,8 @@ public class History implements Diffable<History> {
      */
     public static boolean isMissingArtwork(String pic) {
         if (TextUtils.isEmpty(pic) || TextUtils.equals(pic, ResUtil.getString(R.string.push_image))) return true;
+        // 历史卡片加载失败时会退化为标题首字；这类非空 HTTP 地址也必须交给截图兜底。
+        if (com.fongmi.android.tv.utils.ImgUtil.isFailed(pic)) return true;
         if (!pic.startsWith("file://")) return false;
         try {
             File file = new File(Uri.parse(pic).getPath());
@@ -443,6 +445,13 @@ public class History implements Diffable<History> {
     }
 
     public static void delete(int cid) {
+        // 清空历史前先把本配置引用的兜底截图一并删除，避免用户还要手动清应用缓存。
+        try {
+            for (History item : AppDatabase.get().getHistoryDao().findAll(cid)) {
+                com.fongmi.android.tv.player.PlaybackFrameSnapshot.delete(item.getVodPic());
+            }
+        } catch (Throwable ignored) {
+        }
         int deleted = AppDatabase.get().getHistoryDao().delete(cid);
         AppDatabase.get().getTmdbSeasonProgressDao().deleteByCid(cid);
         if (deleted > 0) notifyChanged();

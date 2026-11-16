@@ -30,6 +30,29 @@ public final class GithubProxy {
         return apply(url, Setting.getGithubProxy(), Setting.isGithubProxyEnabled());
     }
 
+    /**
+     * 返回同一个 GitHub 下载地址的全部可用候选：按用户配置的加速源顺序前置，最后回退直链。
+     *
+     * <p>与 {@link #apply(String)} 使用同一套开关、优先源和 URL 模式，区别只是不把
+     * “第一个加速源”当成唯一结果，便于下载器在某个镜像失效时继续尝试下一个。
+     */
+    public static List<String> applyAll(String url) {
+        List<String> list = new ArrayList<>();
+        if (!Setting.isGithubProxyEnabled() || !isGithubDownload(url)) {
+            list.add(url);
+            return list;
+        }
+        String mode = normalizeMode(Setting.getGithubProxyMode());
+        for (String source : getSources()) {
+            String prefix = normalize(source);
+            list.add(MODE_STRIP_SCHEME.equals(mode)
+                    ? prefix + url.substring("https://".length())
+                    : prefix + url);
+        }
+        list.add(url);
+        return list;
+    }
+
     static String apply(String url, String configured) {
         return apply(url, configured, true);
     }

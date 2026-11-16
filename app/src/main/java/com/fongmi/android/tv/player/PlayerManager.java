@@ -2374,6 +2374,9 @@ public void resetTrack(int type) {
 
     public void switchPlayer(int type, Result result, String key, MediaMetadata metadata, boolean useParse, long position, float speed, boolean repeat) {
         if (engine == null || player == null || result == null || result.hasMsg() || result.getRealUrl().isEmpty()) return;
+        // 这里只会从用户主动选择内核的路径进入；清掉自动起播设置的会话覆盖，
+        // 让后续取址/重建按用户刚选的内核走，而不是继续被旧覆盖拉回 IJK。
+        PlayerSetting.clearRuntimePlayerOverride();
         beginIjkRuntimeManualOverride();
         beginPlaybackTrace("switch-player-result");
         type = PlayerSetting.sanitizePlayer(type);
@@ -2421,7 +2424,12 @@ public void resetTrack(int type) {
         if (type == playerType) return;
         resetPlayerFallback();
         manualPlayerSwitchPending = manual;
-        if (manual) beginIjkRuntimeManualOverride();
+        if (manual) {
+            // 老容器/SMB 起播会设置本次会话的临时内核覆盖；用户手动选定内核后必须撤销，
+            // 否则后续 PlayerSetting.getPlayer() 仍读回旧覆盖，表现为“只能 IJK、切了又回去”。
+            PlayerSetting.clearRuntimePlayerOverride();
+            beginIjkRuntimeManualOverride();
+        }
         beginPlaybackTrace("switch-player");
         switchEngine(type, true, true, true, engine.getDecode(), "user-choice");
     }

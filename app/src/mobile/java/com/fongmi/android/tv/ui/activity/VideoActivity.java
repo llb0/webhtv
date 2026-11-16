@@ -1217,6 +1217,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return Objects.toString(getIntent().getStringExtra("name"), "");
     }
 
+    /** 本地 SMB 播放：源站 Vod 名只是代理地址，不能用它覆盖文件名。 */
+    private boolean isSmbSource() {
+        if (getIntent().getBooleanExtra("smb_source", false)) return true;
+        // 从历史再次播放时 smb_source 不一定会重新写入，代理地址本身仍能识别。
+        return SiteApi.PUSH.equals(getKey()) && getId().startsWith("http://127.0.0.1:");
+    }
+
     private String getPic() {
         return Objects.toString(getIntent().getStringExtra("pic"), "");
     }
@@ -1857,6 +1864,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (getIntent().getBooleanExtra("smb_source", false)) {
             PlayerSetting.setRuntimePlayerOverride(PlayerSetting.EXO);
             PlayerSetting.putActivePlayer(PlayerSetting.EXO);
+        } else {
+            // 本地文件不继承上一个 SMB 会话的 EXO 覆盖；否则本地 AVI 会被 EXO 接住，
+            // 表现就是总时长 0、黑屏，菜单里还显示被锁在 EXO。
+            PlayerSetting.clearRuntimePlayerOverride();
         }
         initializeRuntimeDetailMode();
         mTmdbDetailTimeout = this::showTmdbDetailFallback;
@@ -2601,8 +2612,19 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
      * 没有记录时 getPlayerOrDefault 会退回设置页的全局默认。
      * 播放服务还没连上时先只记会话内核（取址在工作线程上读它），引擎由 onServiceConnected 补齐。
      */
-    private int applyHistoryPlayerKernel(boolean forcePrepare) {
+    private int applyHistoryPlayerKernel(String sourceUrl, boolean forcePrepare) {
         int kernel = mHistory == null ? PlayerSetting.getPlayer() : mHistory.getPlayerOrDefault();
+        // 老容器（AVI/WMV/RMVB 等）Exo 没有解复用器；即使历史里存的是 EXO（旧版本默认值
+        // 或此前误选），也不能让 EXO 接住，自动改走带 FFmpeg 的 IJK，避免总时长 0/黑屏。
+        // 本地 /file 代理地址正常带原后缀；若被编码/截断丢了后缀，再用当前文件名兜底判断。
+        boolean legacyContainer = PlayerSetting.isLegacyContainer(sourceUrl)
+                || PlayerSetting.isLegacyContainer(getName());
+        if (kernel == PlayerSetting.EXO && legacyContainer) {
+            kernel = PlayerSetting.IJK;
+            // 只有 SMB 入口先前把会话覆盖成 EXO 时才需要反向覆盖；本地文件没有 EXO 覆盖，
+            // 不要把 IJK 写进全局运行期覆盖，否则退出后会影响后续普通播放，看起来像被锁死。
+            if (isSmbSource()) PlayerSetting.setRuntimePlayerOverride(PlayerSetting.IJK);
+        }
         PlayerSetting.putActivePlayer(kernel);
         if (service() == null) {
             mPendingPlayerKernel = kernel;
@@ -2618,8 +2640,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return kernel;
     }
 
-    private int applyHistoryPlayerKernel() {
-        return applyHistoryPlayerKernel(false);
+    private int applyHistoryPlayerKernel(boolean forcePrepare) {
+        return applyHistoryPlayerKernel(null, forcePrepare);
+    }
+
+    private int applyHistoryPlayerKernel(String sourceUrl) {
+        return applyHistoryPlayerKernel(sourceUrl, false);
     }
 
     /**
@@ -2796,6 +2822,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             return;
         }
         mSourceEpisodeSeasonCache.clear();
+        // SMB 的源站详情名是代理 URL；详情回调在任何标题写入前统一还原为文件名，
+        // 否则标题会先显示文件名，紧接着被 pushDetail 的 URL 覆盖。
+        if (isSmbSource() && !TextUtils.isEmpty(getName())) item.setName(getName());
         mSourceVodName = item.getName();
         mVod = item;
         item.checkPic(getPic());
@@ -2885,6 +2914,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         }
     }
 
+    private String getDisplaySiteName() {
+        // PUSH 不是配置里的站源，getSite() 经常拿到空名字；SMB/推送播放统一显示“推送”。
+        return isSmbSource() || SiteApi.PUSH.equals(getKey()) ? getString(R.string.push) : getSite().getDisplayName();
+    }
+
     private void setText(Vod item) {
         setDetailLyrics(item.getContent());
         // 富集仍在进行时不填充会被 TMDB 覆盖的站源文本：骨架可以先揭开，
@@ -2893,7 +2927,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             applyFusionNativeTextColors();
             return;
         }
-        setText(mBinding.site, R.string.detail_site, getSite().getDisplayName());
+        setText(mBinding.site, R.string.detail_site, getDisplaySiteName());
 
         // 非 TMDB 模式才填充原生字段
         // 基于 TMDB 开关和配置是否就绪
@@ -2982,7 +3016,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (!shouldUseTmdbTabletWideLayout()) return;
         setPlainText(mBinding.name, item.getName());
         setPlainText(mBinding.remark, item.getRemarks());
-        setPlainText(mBinding.site, getString(R.string.detail_site, getSite().getDisplayName()));
+        setPlainText(mBinding.site, getString(R.string.detail_site, getDisplaySiteName()));
         setOther(mBinding.other, item);
         mBinding.director.setVisibility(View.GONE);
         mBinding.actor.setVisibility(View.GONE);
@@ -3138,7 +3172,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 showOriginError("原源会话已结束，请返回后重新打开");
                 return;
             }
-        } else mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel());
+        } else mViewModel.playerContent(getKey(), playFlag, episode.getUrl(), applyHistoryPlayerKernel(episode.getUrl()));
         mBinding.control.title.setSelected(true);
         updateHistory(episode);
         showProgress();
@@ -4242,7 +4276,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         CastVideo video = new CastVideo(mBinding.name.getText().toString(), player().getUrl(), player().getPosition(), player().getHeaders());
         // webhome_inline 的 VOD 只在发送端内存里，远端拿 history 必然 not found；
         // 改写成自包含的 push_agent 推送串（真实地址 + 请求头）后再发。
-        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders(), video.name())).video(video).fm(true).show(this);
+        CastDialog.create().history(SiteApi.castHistory(mHistory, player().getUrl(), player().getHeaders(), video.name()), video.name()).video(video).fm(true).show(this);
     }
 
     private void onInfo() {
@@ -5797,7 +5831,12 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 }
             } else {
                 playerKernelSwitchRequestId++;
-                PlayerHelper.choose(this, player().getUrl(), player().getHeaders(), player().isVod(), player().getPosition(), mBinding.control.title.getText());
+                // 外调播放器按后缀识别格式；从 SMB 代理 token 换回同 token 的真实文件后缀地址，
+                // 避免 AVI/WMV 被当成 MP4 或打不开。
+                String externalUrl = isSmbSource()
+                        ? com.fongmi.android.tv.smb.SmbPlaybackProxy.externalUrl(player().getUrl())
+                        : player().getUrl();
+                PlayerHelper.choose(this, externalUrl, player().getHeaders(), player().isVod(), player().getPosition(), mBinding.control.title.getText());
                 setRedirect(true);
             }
         }).show();
@@ -6436,6 +6475,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         PlaybackEventCollector.get().updateHistory(mHistory);
         setArtwork(getInitialArtwork(item));
         setScale(getScale());
+        // 首次播放可能还没有历史行；先落一条空封面记录，截图回调才能按 key 更新，
+        // 而不是等到退出播放才插入，导致第一张历史卡片一直停在纸飞机/首字占位。
+        syncHistory();
         // 历史就绪即预约封面截图；首帧/READY 的调用会被同一 key 去重。
         scheduleWebHomeSnapshot();
         return true;
@@ -6586,6 +6628,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
      */
     private String historyVodName(Vod item) {
         String name = item == null ? "" : item.getName();
+        if (isSmbSource()) {
+            String smbName = getName();
+            if (!smbName.isEmpty()) return smbName;
+        }
         if (!SiteApi.PUSH.equals(getKey())) return name;
         PushParser.Parsed push = PushParser.fromId(getId());
         if (push.hasExplicitTitle()) return push.getTitle();
@@ -6597,6 +6643,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         History history = new History();
         history.setKey(getHistoryKey());
         history.setCid(VodConfig.getCid());
+        // 提前写入创建时间：首播时历史行要先落库，截图回调才能按 key 更新；
+        // createTime 为 0 会被删除墓碑逻辑挡掉。
+        history.setCreateTime(System.currentTimeMillis());
         history.setVodName(historyVodName(item));
         history.setVodPic(getInitialArtwork(item));
         history.setWallPic(getWallPic());
@@ -6864,6 +6913,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void updateVod(Vod item) {
         if (mVod != item) mSourceEpisodeSeasonCache.clear();
+        // SMB 的源站名是代理地址；详情加载后统一用 Intent 里的文件名，避免标题/历史/弹幕被 URL 覆盖。
+        if (isSmbSource() && !TextUtils.isEmpty(getName())) item.setName(getName());
         mVod = item;
         boolean id = !item.getId().isEmpty();
         boolean pic = !item.getPic().isEmpty();
@@ -6890,6 +6941,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (historyReloaded) resumeHistoryAfterTmdbMatch();
         boolean episodeTitleChanged = refreshCurrentHistoryEpisodeTitle();
         mBinding.control.title.setText(getPlaybackControlTitle());
+        // 详情页加载完成后才拿到的海报，也要回填到仍为空的历史；已有真实海报不覆盖，
+        // 仍为空时再交给后面的非黑屏截图兜底。
+        if (pic) applyInitialHistoryArtwork(item);
         if (pic) setArtwork(item.getPic());
         if (pic || name) setMetadata();
         // key 迁移后必须写回，避免 replace 删旧 key 后未 save 导致历史消失
@@ -10690,8 +10744,10 @@ private void checkOrientation() {
         SiteHealthStore.flush();
         if (mKeyDown != null) mKeyDown.release();
         super.onDestroy();
-        // SMB 的临时内核覆盖只在本次播放页有效；配置变更重建时保留，避免重建后又回到 MPV。
-        if (getIntent().getBooleanExtra("smb_source", false) && !isChangingConfigurations()) {
+        // 运行时内核覆盖只属于本次播放页；配置变更重建时保留，避免重建后又回到 MPV。
+        // 从历史重新播放 SMB/AVI 时 intent 不一定带 smb_source，但老容器自动策略同样会写入
+        // IJK 覆盖；若只在 smb_source 为真时清理，覆盖会泄漏到以后所有普通播放，表现为“强制 IJK”。
+        if (!isChangingConfigurations()) {
             PlayerSetting.clearRuntimePlayerOverride();
         }
     }

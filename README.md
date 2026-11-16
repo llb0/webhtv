@@ -6,7 +6,7 @@ WebHomeTV 是基于 [FongMi](https://github.com/FongMi/TV) / CatVod 生态二次
 
 ### 增强功能
 
-- **本地 SMB 播放**:移植于[klcb2010](https://github.com/klcb2010/webhtv)，扫描并浏览同一局域网内的 SMB/NAS/Windows 共享,直接播放视频/音乐、预览图片或安装 APK;入口默认关闭,手机端在“设置 → 个性设置 → 本地SMB播放入口”开启后显示底栏 SMB,电视端开启后显示在首页菜单“选站”和“多仓”之间。支持匿名/Guest、账号密码、共享目录手动输入、主机收藏/隐藏和隐藏目录;密码只保留在当前页面内存。实现说明见 [本地 SMB 播放](docs/smb-local-browser.md)。
+- **本地 SMB 播放**:移植于[klcb2010](https://github.com/klcb2010/webhtv)，扫描并浏览同一局域网内的 SMB/NAS/Windows 共享,直接播放视频/音乐、预览图片或安装 APK;入口默认关闭,手机端在“设置 → 个性设置 → 本地SMB播放入口”开启后显示底栏 SMB,电视端开启后显示在首页菜单“选站”和“多仓”之间。支持匿名/Guest、账号密码、共享目录手动输入、主机收藏/隐藏和隐藏目录;登录信息默认不保存,可在登录界面勾选保存（按主机加密存储,可随时清除）。实现说明见 [本地 SMB 播放](docs/smb-local-browser.md)。
 - **来源屏蔽**:用于屏蔽不使用，又想保留的站点来源。本应用支持接口源和文件源，【接口源】：设置页点播、直播地址，【点播文件源】：存在/tvbox/中指定文件夹的XBPQ、JS、PY配置文件，以及包含完整key、name、api等必须信息的单个站点json文件，这些指定文件夹分别是sites-json、sites-js、sites-py、sites。【直播文件源】：存在/tvbox/lives/中的txt、m3u等文件。
 - **文件源默认配置**:文件源的默认配置通过文件名附加参数实现，命名规则：文件名.开关-样式.扩展名。对照如下：【文件名】⇨ "name":"文件名" 。【开关】⇨ S→表示只搜索不展示"hide":1 ；N→表示禁止搜索"searchable":0,"quickSearch":0,"changeable":2 ；【样式】⇨ H→横图展示"ratio": 1.33 ；S→方图展示"ratio": 1.0 ；数字→指定ratio，按比例展示。
 - **网盘检测**:内置网盘分享链接有效性检测,WebHome 和本地 HTTP API 均可调用。
@@ -289,6 +289,10 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 bash scripts/build_ijk_native.sh --abi arm64-v8a --install
 bash gradlew :app:assembleMobileArm64_v8aRelease -PfastRelease=true
 ```
+
+脚本默认使用 `config/module-default.sh` 全量 FFmpeg 配置，编入 AVI、WMV/ASF、RM/RMVB、VOB 等老容器所需的解复用器与解码器（MPEG-4/DivX/Xvid、MS-MPEG4、WMV1/2/3、VC-1、RV30/40、Cook、AC-3、DTS、MP2 等）。旧的精简配置仍可用 `--module module-lite.sh` 或 `IJK_MODULE=module-lite.sh` 显式选择。全量库会明显增大 `libijkffmpeg.so` 和 APK 体积，这是兼容老视频换来的代价。
+
+为抵消这部分增量，`libsherpa-onnx-jni.so` 已从 `app/src/main/jniLibs` 移除，改为首次使用实时字幕时按 ABI 下载，缓存在应用私有目录 `sherpa-libs/<abi>/`。下载地址是 `https://github.com/llb0/webhtv/releases/download/native-sherpa-v1.13.4/`，会跟随“关于”页配置的 GitHub 加速器依次尝试，失败后回退直链；文件下载完按固定 SHA-256 校验，再通过 `System.load` 加载。arm64 约 22.5 MiB、armeabi-v7a 约 15.4 MiB，因此 APK 在本机只保留当前 ABI 的 IJK 后总体积仍会下降。
 
 Ubuntu 下重建 32 位 IJK：
 

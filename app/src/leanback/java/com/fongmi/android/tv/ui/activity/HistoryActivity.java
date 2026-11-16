@@ -31,6 +31,7 @@ public class HistoryActivity extends BaseActivity implements HistoryAdapter.OnCl
     private ActivityHistoryBinding mBinding;
     private HistoryAdapter mAdapter;
     private final FocusRestorer mFocusRestorer = new FocusRestorer();
+    private boolean initialFocusDone;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, HistoryActivity.class));
@@ -124,8 +125,15 @@ public class HistoryActivity extends BaseActivity implements HistoryAdapter.OnCl
         int position = focusedPosition();
         History focused = position < 0 || position >= mAdapter.getItemCount() ? null : mAdapter.getItem(position);
         mAdapter.setItems(History.getForDisplay(), () -> {
-            if (mAdapter.getItemCount() == 0) mAdapter.setDelete(false);
-            else if (focused != null) restoreFocus(reposition(focused, position));
+            if (mAdapter.getItemCount() == 0) {
+                mAdapter.setDelete(false);
+            } else if (focused != null) {
+                restoreFocus(reposition(focused, position));
+            } else if (!initialFocusDone) {
+                // 首次进入且列表非空：焦点交给第一项，不要落在右上角删除按钮。
+                initialFocusDone = true;
+                restoreFocus(0);
+            }
         });
     }
 

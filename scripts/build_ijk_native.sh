@@ -19,6 +19,7 @@ FFMPEG_PATCH="$ROOT_DIR/third_party/patches/ijk-ffmpeg4-ndk28.patch"
 ABI="arm64-v8a"
 INSTALL=0
 CLEAN=0
+IJK_MODULE="${IJK_MODULE:-module-default.sh}"
 
 usage() {
   cat <<'USAGE'
@@ -26,6 +27,10 @@ Usage: scripts/build_ijk_native.sh [options]
 
 Options:
   --abi arm64-v8a|armeabi-v7a  ABI to build (default: arm64-v8a)
+  --module MODULE              FFmpeg module config (default: module-default.sh)
+                               module-default.sh: full decoders/demuxers, legacy
+                               AVI/WMV/ASF/RM/RMVB/VOB support
+                               module-lite.sh: previous small build
   --install                    Copy generated .so files into app/src/main/jniLibs
   --clean                      Remove the locked source checkout before building
   -h, --help                   Show this help
@@ -35,6 +40,7 @@ Environment:
   ANDROID_NDK_HOME                 NDK root for the selected ABI
   IJK_ALLOW_OLD_NDK=1              Allow an explicit non-locked compatibility build
   IJK_BUILD_DIR                    Optional source/build directory
+  IJK_MODULE                       Same as --module
 
 Recommended NDK:
   arm64-v8a     28.2.13676358 (shared with DVD; MPV/JNI use r29)
@@ -45,6 +51,7 @@ USAGE
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --abi) ABI="${2:?Missing ABI}"; shift ;;
+    --module) IJK_MODULE="${2:?Missing module config}"; shift ;;
     --install) INSTALL=1 ;;
     --clean) CLEAN=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -58,6 +65,12 @@ case "$ABI" in
   armeabi-v7a) IJK_ARCH="armv7a"; EXPECTED_NDK="28.2.13676358" ;;
   *) echo "Unsupported ABI: $ABI" >&2; exit 1 ;;
 esac
+
+case "$IJK_MODULE" in
+  module-default.sh|module-lite.sh) ;;
+  *) echo "Unsupported module config: $IJK_MODULE (use module-default.sh or module-lite.sh)" >&2; exit 1 ;;
+esac
+echo "IJK FFmpeg module config: $IJK_MODULE"
 
 SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 if [[ -z "$SDK_ROOT" && -f "$ROOT_DIR/local.properties" ]]; then
@@ -104,6 +117,7 @@ git -C "$SOURCE_DIR" submodule update --init --recursive
 git -C "$SOURCE_DIR" checkout "$FF4_CONFIG_REVISION" -- \
   config/module.sh \
   config/module-lite.sh \
+  config/module-default.sh \
   android/ijkplayer/ijkplayer-arm64 \
   android/ijkplayer/ijkplayer-armv7a \
   ijkmedia/ijkplayer
@@ -117,6 +131,19 @@ git -C "$SOURCE_DIR" apply --check "$IJK_CORE_PATCH"
 git -C "$SOURCE_DIR" apply "$IJK_CORE_PATCH"
 git -C "$SOURCE_DIR" apply --check "$IJK_ERROR_PATCH"
 git -C "$SOURCE_DIR" apply "$IJK_ERROR_PATCH"
+
+# The upstream checkout keeps config/module.sh as a symlink to module-lite.sh.
+# Replace it with a real file so selecting module-default.sh does not mutate
+# module-lite.sh through the symlink.
+rm -f "$SOURCE_DIR/config/module.sh"
+cp "$SOURCE_DIR/config/$IJK_MODULE" "$SOURCE_DIR/config/module.sh"
+# FFmpeg 4.0 removed ffserver and the macOS VDA hwaccel. Upstream
+# module-default.sh still passes both switches, which configure rejects.
+sed -i -e '/--disable-ffserver/d' -e '/--disable-vda/d' "$SOURCE_DIR/config/module.sh"
+grep -q 'disable-demuxers' "$SOURCE_DIR/config/module.sh" || {
+  echo "Selected module config does not look valid: $IJK_MODULE" >&2
+  exit 1
+}
 
 # Keep the newer Android/NDK build fixes, but restore the proven FFmpeg 4.0
 # configuration used by WebHTV's IJK ABI.
@@ -164,6 +191,10 @@ if [[ -d "$OPENSSL_DIR/.git" ]]; then
 fi
 ./init-android-openssl.sh
 cd android/contrib
+# Upstream compile-ffmpeg.sh invokes the worker with `sh`, but the worker uses
+# bash-only `source`. Ubuntu's /bin/sh is dash and aborts at do-detect-env.sh.
+sed -i.bak 's|sh tools/do-compile-ffmpeg.sh|bash tools/do-compile-ffmpeg.sh|g' compile-ffmpeg.sh
+rm -f compile-ffmpeg.sh.bak
 ./compile-ffmpeg.sh "$IJK_ARCH"
 cd ..
 ./compile-ijk.sh "$IJK_ARCH"
