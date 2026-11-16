@@ -87,8 +87,9 @@ public class PlayerSetting {
      */
     private static volatile int activePlayer = NONE;
     /**
-     * 仅本次播放会话生效的内核覆盖，例如 SMB 播放需要临时走 EXO。
-     * 不写回设置里的全局默认内核；退出对应播放页后由调用方清除。
+     * 仅本次播放会话生效的内核覆盖，例如 SMB 播放需要临时走 EXO、老容器首次起播临时走 IJK。
+     * 不写回设置里的全局默认内核；用户手动切内核时必须清除，退出对应播放页后也必须清除，
+     * 否则会泄漏到后续普通播放，表现为内核被锁死、切了又回去。
      */
     private static volatile int runtimePlayerOverride = NONE;
 

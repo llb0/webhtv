@@ -125,13 +125,29 @@ public final class SmbPlaybackProxy {
                 if (range != null && range.startsWith("bytes=") && size > 0) {
                     String value = range.substring(6).trim();
                     int dash = value.indexOf('-');
-                    if (dash > 0) {
+                    if (dash >= 0) {
                         try {
-                            start = Long.parseLong(value.substring(0, dash).trim());
+                            String head = value.substring(0, dash).trim();
                             String tail = value.substring(dash + 1).trim();
-                            if (!tail.isEmpty()) end = Math.min(size - 1, Long.parseLong(tail));
-                            if (start >= 0 && start < size && end >= start) partial = true;
+                            if (head.isEmpty()) {
+                                // AVI 的索引常在文件尾部，部分播放器会用 bytes=-N 读最后 N 字节；
+                                // 这种后缀 Range 必须返回 206 + 正确的 Content-Range，返回 200 整文件会让解复用器拿不到索引。
+                                long suffix = Long.parseLong(tail);
+                                if (suffix > 0) {
+                                    start = Math.max(0, size - suffix);
+                                    end = size - 1;
+                                    partial = true;
+                                }
+                            } else {
+                                start = Long.parseLong(head);
+                                if (!tail.isEmpty()) end = Math.min(size - 1, Long.parseLong(tail));
+                                if (start >= 0 && start < size && end >= start) partial = true;
+                            }
                         } catch (Exception ignored) {
+                            start = 0;
+                            end = size - 1;
+                        }
+                        if (!partial) {
                             start = 0;
                             end = size - 1;
                         }

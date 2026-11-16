@@ -2616,8 +2616,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
                 && (mHistory == null || !mHistory.hasPlayer())
                 && PlayerSetting.isLegacyContainer(sourceUrl)) {
             kernel = PlayerSetting.IJK;
-            // 覆盖 SMB 入口 setRuntimePlayerOverride(EXO)，否则取址/重建仍有路径读回 EXO。
-            PlayerSetting.setRuntimePlayerOverride(PlayerSetting.IJK);
+            // 只有 SMB 入口先前把会话覆盖成 EXO 时才需要反向覆盖；本地文件没有 EXO 覆盖，
+            // 不要把 IJK 写进全局运行期覆盖，否则退出后会影响后续普通播放，看起来像被锁死。
+            if (isSmbSource()) PlayerSetting.setRuntimePlayerOverride(PlayerSetting.IJK);
         }
         PlayerSetting.putActivePlayer(kernel);
         if (service() == null) {
@@ -10738,8 +10739,10 @@ private void checkOrientation() {
         SiteHealthStore.flush();
         if (mKeyDown != null) mKeyDown.release();
         super.onDestroy();
-        // SMB 的临时内核覆盖只在本次播放页有效；配置变更重建时保留，避免重建后又回到 MPV。
-        if (getIntent().getBooleanExtra("smb_source", false) && !isChangingConfigurations()) {
+        // 运行时内核覆盖只属于本次播放页；配置变更重建时保留，避免重建后又回到 MPV。
+        // 从历史重新播放 SMB/AVI 时 intent 不一定带 smb_source，但老容器自动策略同样会写入
+        // IJK 覆盖；若只在 smb_source 为真时清理，覆盖会泄漏到以后所有普通播放，表现为“强制 IJK”。
+        if (!isChangingConfigurations()) {
             PlayerSetting.clearRuntimePlayerOverride();
         }
     }

@@ -198,8 +198,19 @@ public class Local implements Process {
             if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
                 try {
                     String[] parts = rangeHeader.substring(6).split("-", 2);
-                    if (!parts[0].isEmpty()) start = Long.parseLong(parts[0]);
-                    if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
+                    if (parts[0].isEmpty()) {
+                        // AVI 的索引通常在文件末尾，播放器会用 bytes=-N 读取尾部；
+                        // 这里必须换算成 [fileLen-N, fileLen-1]，否则会错误地返回文件开头 N 字节，
+                        // 解复用器拿不到索引，表现为总时长 0、黑屏直到超时。
+                        if (parts.length < 2 || parts[1].isEmpty()) return invalid();
+                        long suffix = Long.parseLong(parts[1]);
+                        if (suffix <= 0) return invalid();
+                        start = Math.max(0, fileLen - suffix);
+                        end = fileLen - 1;
+                    } else {
+                        start = Long.parseLong(parts[0]);
+                        if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
+                    }
                     if (start >= fileLen || start > end) return invalid();
                 } catch (NumberFormatException e) {
                     return invalid();
