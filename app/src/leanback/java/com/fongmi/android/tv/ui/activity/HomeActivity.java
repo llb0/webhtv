@@ -117,6 +117,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private String webDefaultChromeMode = TV_FULL;
     private boolean webToolbarVisible = true;
     private boolean loadingHomeCategory;
+    private boolean configInitStarted;
+    private boolean homeContentShown;
+    private long homeLoadedAt;
     private boolean mStartupActionDone;
     private int mMenuButtonCount;
     /** 本次首页菜单是否插入“本地SMB”项；与 mMenuButtonCount 同一次构建，避免点击时设置已变化。 */
@@ -213,7 +216,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         if (mBinding.nativeContent.getPaddingTop() != top) {
             mBinding.nativeContent.setPadding(mBinding.nativeContent.getPaddingLeft(), top, mBinding.nativeContent.getPaddingRight(), mBinding.nativeContent.getPaddingBottom());
         }
-        mBinding.progressLayout.setProgressTopOffset(top * 3);
+        // progressLayout 本身就在 nativeContent 内，已经避开了顶部工具栏；
+        // 再叠加 top*3 的 margin 会让转圈在工具栏测量完成后突然位移，保持 0 即可。
+        mBinding.progressLayout.setProgressTopOffset(0);
     }
 
     private void syncWebOverlayLayout() {
@@ -388,6 +393,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void initConfig() {
+        // initAfterFirstFrame 会先主动 initConfig，随后权限回调在已授权设备上还会再调一次；
+        // 不设门槛时首页会 load 两遍配置，表现为列表出现→消失→重新出现。
+        if (configInitStarted) return;
+        configInitStarted = true;
         PreviousProcessCrashRecovery.checkBeforeConfig(this, this::loadConfig);
     }
 
@@ -429,6 +438,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         setFunc();
         getVideo();
         setFocus();
+        homeContentShown = true;
+        homeLoadedAt = android.os.SystemClock.elapsedRealtime();
         App.post(this::prewarmWebView, 1500);
         SpiderDebug.log("startup", "home showContent end cost=%sms", System.currentTimeMillis() - App.time());
         runStartupAction();
@@ -624,7 +635,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         switch (event.type()) {
             case VOD:
                 RefreshEvent.history();
-                RefreshEvent.home();
+                // 首次配置加载由 showContent() 自己触发 getVideo()；这里再发一次 HOME
+                // 会让首页列表先出现、再被清空重载，表现为启动时刷新两次。
+                if (homeContentShown && android.os.SystemClock.elapsedRealtime() - homeLoadedAt > 1000) RefreshEvent.home();
                 setLogo();
                 break;
             case COMMON:
