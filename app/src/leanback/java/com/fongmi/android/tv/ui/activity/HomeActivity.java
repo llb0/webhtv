@@ -378,6 +378,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             }
             mResult = result;
             addVideo(result);
+            // addVideo 在首页为空时会转去加载第一个分类，此时仍处于加载中，不能提前收转圈。
+            if (!loadingHomeCategory) mBinding.progressLayout.showContent();
         });
     }
 
@@ -431,7 +433,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     private void showContent() {
         SpiderDebug.log("startup", "home showContent start cost=%sms", System.currentTimeMillis() - App.time());
-        mBinding.progressLayout.showContent();
+        // 数据真正回来之前保持 initView 里的居中转圈；不要在这里提前切成空列表，
+        // 否则会由列表顶部的第二个 progress 行接替，看起来像转圈突然跳到工具栏下面。
         checkAction(getIntent());
         setTitle();
         setLogo();
@@ -527,11 +530,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         hideWebOverlay();
         applyTvChrome(TV_NORMAL);
         mBinding.recycler.setVisibility(View.VISIBLE);
+        mBinding.progressLayout.showProgress();
         mResult = Result.empty();
         mHomeResult = Result.empty();
         loadingHomeCategory = false;
         clearRecommendRows();
-        mAdapter.add("progress");
         mViewModel.homeContent();
     }
 
@@ -566,7 +569,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             Class type = result.getTypes().get(0);
             SpiderDebug.log("home", "home list empty, auto open first category key=%s tid=%s", getHome().getKey(), type.getTypeId());
             loadingHomeCategory = true;
-            mAdapter.add("progress");
+            // 首个分类还在路上时继续用 progressLayout 的居中转圈，列表顶部不再插 progress 行。
+            mBinding.progressLayout.showProgress();
             mViewModel.categoryContent(getHome().getKey(), type.getTypeId(), "1", true, new java.util.HashMap<>());
             return;
         }
