@@ -1824,6 +1824,10 @@ private boolean runtimeSourceOnly;
         if (getIntent().getBooleanExtra("smb_source", false)) {
             PlayerSetting.setRuntimePlayerOverride(PlayerSetting.EXO);
             PlayerSetting.putActivePlayer(PlayerSetting.EXO);
+        } else {
+            // 本地文件不继承上一个 SMB 会话的 EXO 覆盖；否则本地 AVI 会被 EXO 接住，
+            // 表现就是总时长 0、黑屏，菜单里还显示被锁在 EXO。
+            PlayerSetting.clearRuntimePlayerOverride();
         }
         long start = System.currentTimeMillis();
         SpiderDebug.log("video-flow", "initView start sinceLaunch=%dms key=%s id=%s", getLaunchCost(start), getKey(), getId());
@@ -2453,10 +2457,9 @@ private boolean runtimeSourceOnly;
      */
     private int applyHistoryPlayerKernel(String sourceUrl, boolean forcePrepare) {
         int kernel = mHistory == null ? PlayerSetting.getPlayer() : mHistory.getPlayerOrDefault();
-        // 老容器（AVI/WMV/RMVB 等）Exo 没有解复用器；首次播放且用户没在历史里
-        // 明确选过内核时，自动改走带 FFmpeg 的 IJK，避免“有声音没图像”或被直接判解析失败。
+        // 老容器（AVI/WMV/RMVB 等）Exo 没有解复用器；即使历史里存的是 EXO（旧版本默认值
+        // 或此前误选），也不能让 EXO 接住，自动改走带 FFmpeg 的 IJK，避免总时长 0/黑屏。
         if (sourceUrl != null && kernel == PlayerSetting.EXO
-                && (mHistory == null || !mHistory.hasPlayer())
                 && PlayerSetting.isLegacyContainer(sourceUrl)) {
             kernel = PlayerSetting.IJK;
             // 只有 SMB 入口先前把会话覆盖成 EXO 时才需要反向覆盖；本地文件没有 EXO 覆盖，
