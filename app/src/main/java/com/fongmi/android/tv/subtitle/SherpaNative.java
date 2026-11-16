@@ -134,7 +134,7 @@ final class SherpaNative {
         IOException last = null;
         for (String url : urls(abi)) {
             try {
-                download(url, part, target, offset, expected, progress, cancelled);
+                download(url, part, target, abi, offset, expected, progress, cancelled);
                 return;
             } catch (InterruptedIOException cancelledError) {
                 throw cancelledError;
@@ -146,7 +146,7 @@ final class SherpaNative {
         throw last == null ? new IOException(App.get().getString(R.string.subtitle_realtime_native_download_failed, LIB_NAME)) : last;
     }
 
-    private static void download(String url, File part, File target, long offset, long expected, Progress progress, BooleanSupplier cancelled) throws IOException {
+    private static void download(String url, File part, File target, String abi, long offset, long expected, Progress progress, BooleanSupplier cancelled) throws IOException {
         Request.Builder builder = new Request.Builder()
                 .url(url)
                 .header("User-Agent", "webhtv-realtime-subtitle");
