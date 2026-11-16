@@ -424,16 +424,30 @@ public class SmbBrowserActivity extends AppCompatActivity {
     }
 
     private void clearHiddenPassword() {
-        new MaterialAlertDialogBuilder(this)
+        String saved = hiddenPassword();
+        if (saved.isEmpty()) {
+            Toast.makeText(this, "当前没有设置隐藏密码", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        EditText input = field("输入当前隐藏密码", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle("取消隐藏密码")
-                .setMessage("取消后，显示隐藏项目不再需要密码。")
+                .setMessage("请输入当前隐藏密码，验证通过后才会取消。")
+                .setView(input)
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton("取消密码", (dialog, which) -> {
-                    getSharedPreferences("smb_hosts", MODE_PRIVATE).edit()
-                            .remove(PREF_HIDDEN_PASSWORD).commit();
-                    Toast.makeText(this, "已取消隐藏密码", Toast.LENGTH_SHORT).show();
-                })
-                .show();
+                .setPositiveButton("验证并取消", null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (!saved.equals(input.getText().toString().trim())) {
+                Toast.makeText(this, "隐藏密码不正确", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            getSharedPreferences("smb_hosts", MODE_PRIVATE).edit()
+                    .remove(PREF_HIDDEN_PASSWORD).commit();
+            Toast.makeText(this, "已取消隐藏密码", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        }));
+        dialog.show();
     }
 
     private void showHiddenItems() {
