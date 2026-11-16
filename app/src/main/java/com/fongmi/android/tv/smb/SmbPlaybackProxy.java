@@ -15,6 +15,8 @@ import fi.iki.elonen.NanoHTTPD;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -44,7 +46,7 @@ public final class SmbPlaybackProxy {
         // 保留真实后缀（AVI/WMV 也照原样），用 smb=1 明确告诉嗅探器这是直链。
         // 以前给未知后缀补 .mp4 会让 Exo 按 MP4 解析旧 AVI/WMV，外调播放器也会误判格式。
         return "http://127.0.0.1:" + server.getListeningPort() + "/" + token + "/"
-                + java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20") + "?smb=1";
+                + encodePathSegment(name) + "?smb=1";
     }
 
     /**
@@ -70,7 +72,16 @@ public final class SmbPlaybackProxy {
         if (ref == null) return internalUrl;
         String name = ref.path == null ? "" : ref.path.substring(ref.path.lastIndexOf((char) 92) + 1);
         if (name.isEmpty()) name = "media";
-        return prefix + token + "/" + java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20") + "?smb=1";
+        return prefix + token + "/" + encodePathSegment(name) + "?smb=1";
+    }
+
+    private static String encodePathSegment(String value) {
+        try {
+            // 不用 API 33 才有的 Charset 重载，保证 Android 7/8 设备也能按 UTF-8 编码。
+            return URLEncoder.encode(value, "UTF-8").replace("+", "%20");
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalStateException("UTF-8 is required by the Java runtime", e);
+        }
     }
 
     private static void ensureServer() throws IOException {
