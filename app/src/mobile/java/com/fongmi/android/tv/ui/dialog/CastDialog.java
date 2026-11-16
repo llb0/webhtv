@@ -23,9 +23,11 @@ import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.bean.Device;
 import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.databinding.DialogDeviceBinding;
+import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.dlna.DLNACast;
 import com.fongmi.android.tv.dlna.DLNACastManager;
 import com.fongmi.android.tv.server.Server;
+import com.fongmi.android.tv.smb.SmbCastSource;
 import com.fongmi.android.tv.ui.activity.ScanActivity;
 import com.fongmi.android.tv.ui.adapter.DeviceAdapter;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
@@ -70,18 +72,31 @@ public class CastDialog extends BaseBottomSheetDialog implements DeviceAdapter.O
 
     public CastDialog history(History history) {
         if (history == null || TextUtils.isEmpty(history.getVodId())) return this;
-        String id = history.getVodId();
         String fd = history.getVodId();
         if (fd.startsWith("/")) fd = Server.get().getAddress() + "/file" + fd.replace(Path.rootPath(), "");
         if (fd.startsWith("file")) fd = Server.get().getAddress() + "/" + fd.replace(Path.rootPath(), "").replace("://", "");
-        if (fd.contains("127.0.0.1")) fd = fd.replace("127.0.0.1", Util.getIp());
+        // 本地 SMB 播放只传 SMB 连接要素（主机/共享/路径/账号），由接收端自己启动
+        // SmbPlaybackProxy 并走它自己的 127.0.0.1 播放：不依赖发送端的进程、端口和局域网地址，
+        // 发送端退出后接收端仍能继续播。SMB 是共享本身可达，不是发送端代理可达。
+        String smb = SmbCastSource.describe(fd);
+        if (!TextUtils.isEmpty(smb)) fd = smb;
+        // 其余本机代理地址（HLS、文件服务等）仍要把回环地址换成局域网地址才发得出去。
+        else if (fd.contains("127.0.0.1")) {
+            String ip = Util.getIp();
+            if (!TextUtils.isEmpty(ip)) fd = fd.replace("127.0.0.1", ip);
+        }
         History copy = History.objectFrom(history.toString());
         if (copy == null) return this;
         // 发送端的本地截图在远端不存在，占位图/坏图也一并清空，让接收端按自己的非黑屏截图重新兜底。
         if (History.isMissingArtwork(copy.getVodPic())) copy.setVodPic("");
         if (History.isMissingArtwork(copy.getWallPic())) copy.setWallPic("");
         if (!TextUtils.isEmpty(historyName)) copy.setVodName(historyName);
-        body.add("history", copy.toString().replace(copy.getVodId(), fd));
+        // 关键：用结构化的 key 重写，不再在已序列化的 JSON 里做字符串替换。
+        // 旧写法 copy.toString().replace(copy.getVodId(), fd) 匹配不上——Gson 会把地址里的
+        // “?”“=”等字符转义成 \u003d，导致发出去的仍是发送端本机地址，接收端连自己的
+        // 127.0.0.1 失败，表现就是 0 时长、一直转圈、最后报“本地代理端口连接失败”。
+        copy.setKey(copy.getSiteKey() + AppDatabase.SYMBOL + fd + AppDatabase.SYMBOL + copy.getCid());
+        body.add("history", copy.toString());
         historyReady = true;
         return this;
     }

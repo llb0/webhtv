@@ -1220,8 +1220,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     /** 本地 SMB 播放：源站 Vod 名只是代理地址，不能用它覆盖文件名。 */
     private boolean isSmbSource() {
         if (getIntent().getBooleanExtra("smb_source", false)) return true;
-        // 从历史再次播放时 smb_source 不一定会重新写入，代理地址本身仍能识别。
-        return SiteApi.PUSH.equals(getKey()) && getId().startsWith("http://127.0.0.1:");
+        // 从历史再次播放时 smb_source 不一定会重新写入，代理地址本身仍能识别；
+        // 投屏过来的是 smbcast 描述符（由本机启动代理），同样属于本地 SMB 播放。
+        return SiteApi.PUSH.equals(getKey())
+                && (getId().startsWith("http://127.0.0.1:") || com.fongmi.android.tv.smb.SmbCastSource.isDescriptor(getId()));
     }
 
     private String getPic() {
