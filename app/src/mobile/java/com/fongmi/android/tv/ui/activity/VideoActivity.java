@@ -2616,8 +2616,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         int kernel = mHistory == null ? PlayerSetting.getPlayer() : mHistory.getPlayerOrDefault();
         // 老容器（AVI/WMV/RMVB 等）Exo 没有解复用器；即使历史里存的是 EXO（旧版本默认值
         // 或此前误选），也不能让 EXO 接住，自动改走带 FFmpeg 的 IJK，避免总时长 0/黑屏。
-        if (sourceUrl != null && kernel == PlayerSetting.EXO
-                && PlayerSetting.isLegacyContainer(sourceUrl)) {
+        // 本地 /file 代理地址正常带原后缀；若被编码/截断丢了后缀，再用当前文件名兜底判断。
+        boolean legacyContainer = PlayerSetting.isLegacyContainer(sourceUrl)
+                || PlayerSetting.isLegacyContainer(getName());
+        if (kernel == PlayerSetting.EXO && legacyContainer) {
             kernel = PlayerSetting.IJK;
             // 只有 SMB 入口先前把会话覆盖成 EXO 时才需要反向覆盖；本地文件没有 EXO 覆盖，
             // 不要把 IJK 写进全局运行期覆盖，否则退出后会影响后续普通播放，看起来像被锁死。
