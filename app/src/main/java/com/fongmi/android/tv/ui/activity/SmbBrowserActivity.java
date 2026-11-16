@@ -452,8 +452,51 @@ public class SmbBrowserActivity extends AppCompatActivity {
                 labels.add(p.length==3?p[0]+" / "+p[1]+(p[2].isEmpty()?"":" / "+p[2]):value); }
         }
         setItems(labels);
-        setStatus(hiddenEntries.isEmpty()?"没有隐藏项目":(isTvDevice()?"短按恢复显示":"长按恢复显示"));
+        setStatus(hiddenEntries.isEmpty()?"没有隐藏项目":(isTvDevice()?"短按打开，菜单键恢复显示":"短按打开，长按恢复显示"));
     }
+
+    /**
+     * 显示隐藏列表和收藏夹一样是“入口”，单击要先打开对应主机/共享/目录。
+     * 恢复显示只放在长按（手机）或菜单键（电视）的上下文菜单里，避免点一下就把隐藏项放出来。
+     */
+    private void openHiddenItem(int position) {
+        if (position < 0 || position >= hiddenEntries.size()) return;
+        String[] pair = hiddenEntries.get(position).split("\\|", 2);
+        if (pair.length != 2) return;
+        if (pair[0].equals("IP")) {
+            connectHost(pair[1], false);
+        } else {
+            openHiddenFolderValue(pair[1]);
+        }
+    }
+
+    private void openHiddenFolderValue(String value) {
+        if (value == null) return;
+        String[] p = value.split("\\n", 3);
+        if (p.length != 3) return;
+        String targetHost = p[0];
+        String targetShare = p[1];
+        String targetPath = p[2];
+        if (host == null || !host.equals(targetHost)) {
+            host = targetHost;
+            username = "";
+            password = "";
+            domain = "";
+            SmbCredentialStore.Stored stored = SmbCredentialStore.load(this, host);
+            if (stored != null) {
+                username = stored.username;
+                password = stored.password;
+                domain = stored.domain;
+            }
+        }
+        share = targetShare;
+        path = targetPath;
+        showingHiddenHosts = false;
+        showingHiddenFolders = false;
+        showingFavorites = false;
+        if (path.isEmpty()) openShare(share); else loadDirectory();
+    }
+
     private String hiddenLabel(String value) {
         String[] p=value.split("\\n",3);
         return p.length==3?p[0]+" / "+p[1]+" / "+p[2]:value;
@@ -865,7 +908,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
 
     private void onItemClick(int position) {
         if(showingFavorites) { openFavorite(position); return; }
-        if(showingHiddenHosts||showingHiddenFolders) { activateHiddenItem(position); return; }
+        if(showingHiddenHosts||showingHiddenFolders) { openHiddenItem(position); return; }
         if (mode == Mode.HOSTS) {
             if (position < hosts.size()) connectHost(hosts.get(position), false);
             return;
