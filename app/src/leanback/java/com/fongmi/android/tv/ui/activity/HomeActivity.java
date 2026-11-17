@@ -395,11 +395,26 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void initConfig() {
+        initConfig(false);
+    }
+
+    private void initConfig(boolean force) {
         // initAfterFirstFrame 会先主动 initConfig，随后权限回调在已授权设备上还会再调一次；
         // 不设门槛时首页会 load 两遍配置，表现为列表出现→消失→重新出现。
-        if (configInitStarted) return;
+        // force 给「用户主动刷新」用：刷新必须能穿透这个一次性门槛，否则点刷新/长按标题
+        // 直接被 return 掉，表现就是刷新失效。
+        if (configInitStarted && !force) return;
         configInitStarted = true;
         PreviousProcessCrashRecovery.checkBeforeConfig(this, this::loadConfig);
+    }
+
+    /**
+     * 首页刷新（下拉菜单的「刷新」按钮、长按标题）。统一用启动时那个居中的转圈，
+     * 不再往列表顶部插单独的小 progress 行。
+     */
+    private void refreshHome() {
+        mBinding.progressLayout.showProgress();
+        initConfig(true);
     }
 
     private void loadConfig() {
@@ -862,7 +877,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             return;
         }
         if (which == mMenuButtonCount) {
-            initConfig();
+            refreshHome();
             return;
         }
         int categoryIndex = which - mMenuButtonCount - 1;
@@ -920,12 +935,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     public void onRefresh() {
-        initConfig();
+        refreshHome();
     }
 
     @Override
     public void reloadConfig() {
-        onRefresh();
+        refreshHome();
     }
 
     @Override
