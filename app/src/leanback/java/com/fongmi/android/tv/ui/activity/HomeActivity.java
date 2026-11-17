@@ -118,6 +118,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private boolean webToolbarVisible = true;
     private boolean loadingHomeCategory;
     private boolean configInitStarted;
+    // 用户主动刷新期间置真：这轮配置重载由 refreshHome() 统一收口（progress 转圈 + 回调里 showContent()->getVideo()），
+    // 不让 ConfigEvent.VOD 再发一次 HOME，否则首页会 getVideo 两遍，表现为闪一下。
+    private boolean refreshingConfig;
     private boolean homeContentShown;
     private long homeLoadedAt;
     private boolean mStartupActionDone;
@@ -413,6 +416,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      * 不再往列表顶部插单独的小 progress 行。
      */
     private void refreshHome() {
+        refreshingConfig = true;
         mBinding.progressLayout.showProgress();
         initConfig(true);
     }
@@ -434,6 +438,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             @Override
             public void success() {
                 SpiderDebug.log("startup", "config load success cost=%sms", System.currentTimeMillis() - App.time());
+                refreshingConfig = false;
                 showContent();
             }
 
@@ -441,6 +446,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             public void error(String msg) {
                 SpiderDebug.log("startup", "config load error cost=%sms msg=%s", System.currentTimeMillis() - App.time(), msg);
                 Notify.show(msg);
+                refreshingConfig = false;
                 showContent();
             }
         };
@@ -656,7 +662,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
                 RefreshEvent.history();
                 // 首次配置加载由 showContent() 自己触发 getVideo()；这里再发一次 HOME
                 // 会让首页列表先出现、再被清空重载，表现为启动时刷新两次。
-                if (homeContentShown && android.os.SystemClock.elapsedRealtime() - homeLoadedAt > 1000) RefreshEvent.home();
+                // 手动刷新同理：refreshHome() 的加载回调里已经会 showContent()->getVideo()，
+                // 这里再发 HOME 就是第三遍，首页会闪一下。
+                if (!refreshingConfig && homeContentShown && android.os.SystemClock.elapsedRealtime() - homeLoadedAt > 1000) RefreshEvent.home();
                 setLogo();
                 break;
             case COMMON:
