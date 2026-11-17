@@ -3045,7 +3045,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private boolean hasClickLink(TextView view) {
-        CharSequence text = view == null ? null : view.getText();
+        if (view == null) return false;
+        // 优先看 setText 存下的原始文本；渲染后的 getText() 里 [a=cr:] 已被换成 span，匹配不到。
+        Object raw = view.getTag(R.id.tag_click_link);
+        CharSequence text = raw instanceof CharSequence ? (CharSequence) raw : view.getText();
         return text != null && text.length() > 0 && Sniffer.CLICKER.matcher(text).find();
     }
 
@@ -3082,11 +3085,15 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             // setNativeDetailInfoVisible(true) 又按可见性批量翻开，于是值缺失时详情页会留下
             // 只有标签、后面什么都没有的空行（用户截图所见）。先清文本再隐藏，两者一起才干净。
             view.setText(null);
+            view.setTag(R.id.tag_click_link, null);
             view.setVisibility(View.GONE);
             CustomMovement.bind(view);
             return;
         }
         if (TextUtils.isEmpty(text) && !TextUtils.isEmpty(view.getText())) return;
+        // 原始文本（含 [a=cr:]）留在 tag 上：buildClickable 会把标记换成 span，渲染后的文本里
+        // 已经找不到标记，hasClickLink() 只能靠这里判断这一行到底有没有源站超链接。
+        view.setTag(R.id.tag_click_link, text);
         view.setText(Sniffer.buildClickable(resId > 0 ? getString(resId, text) : text, this::clickableSpan), TextView.BufferType.SPANNABLE);
         view.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
         if (view == mBinding.content) setContentVisible();

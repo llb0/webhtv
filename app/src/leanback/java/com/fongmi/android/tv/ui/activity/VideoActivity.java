@@ -3562,12 +3562,16 @@ private boolean runtimeSourceOnly;
             // 无条件清空会把那条路径的结果抹掉，因此保留原来的"空值不覆盖已有文本"语义。
             if (resId > 0) {
                 if (!TextUtils.isEmpty(view.getText())) view.setText(null);
+                view.setTag(R.id.tag_click_link, null);
                 view.setVisibility(View.GONE);
             }
             return;
         }
         String value = resId > 0 ? getString(resId, text) : text;
         view.setVisibility(View.VISIBLE);
+        // 原始文本（含 [a=cr:]）留在 tag 上：buildClickable 会把标记换成 span，渲染后的文本里
+        // 已经找不到标记，hasClickLink() 只能靠这里判断这一行到底有没有源站超链接。
+        view.setTag(R.id.tag_click_link, text);
         if (TextUtils.equals(view.getText(), value)) return;
         view.setText(Sniffer.buildClickable(value, this::clickableSpan), TextView.BufferType.SPANNABLE);
         view.setLinkTextColor(MDColor.YELLOW_500);
@@ -7041,7 +7045,10 @@ private boolean runtimeSourceOnly;
     }
 
     private boolean hasClickLink(TextView view) {
-        CharSequence text = view == null ? null : view.getText();
+        if (view == null) return false;
+        // 优先看 setText 存下的原始文本；渲染后的 getText() 里 [a=cr:] 已被换成 span，匹配不到。
+        Object raw = view.getTag(R.id.tag_click_link);
+        CharSequence text = raw instanceof CharSequence ? (CharSequence) raw : view.getText();
         return text != null && text.length() > 0 && Sniffer.CLICKER.matcher(text).find();
     }
 
@@ -11923,8 +11930,13 @@ private void setVideoDetailsVisible(boolean visible) {
         mBinding.name.setVisibility(value);
         mBinding.remark.setVisibility(shouldShowVideoDetailRemark(visible) ? View.VISIBLE : View.GONE);
         mBinding.row1.setVisibility(value);
-        mBinding.director.setVisibility(showNativeMetadata && !TextUtils.isEmpty(mBinding.director.getText()) ? View.VISIBLE : View.GONE);
-        mBinding.actor.setVisibility(showNativeMetadata && !TextUtils.isEmpty(mBinding.actor.getText()) ? View.VISIBLE : View.GONE);
+        // 站源演员/导演带 [a=cr:] 点击链接（也就是源站提供的超链接）时，TMDB 接管后也要留着这一行：
+        // 否则 TMDB 布局一生效 showNativeMetadata 就翻 false，刚显示出来的金色演员/导演整行消失，
+        // 表现为「闪一下就没了」。suppressTmdbNativeTextFields() 已按同样规则豁免它们，这里对齐。
+        boolean showDirector = visible && (showNativeMetadata || hasClickLink(mBinding.director)) && !TextUtils.isEmpty(mBinding.director.getText());
+        boolean showActor = visible && (showNativeMetadata || hasClickLink(mBinding.actor)) && !TextUtils.isEmpty(mBinding.actor.getText());
+        mBinding.director.setVisibility(showDirector ? View.VISIBLE : View.GONE);
+        mBinding.actor.setVisibility(showActor ? View.VISIBLE : View.GONE);
         // 简介区必须跟着一起收：沉浸音频/纯音频播放时它叠在播放器右侧，不收会在音频面板旁边
         // 留一块详情文本。影视原生此前没有内容所以看不出来，现在它真的有文字了。
         mBinding.tmdbOverview.setVisibility(visible && !TextUtils.isEmpty(mBinding.tmdbOverview.getText()) ? View.VISIBLE : View.GONE);
