@@ -402,6 +402,9 @@ private int mAudioBackgroundRandomNonce;
     private static final String EXTRA_TMDB_PLAY_SEASON_NUMBER = "tmdb_play_season_number";
     private static final String EXTRA_TMDB_PLAY_EPISODE_NUMBER = "tmdb_play_episode_number";
     private static final String EXTRA_RESUME_FROM_HISTORY = "resume_from_history";
+    // 从播放历史进入：详情缓存会直接命中，站点替换变量（如 XBPQ 的 {{xxid}}）就没人填，
+    // 取流时链接里还带着占位符，站点返回 400。历史播放必须向站点重取一次详情。
+    private static final String EXTRA_REFRESH_DETAIL_FROM_HISTORY = "refresh_detail_from_history";
     private static final String EXTRA_RESUME_HISTORY_CID = "resume_history_cid";
     private static final String EXTRA_RESUME_HISTORY_KEY = "resume_history_key";
     private static final String EXTRA_TMDB_VOD_CACHE_KEY = "tmdb_vod_cache_key";
@@ -1031,6 +1034,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         intent.putExtra("key", target.getSiteKey());
         intent.putExtra("id", target.getId());
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, true);
+        intent.putExtra(EXTRA_REFRESH_DETAIL_FROM_HISTORY, true);
         intent.putExtra(EXTRA_RESUME_HISTORY_CID, source.getCid());
         intent.putExtra(EXTRA_RESUME_HISTORY_KEY, HistoryResumePayload.encode(source));
         int flagIndex = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.flagIndex(target.getFlags(), flag);
@@ -1120,6 +1124,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         intent.putExtra("key", key);
         intent.putExtra("id", id);
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, resumeFromHistory);
+        intent.putExtra(EXTRA_REFRESH_DETAIL_FROM_HISTORY, resumeFromHistory);
         if (resumeHistory != null) {
             intent.putExtra(EXTRA_RESUME_HISTORY_CID, resumeHistory.getCid());
             intent.putExtra(EXTRA_RESUME_HISTORY_KEY, HistoryResumePayload.encode(resumeHistory));
@@ -1167,6 +1172,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         intent.putExtra("key", key);
         intent.putExtra("id", id);
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, resumeHistory != null);
+        intent.putExtra(EXTRA_REFRESH_DETAIL_FROM_HISTORY, resumeHistory != null);
         if (resumeHistory != null) {
             intent.putExtra(EXTRA_RESUME_HISTORY_CID, resumeHistory.getCid());
             intent.putExtra(EXTRA_RESUME_HISTORY_KEY, HistoryResumePayload.encode(resumeHistory));
@@ -2707,7 +2713,24 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     private void checkId() {
         if (getId().startsWith("push://")) getIntent().putExtra("key", SiteApi.PUSH).putExtra("id", getId().substring(7));
         if (getId().isEmpty() || getId().startsWith("msearch:")) setEmpty(false);
-        else if (!setCachedTmdbDetail()) getDetail();
+        else {
+            // 历史播放要重取详情，连 Vod 级缓存也不能用，否则同样跳过 spider 的 detailContent。
+            boolean refreshFromHistory = shouldRefreshDetailFromHistory();
+            if (refreshFromHistory || !setCachedTmdbDetail()) getDetail(refreshFromHistory);
+        }
+    }
+
+    /**
+     * 从播放历史进入时要跳过详情缓存、向站点重取一次详情：
+     * 详情缓存命中时站点的 spider 不会执行 detailContent，那些在详情阶段才生成的替换变量
+     * （典型是 XBPQ 配置里的 {{xxxid}}）就留在原位，取流时站点直接 400。
+     * 推送/本地 SMB 这类自带地址的没有站源详情，跳过重取。
+     */
+    private boolean shouldRefreshDetailFromHistory() {
+        if (!getIntent().getBooleanExtra(EXTRA_REFRESH_DETAIL_FROM_HISTORY, false)) return false;
+        if (SiteApi.PUSH.equals(getKey())) return false;
+        if (com.fongmi.android.tv.smb.SmbCastSource.isDescriptor(getId())) return false;
+        return true;
     }
 
     private boolean setCachedTmdbDetail() {
