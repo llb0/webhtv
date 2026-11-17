@@ -3317,7 +3317,8 @@ private boolean runtimeSourceOnly;
     }
 
     private boolean shouldShowTmdbLoadingOverlay() {
-        return !mFastTmdbPlaybackStarted && !shouldRevealShellWhileLoading();
+        // 详情页不再整页等 TMDB：站源详情到手就上屏，TMDB 结果到了再原地补齐/替换
+        return false;
     }
 
     /**
@@ -3366,7 +3367,7 @@ private boolean runtimeSourceOnly;
     private void revealShellWhileTmdbLoads() {
         boolean hiddenByLoading = !mBinding.progressLayout.isContent();
         if (!mBinding.progressLayout.isContent()) mBinding.progressLayout.showContent();
-        if (shouldUseTmdbLayout()) suppressTmdbNativeTextFields();
+        // 原生详情（标题/年份/演员/导演/简介）先展示，TMDB 富集完成后再由 applyTmdbDetailFields 接管
         if (hiddenByLoading && !mBinding.getRoot().hasFocus()) {
             mBinding.video.post(() -> {
                 if (!mBinding.getRoot().hasFocus()) requestInitialPlaybackFocus();
@@ -3537,9 +3538,9 @@ private boolean runtimeSourceOnly;
         setText(mBinding.director, R.string.detail_director, item.getDirector());
         setText(mBinding.actor, R.string.detail_actor, item.getActor());
         setText(mBinding.remark, 0, item.getRemarks());
-        // TMDB 模式下简介区由 applyTmdbDetailFields() 按富集结果接管，此处只喂影视原生，
-        // 否则站源简介会先上屏、TMDB 到达后再换一次，产生用户可见的文本闪动。
-        if (!isTmdbSourceEnabled()) updateOverviewPreview();
+        // TMDB 模式下简介区由 applyTmdbDetailFields() 按富集结果接管；富集结果未到之前
+        // 先显示站源简介，避免详情页要空等到 TMDB 返回才有内容。
+        updateOverviewPreview();
         updateAudioStageText();
     }
 
@@ -7028,8 +7029,14 @@ private boolean runtimeSourceOnly;
     private void suppressTmdbNativeTextFields() {
         if (isIntentTmdbPlayback()) return;
         mBinding.remark.setVisibility(View.GONE);
-        mBinding.actor.setVisibility(View.GONE);
-        mBinding.director.setVisibility(View.GONE);
+        // 站源演员/导演带 [a=cr:] 点击链接的，TMDB 接管后也保留这一行，别把站源入口整行抹掉
+        if (!hasClickLink(mBinding.actor)) mBinding.actor.setVisibility(View.GONE);
+        if (!hasClickLink(mBinding.director)) mBinding.director.setVisibility(View.GONE);
+    }
+
+    private boolean hasClickLink(TextView view) {
+        CharSequence text = view == null ? null : view.getText();
+        return text != null && text.length() > 0 && Sniffer.CLICKER.matcher(text).find();
     }
 
     private String getHistoryEpisodeName(Episode episode) {

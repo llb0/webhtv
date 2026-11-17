@@ -638,6 +638,8 @@ private int mAudioBackgroundRandomNonce;
     private final SourceEpisodeSeasonCache mSourceEpisodeSeasonCache = new SourceEpisodeSeasonCache();
     private boolean mTmdbContentLoaded = false;
     private boolean mTmdbFallbackToNative = false;
+    // TMDB 模式下先按站源原生字段上屏，等 TMDB 匹配结果回来再切成 TMDB 布局
+    private boolean mNativePreviewShown = false;
     private boolean mTmdbControlsMoved = false;
     private boolean mTmdbAutoDialogShown = false;
     private boolean mFusionChromeApplied = false;
@@ -2854,13 +2856,17 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         setOriginalEnhancedActionVisibility(tmdbMode);
         if (tmdbMode) {
             hideTmdbHeader();
-            setNativeDetailInfoVisible(false);
+            // TMDB 匹配要等网络，先把站源原生详情上屏（标题/导演/演员/简介/选集都可用），
+            // TMDB 结果回来后在 onTmdbContentReady 里切布局，匹配失败或超时也停在这套原生详情上。
+            mNativePreviewShown = true;
             applyTmdbTabletVideoLayoutIfNeeded();
+            setNativeDetailInfoVisible(true);
             mBinding.quick.setVisibility(View.GONE);
-            mBinding.search.setVisibility(View.GONE);
-            if (mBinding.videoShadow != null) mBinding.videoShadow.setVisibility(View.GONE);
+            mBinding.search.setVisibility(View.VISIBLE);
+            if (mBinding.videoShadow != null) mBinding.videoShadow.setVisibility(View.VISIBLE);
             scheduleTmdbDetailFallback();
         } else {
+            mNativePreviewShown = false;
             cancelTmdbDetailFallback();
             restoreDefaultVideoLayout();
             restoreFlagAndEpisodeFromTmdb();
@@ -2923,9 +2929,9 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private void setText(Vod item) {
         setDetailLyrics(item.getContent());
-        // 富集仍在进行时不填充会被 TMDB 覆盖的站源文本：骨架可以先揭开，
-        // 但文本要等 TMDB 落定再写，避免揭开后再跳一次。
-        if (isTmdbDetailEnrichmentPending()) {
+        // 富集仍在进行时一般先不写会被 TMDB 覆盖的站源文本；但原生预览阶段必须写，
+        // 否则页面要空等到 TMDB 结果才出内容。
+        if (isTmdbDetailEnrichmentPending() && !mNativePreviewShown) {
             applyFusionNativeTextColors();
             return;
         }
@@ -2933,7 +2939,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
         // 非 TMDB 模式才填充原生字段
         // 基于 TMDB 开关和配置是否就绪
-        boolean tmdbMode = shouldUseTmdbDetailLayout();
+        boolean tmdbMode = shouldUseTmdbDetailLayout() && !mNativePreviewShown;
         if (!tmdbMode) {
             restoreDefaultVideoLayout();
             setNativeDetailInfoVisible(true);
@@ -3025,6 +3031,18 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.contentLayout.setVisibility(View.GONE);
     }
 
+    // 站源演员/导演带 [a=cr:] 点击链接时，即使 TMDB 已接管详情也保留这两行，
+    // 否则 TMDB 匹配成功后站源人物的点击入口会整行消失。
+    private void revealClickLinkRows() {
+        if (hasClickLink(mBinding.actor)) mBinding.actor.setVisibility(View.VISIBLE);
+        if (hasClickLink(mBinding.director)) mBinding.director.setVisibility(View.VISIBLE);
+    }
+
+    private boolean hasClickLink(TextView view) {
+        CharSequence text = view == null ? null : view.getText();
+        return text != null && text.length() > 0 && Sniffer.CLICKER.matcher(text).find();
+    }
+
     private void setPlainText(TextView view, String text) {
         String value = Objects.toString(text, "");
         view.setText(value);
@@ -3056,8 +3074,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setContentVisible() {
-        // TMDB 模式下不显示原生简介区域
-        boolean tmdbMode = shouldUseTmdbDetailLayout();
+        // TMDB 模式下不显示原生简介区域（原生预览阶段除外）
+        boolean tmdbMode = shouldUseTmdbDetailLayout() && !mNativePreviewShown;
         if (tmdbMode) {
             mBinding.contentLayout.setVisibility(View.GONE);
         } else {
@@ -6103,8 +6121,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
             mTmdbHeaderView.hideNativeHeroBackdrop();
         }
         mTmdbContentLoaded = true;
+        // 原生预览退场：改由 TMDB 接管标题、简介与演职员
+        mNativePreviewShown = false;
         mBinding.name.setVisibility(View.GONE);
+        mBinding.search.setVisibility(View.GONE);
+        if (mBinding.videoShadow != null) mBinding.videoShadow.setVisibility(View.GONE);
         if (mVod != null) setText(mVod);
+        revealClickLinkRows();
         // 选集列表在 TMDB 就绪前就已构建，那时 mTmdbUIAdapter.isLoaded() 为 false，
         // 兜底图取不到海报；此处重算，否则无 TMDB 数据的集会一直是无图卡片。
         updateEpisodeFallbackStillUrl();
@@ -6598,7 +6621,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private boolean shouldWaitForTmdbDetailReveal() {
-        return isTmdbDetailEnrichmentPending() && !shouldRevealShellWhileLoading();
+        return isTmdbDetailEnrichmentPending() && !mNativePreviewShown && !shouldRevealShellWhileLoading();
     }
 
     /**
@@ -9546,6 +9569,8 @@ private void checkOrientation() {
 
     private void showTmdbDetailFallback() {
         if (mTmdbContentLoaded) return;
+        // 原生预览已经上屏，就不必再走一次「超时切原生」：布局没变化，只会多一次背景/列表重刷
+        if (mNativePreviewShown) return;
         SpiderDebug.log("tmdb-mobile", "detail loading timeout fallback");
         if (mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded()) {
             bindLoadedTmdbDetail();
@@ -9556,6 +9581,7 @@ private void checkOrientation() {
 
     private void showNativeDetailFallback(Vod item) {
         cancelTmdbDetailFallback();
+        mNativePreviewShown = false;
         mTmdbFallbackToNative = true;
         mTmdbContentLoaded = true;
         hideTmdbHeader();
