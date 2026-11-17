@@ -118,9 +118,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private boolean webToolbarVisible = true;
     private boolean loadingHomeCategory;
     private boolean configInitStarted;
-    // 用户主动刷新期间置真：这轮配置重载由 refreshHome() 统一收口（progress 转圈 + 回调里 showContent()->getVideo()），
-    // 不让 ConfigEvent.VOD 再发一次 HOME，否则首页会 getVideo 两遍，表现为闪一下。
-    private boolean refreshingConfig;
     private boolean homeContentShown;
     private long homeLoadedAt;
     private boolean mStartupActionDone;
@@ -412,11 +409,21 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     /**
-     * 首页刷新（下拉菜单的「刷新」按钮、长按标题）。统一用启动时那个居中的转圈，
-     * 不再往列表顶部插单独的小 progress 行。
+     * 首页刷新（下拉菜单的「刷新」按钮、长按标题）：只重新拉首页内容，不走配置加载流程。
+     *
+     * 配置加载 init() 内部会 clear()，那里会异步清掉 jar/js/py 加载器缓存（BaseLoader.clear() 走队列），
+     * 刷新时这份缓存和播放取流抢同一条链路，刷新后开播放历史就会出现「播放地址解析失败」，
+     * 而重启后（只跑一次启动加载）又正常。手动刷新没必要重建整个配置，重新取数即可。
+     * 需要重载配置本身（换配置/导入备份/改配置地址）走 reloadConfig()，那条路径仍会重跑加载。
      */
     private void refreshHome() {
-        refreshingConfig = true;
+        setTitle();
+        mBinding.progressLayout.showProgress();
+        getVideo();
+    }
+
+    /** 配置本身需要重载时用（换配置、导入备份等）；手动刷新不要走这里。 */
+    private void reloadConfigNow() {
         mBinding.progressLayout.showProgress();
         initConfig(true);
     }
@@ -438,7 +445,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             @Override
             public void success() {
                 SpiderDebug.log("startup", "config load success cost=%sms", System.currentTimeMillis() - App.time());
-                refreshingConfig = false;
                 showContent();
             }
 
@@ -446,7 +452,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             public void error(String msg) {
                 SpiderDebug.log("startup", "config load error cost=%sms msg=%s", System.currentTimeMillis() - App.time(), msg);
                 Notify.show(msg);
-                refreshingConfig = false;
                 showContent();
             }
         };
@@ -662,9 +667,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
                 RefreshEvent.history();
                 // 首次配置加载由 showContent() 自己触发 getVideo()；这里再发一次 HOME
                 // 会让首页列表先出现、再被清空重载，表现为启动时刷新两次。
-                // 手动刷新同理：refreshHome() 的加载回调里已经会 showContent()->getVideo()，
-                // 这里再发 HOME 就是第三遍，首页会闪一下。
-                if (!refreshingConfig && homeContentShown && android.os.SystemClock.elapsedRealtime() - homeLoadedAt > 1000) RefreshEvent.home();
+                if (homeContentShown && android.os.SystemClock.elapsedRealtime() - homeLoadedAt > 1000) RefreshEvent.home();
                 setLogo();
                 break;
             case COMMON:
@@ -948,7 +951,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     public void reloadConfig() {
-        refreshHome();
+        reloadConfigNow();
     }
 
     @Override
