@@ -1459,7 +1459,10 @@ private boolean runtimeSourceOnly;
 
     private String getHistoryKey() {
         if (isOriginSession()) return mOrigin.historyKey();
-        return getKey().concat(AppDatabase.SYMBOL).concat(getId()).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
+        // 本机 SMB 播放的 id 是带随机端口/token 的回环地址，直接当 vodId 会让同一文件每次打开
+        // 都新增一条最近观看；换回 smbcast 描述符后 key 才稳定（非 SMB 地址原样返回）。
+        String id = com.fongmi.android.tv.smb.SmbCastSource.stableId(getId());
+        return getKey().concat(AppDatabase.SYMBOL).concat(id).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
     }
 
     private void restoreImmersiveAudioRequest() {

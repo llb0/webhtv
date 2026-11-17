@@ -1413,7 +1413,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
     private String getHistoryKey() {
         if (isOriginSession()) return mOrigin.historyKey();
-        return getKey().concat(AppDatabase.SYMBOL).concat(getId()).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
+        // 本机 SMB 播放的 id 是带随机端口/token 的回环地址，直接当 vodId 会让同一文件每次打开
+        // 都新增一条最近观看；换回 smbcast 描述符后 key 才稳定（非 SMB 地址原样返回）。
+        String id = com.fongmi.android.tv.smb.SmbCastSource.stableId(getId());
+        return getKey().concat(AppDatabase.SYMBOL).concat(id).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
     }
 
     private Site getSite() {
@@ -3058,9 +3061,15 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.remark.setVisibility(visibility);
         mBinding.site.setVisibility(visibility);
         mBinding.other.setVisibility(visibility);
-        mBinding.director.setVisibility(visibility);
-        mBinding.actor.setVisibility(visibility);
+        // 导演/演员的值可能为空：这里不能再无条件翻开，否则就是只有标签的空行。
+        // 有内容时随后 setText 会自己置为 VISIBLE，所以按文本判可见性不会漏显示。
+        mBinding.director.setVisibility(visible && hasText(mBinding.director) ? View.VISIBLE : View.GONE);
+        mBinding.actor.setVisibility(visible && hasText(mBinding.actor) ? View.VISIBLE : View.GONE);
         mBinding.contentLayout.setVisibility(visibility);
+    }
+
+    private boolean hasText(TextView view) {
+        return view != null && view.getText() != null && view.getText().toString().trim().length() > 0;
     }
 
     private void setOriginalEnhancedActionVisibility(boolean hide) {
@@ -3068,11 +3077,22 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setText(TextView view, int resId, String text) {
+        if (TextUtils.isEmpty(text) && resId > 0) {
+            // 带标签的字段渲染出来的是 getString(resId, "")，即「导演：」这种非空串；而
+            // setNativeDetailInfoVisible(true) 又按可见性批量翻开，于是值缺失时详情页会留下
+            // 只有标签、后面什么都没有的空行（用户截图所见）。先清文本再隐藏，两者一起才干净。
+            view.setText(null);
+            view.setVisibility(View.GONE);
+            CustomMovement.bind(view);
+            return;
+        }
         if (TextUtils.isEmpty(text) && !TextUtils.isEmpty(view.getText())) return;
         view.setText(Sniffer.buildClickable(resId > 0 ? getString(resId, text) : text, this::clickableSpan), TextView.BufferType.SPANNABLE);
         view.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
         if (view == mBinding.content) setContentVisible();
-        view.setLinkTextColor(isRuntimeFusionMode() && isFusionLightTheme() ? 0xFF1D8F5A : Color.WHITE);
+        // 超链接沿用线路/剧集选中态的金黄色（selector_video_text 用的就是 yellow_500），
+        // 而不是白色——源站提供的演员/导演超链接要能一眼看出可点。
+        view.setLinkTextColor(isRuntimeFusionMode() && isFusionLightTheme() ? 0xFF1D8F5A : com.github.bassaer.library.MDColor.YELLOW_500);
         CustomMovement.bind(view);
     }
 

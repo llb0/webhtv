@@ -50,6 +50,20 @@ public final class SmbCastSource {
                 parts.username, parts.password, parts.domain);
     }
 
+    /**
+     * 历史/收藏用的稳定标识。
+     *
+     * <p>本机播放 SMB 时下发给播放器的是 {@code http://127.0.0.1:<随机端口>/<随机token>/文件名?smb=1}，
+     * 端口和 token 每起一次代理都变——直接拿它当 {@code History} 的 vodId，同一个文件每打开一次就
+     * 多一条“最近观看”（用户截图所见）。这里把它换回稳定的 {@code smbcast://} 描述符，
+     * 非本机 SMB 代理地址原样返回。</p>
+     */
+    public static String stableId(String value) {
+        if (value == null || value.isEmpty()) return value;
+        String descriptor = describe(value);
+        return descriptor == null ? value : descriptor;
+    }
+
     /** 描述符里携带的文件名：接收端片名和 SMB 播放的命名都靠它，别把整串描述符当片名显示。 */
     public static String titleOf(String value) {
         Parts parts = parse(value);
