@@ -121,8 +121,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     // 手动刷新期间置真：这一轮配置重载由 refreshHome() 收口（居中转圈 + 回调 showContent()->getVideo()），
     // 不让 ConfigEvent.VOD 再发一次 HOME，否则首页会 getVideo 两遍，表现为闪一下。
     private boolean refreshingConfig;
-    // 手动刷新时保持当前列表不动，等新数据回来整体替换，避免列表先被清空再填入（闪一下）。
-    private boolean keepHomeContentWhileRefresh;
     private boolean homeContentShown;
     private long homeLoadedAt;
     private boolean mStartupActionDone;
@@ -423,7 +421,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      */
     private void refreshHome() {
         refreshingConfig = true;
-        keepHomeContentWhileRefresh = true;
+        mBinding.progressLayout.showProgress();
         initConfig(true, true);
     }
 
@@ -569,16 +567,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         hideWebOverlay();
         applyTvChrome(TV_NORMAL);
         mBinding.recycler.setVisibility(View.VISIBLE);
-        // 手动刷新：先留着现有列表和内容，等 homeContent 回来整体替换，避免清空再填入的闪烁。
-        boolean keepContent = keepHomeContentWhileRefresh;
-        keepHomeContentWhileRefresh = false;
-        if (!keepContent) {
-            mBinding.progressLayout.showProgress();
-            mResult = Result.empty();
-            mHomeResult = Result.empty();
-            clearRecommendRows();
-        }
+        mBinding.progressLayout.showProgress();
+        mResult = Result.empty();
+        mHomeResult = Result.empty();
         loadingHomeCategory = false;
+        clearRecommendRows();
         mViewModel.homeContent();
     }
 
