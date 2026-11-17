@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.View;
 
 import androidx.recyclerview.widget.GridLayoutManager;
@@ -20,6 +21,7 @@ import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.ui.adapter.KeepAdapter;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.custom.FocusRestorer;
+import com.fongmi.android.tv.ui.custom.GridRowWrap;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
 import com.fongmi.android.tv.utils.Notify;
 
@@ -47,6 +49,13 @@ public class KeepActivity extends BaseActivity implements KeepAdapter.OnClickLis
         setEmptyContent();
         setRecyclerView();
         getKeep();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        // 收藏列表和首页分类页一致：行首再按左、行尾再按右都环跳到同一行另一端。
+        if (mAdapter != null && GridRowWrap.handle(mBinding.recycler, Product.getColumn(), event)) return true;
+        return super.dispatchKeyEvent(event);
     }
 
     /**

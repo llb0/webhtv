@@ -62,6 +62,11 @@ public class CacheManagementDialog extends DialogFragment {
     private boolean loading;
     private CharSequence resultLine;
     private final java.util.ArrayList<MaterialButton> moduleButtons = new java.util.ArrayList<>();
+    // 锁按钮的"打开（🔓）"外观基线：切回打开状态时要还原本来的 Tonal 底色和字色。
+    private final java.util.Map<MaterialButton, android.content.res.ColorStateList> lockDefaultTint =
+            new java.util.IdentityHashMap<>();
+    private final java.util.Map<MaterialButton, android.content.res.ColorStateList> lockDefaultText =
+            new java.util.IdentityHashMap<>();
 
     public static void show(Fragment fragment) {
         new CacheManagementDialog().show(fragment.getChildFragmentManager(), null);
@@ -280,6 +285,8 @@ public class CacheManagementDialog extends DialogFragment {
      */
     private void bindLock(MaterialButton button, CacheModuleId id) {
         applyFocusRing(button, R.color.focus_ring_secondary);
+        lockDefaultTint.put(button, button.getBackgroundTintList());
+        lockDefaultText.put(button, button.getTextColors());
         button.setOnClickListener(view -> {
             CachePolicyStore.putAutoLocked(id, !CachePolicyStore.isAutoLocked(id));
             updateLockButtons();
@@ -297,13 +304,28 @@ public class CacheManagementDialog extends DialogFragment {
 
     private void setLockText(MaterialButton button, CacheModuleId id) {
         boolean locked = CachePolicyStore.isAutoLocked(id);
-        button.setText((locked ? "🔒 " : "🔓 ") + getString(switch (id) {
+        int labelRes = switch (id) {
             case GLIDE -> R.string.cache_lock_glide;
             case EXO -> R.string.cache_lock_exo;
             case EPG -> R.string.cache_lock_epg;
             default -> R.string.cache_lock_logs;
-        }));
-        button.setContentDescription(getString(getModuleNameRes(id)));
+        };
+        // 两个状态不能只靠锁形图标区分（小字号下 🔒/🔓 几乎一样），所以文字带状态词，
+        // 闭合态再换成实心红底 + 白字：一眼能看出"这条不会被自动清理"。
+        button.setText(getString(locked ? R.string.cache_lock_label_closed
+                : R.string.cache_lock_label_open, getString(labelRes)));
+        if (locked) {
+            button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    androidx.core.content.ContextCompat.getColor(requireContext(), R.color.cache_lock_closed_bg)));
+            button.setTextColor(android.graphics.Color.WHITE);
+        } else {
+            button.setBackgroundTintList(lockDefaultTint.get(button));
+            android.content.res.ColorStateList text = lockDefaultText.get(button);
+            if (text != null) button.setTextColor(text);
+        }
+        button.setContentDescription(locked
+                ? getString(R.string.cache_module_auto_locked, getString(getModuleNameRes(id)))
+                : getString(R.string.cache_module_auto_open, getString(getModuleNameRes(id))));
     }
 
     private void updatePolicyButtons() {

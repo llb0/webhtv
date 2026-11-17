@@ -1120,6 +1120,10 @@
     <string name="cache_lock_exo">Exo</string>
     <string name="cache_lock_epg">EPG</string>
     <string name="cache_lock_logs">日志</string>
+    <string name="cache_lock_label_closed">🔒 %1$s · 已锁</string>
+    <string name="cache_lock_label_open">🔓 %1$s · 可清</string>
+    <string name="cache_module_auto_locked">%1$s：已锁，不参与自动清理</string>
+    <string name="cache_module_auto_open">%1$s：已打开，可被自动清理</string>
     <string name="cache_module_plugin_scripts">JS/Python/Jar 资源</string>
     <string name="cache_module_plugin_audit">插件审计日志</string>
     <string name="cache_module_plugin_http_cache">插件网络缓存</string>

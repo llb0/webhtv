@@ -1127,6 +1127,10 @@
     <string name="cache_lock_exo">Exo</string>
     <string name="cache_lock_epg">EPG</string>
     <string name="cache_lock_logs">Logs</string>
+    <string name="cache_lock_label_closed">🔒 %1$s · locked</string>
+    <string name="cache_lock_label_open">🔓 %1$s · auto</string>
+    <string name="cache_module_auto_locked">%1$s: locked, excluded from automatic cleanup</string>
+    <string name="cache_module_auto_open">%1$s: unlocked, automatic cleanup allowed</string>
     <string name="cache_module_plugin_scripts">JS/Python/Jar resources</string>
     <string name="cache_module_plugin_audit">Plugin audit log</string>
     <string name="cache_module_plugin_http_cache">Plugin network cache</string>
