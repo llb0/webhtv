@@ -133,6 +133,7 @@ public class VodConfig extends BaseConfig {
         return clear().config(Config.vod());
     }
 
+
     public VodConfig config(Config config) {
         if (config != null) SubscriptionTmdbCredentialStore.beginSubscription(config.getId(), config.getUrl(), "vod-config");
         this.config = config;

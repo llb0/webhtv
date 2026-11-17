@@ -118,6 +118,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private boolean webToolbarVisible = true;
     private boolean loadingHomeCategory;
     private boolean configInitStarted;
+    // 手动刷新期间置真：这一轮配置重载由 refreshHome() 收口（居中转圈 + 回调 showContent()->getVideo()），
+    // 不让 ConfigEvent.VOD 再发一次 HOME，否则首页会 getVideo 两遍，表现为闪一下。
+    private boolean refreshingConfig;
     private boolean homeContentShown;
     private long homeLoadedAt;
     private boolean mStartupActionDone;
@@ -399,42 +402,48 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void initConfig(boolean force) {
+        initConfig(force, false);
+    }
+
+    private void initConfig(boolean force, boolean refresh) {
         // initAfterFirstFrame 会先主动 initConfig，随后权限回调在已授权设备上还会再调一次；
         // 不设门槛时首页会 load 两遍配置，表现为列表出现→消失→重新出现。
         // force 给「用户主动刷新」用：刷新必须能穿透这个一次性门槛，否则点刷新/长按标题
         // 直接被 return 掉，表现就是刷新失效。
         if (configInitStarted && !force) return;
         configInitStarted = true;
-        PreviousProcessCrashRecovery.checkBeforeConfig(this, this::loadConfig);
+        PreviousProcessCrashRecovery.checkBeforeConfig(this, () -> loadConfig(refresh));
     }
 
     /**
-     * 首页刷新（下拉菜单的「刷新」按钮、长按标题）：只重新拉首页内容，不走配置加载流程。
-     *
-     * 配置加载 init() 内部会 clear()，那里会异步清掉 jar/js/py 加载器缓存（BaseLoader.clear() 走队列），
-     * 刷新时这份缓存和播放取流抢同一条链路，刷新后开播放历史就会出现「播放地址解析失败」，
-     * 而重启后（只跑一次启动加载）又正常。手动刷新没必要重建整个配置，重新取数即可。
-     * 需要重载配置本身（换配置/导入备份/改配置地址）走 reloadConfig()，那条路径仍会重跑加载。
+     * 首页刷新（下拉菜单的「刷新」按钮、长按标题）：重新初始化配置（重新下载、重新解析站点/解析器/规则），
+     * 然后由加载回调 showContent() 重新取首页数据。转圈统一用启动时那个居中的 progressLayout。
      */
     private void refreshHome() {
-        setTitle();
+        refreshingConfig = true;
         mBinding.progressLayout.showProgress();
-        getVideo();
+        initConfig(true, true);
     }
 
-    /** 配置本身需要重载时用（换配置、导入备份等）；手动刷新不要走这里。 */
+    /** 配置整体重建（换配置、导入备份等）：仍走完整的 init()。 */
     private void reloadConfigNow() {
         mBinding.progressLayout.showProgress();
-        initConfig(true);
+        initConfig(true, false);
     }
 
     private void loadConfig() {
+        loadConfig(false);
+    }
+
+    private void loadConfig(boolean refresh) {
         if (CrashRestartMode.consume()) {
             SpiderDebug.log("startup", "skip config load once after crash restart");
             showContent();
             return;
         }
-        SpiderDebug.log("startup", "config load start cost=%sms", System.currentTimeMillis() - App.time());
+        SpiderDebug.log("startup", "config load start cost=%sms refresh=%s", System.currentTimeMillis() - App.time(), refresh);
+        // 手动刷新与启动用同一条初始化链路：clear() 销毁 jar/js/py 加载器后由这一次 load 重新建立，
+        // 和刚启动时一样，历史播放照样能用。
         VodConfig.get().init().load(getCallback());
         LiveConfig.get().init().load();
         WallConfig.get().init();
@@ -445,6 +454,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             @Override
             public void success() {
                 SpiderDebug.log("startup", "config load success cost=%sms", System.currentTimeMillis() - App.time());
+                refreshingConfig = false;
                 showContent();
             }
 
@@ -452,6 +462,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             public void error(String msg) {
                 SpiderDebug.log("startup", "config load error cost=%sms msg=%s", System.currentTimeMillis() - App.time(), msg);
                 Notify.show(msg);
+                refreshingConfig = false;
                 showContent();
             }
         };
@@ -667,7 +678,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
                 RefreshEvent.history();
                 // 首次配置加载由 showContent() 自己触发 getVideo()；这里再发一次 HOME
                 // 会让首页列表先出现、再被清空重载，表现为启动时刷新两次。
-                if (homeContentShown && android.os.SystemClock.elapsedRealtime() - homeLoadedAt > 1000) RefreshEvent.home();
+                // 手动刷新时这次重载由 refreshHome() 的加载回调收口，这里再发 HOME 会让首页取两遍、闪一下。
+                if (!refreshingConfig && homeContentShown && android.os.SystemClock.elapsedRealtime() - homeLoadedAt > 1000) RefreshEvent.home();
                 setLogo();
                 break;
             case COMMON:
