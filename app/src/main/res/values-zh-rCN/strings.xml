@@ -1116,6 +1116,10 @@
     <string name="cache_module_webhome_raw">WebHome HTTP 缓存</string>
     <string name="cache_module_epg">EPG 节目单</string>
     <string name="cache_module_glide">图片与封面</string>
+    <string name="cache_lock_glide">图片</string>
+    <string name="cache_lock_exo">Exo</string>
+    <string name="cache_lock_epg">EPG</string>
+    <string name="cache_lock_logs">日志</string>
     <string name="cache_module_plugin_scripts">JS/Python/Jar 资源</string>
     <string name="cache_module_plugin_audit">插件审计日志</string>
     <string name="cache_module_plugin_http_cache">插件网络缓存</string>

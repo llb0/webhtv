@@ -1072,6 +1072,10 @@
     <string name="cache_module_webhome_raw">WebHome HTTP 暫存</string>
     <string name="cache_module_epg">EPG 節目表</string>
     <string name="cache_module_glide">圖片與封面</string>
+    <string name="cache_lock_glide">圖片</string>
+    <string name="cache_lock_exo">Exo</string>
+    <string name="cache_lock_epg">EPG</string>
+    <string name="cache_lock_logs">日誌</string>
     <string name="cache_module_plugin_scripts">JS/Python/Jar 資源</string>
     <string name="cache_module_plugin_audit">外掛審計日誌</string>
     <string name="cache_module_plugin_http_cache">外掛網路快取</string>
