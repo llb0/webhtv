@@ -74,8 +74,12 @@ public class ReceiveDialog extends BaseBottomSheetDialog {
     }
 
     private void onReceiveCast() {
-        if (VodConfig.get().getConfig().equals(event.config())) {
-            VideoActivity.cast(requireActivity(), event.history().save(VodConfig.getCid()));
+        History history = event.history();
+        // 本地 SMB / 纯推送这类自带地址的投屏不需要站源：直接播，绝不切换接收端接口，
+        // 否则接口在接收端拉不到就会报“配置取得失败”，首页站源全空。
+        if ((history != null && history.isSelfContainedCast()) || VodConfig.get().getConfig().equals(event.config())) {
+            if (history == null) return;
+            VideoActivity.cast(requireActivity(), history.save(VodConfig.getCid()));
             dismiss();
         } else {
             showProgress();

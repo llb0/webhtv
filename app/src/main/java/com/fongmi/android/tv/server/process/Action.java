@@ -180,6 +180,10 @@ public class Action implements Process {
         Config config = Config.objectFrom(params.get("config"));
         Device device = Device.objectFrom(params.get("device"));
         History history = History.objectFrom(params.get("history"));
+        // 投屏自带播放信息（本地 SMB 描述符、纯推送直链）时不需要站源：
+        // 绝不能把发送端的接口 Config.find 插进接收端数据库，更不该让它成为接收端的活动接口，
+        // 否则接收端会被切到一个自己拉不到的接口，首页站源全空、报“配置取得失败”。
+        if (history != null && history.isSelfContainedCast()) config = VodConfig.get().getConfig();
         CastEvent.post(Config.find(config), device, history);
     }
 

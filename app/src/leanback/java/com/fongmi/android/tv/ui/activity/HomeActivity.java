@@ -695,8 +695,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void dispatchCast(CastEvent event) {
-        if (VodConfig.get().getConfig().equals(event.config())) {
-            VideoActivity.cast(this, event.history());
+        History history = event.history();
+        // 本地 SMB / 纯推送这类自带地址的投屏不需要任何站源：直接播，绝不切换接收端接口。
+        // 之前一律 VodConfig.load(发送端接口)，接口在电视上拉不到就报“配置取得失败”，
+        // 首页站源随之全空、无法选站和刷新。
+        if ((history != null && history.isSelfContainedCast()) || VodConfig.get().getConfig().equals(event.config())) {
+            VideoActivity.cast(this, history);
         } else {
             VodConfig.load(event.config(), getCallback(event));
         }
