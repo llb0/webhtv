@@ -90,19 +90,15 @@ public final class CacheCleanupManager {
         File cache = App.get().getCacheDir();
         long retention = CachePolicyStore.getRetentionDays() * 24L * 60L * 60L * 1000L;
         long now = System.currentTimeMillis();
-        // 这里属于自动行为：锁闭合的模块连保留期修剪都要跳过，否则"锁了但照样被修剪"。
-        if (!CachePolicyStore.isAutoLocked(CacheModuleId.LYRICS)) {
-            CacheRetentionManager.applyLimit(new File(cache, "lyrics"),
-                    CachePolicyStore.getLimit(CacheModuleId.LYRICS), retention, () -> now, Set.of());
-        }
-        if (!CachePolicyStore.isAutoLocked(CacheModuleId.KARAOKE)) {
-            CacheRetentionManager.applyLimit(new File(cache, "karaoke_tracks"),
-                    CachePolicyStore.getLimit(CacheModuleId.KARAOKE), retention, () -> now, Set.of());
-        }
-        if (!CachePolicyStore.isAutoLocked(CacheModuleId.WEBHOME_EXT)) {
-            CacheRetentionManager.applyLimit(new File(cache, "webhome_ext"),
-                    CachePolicyStore.getLimit(CacheModuleId.WEBHOME_EXT), retention, () -> now, Set.of());
-        }
+        // 模块自控（保留期 + 单模块上限）不受锁影响：上限是模块自身的天花板，超限时由新数据
+        // 挤掉旧数据，过期数据也照常修剪，否则锁上就等于缓存无限增长、新内容写不进来。
+        // 锁只拦"整模块被自动清理"，见 CachePolicyEngine.automaticPlan。
+        CacheRetentionManager.applyLimit(new File(cache, "lyrics"),
+                CachePolicyStore.getLimit(CacheModuleId.LYRICS), retention, () -> now, Set.of());
+        CacheRetentionManager.applyLimit(new File(cache, "karaoke_tracks"),
+                CachePolicyStore.getLimit(CacheModuleId.KARAOKE), retention, () -> now, Set.of());
+        CacheRetentionManager.applyLimit(new File(cache, "webhome_ext"),
+                CachePolicyStore.getLimit(CacheModuleId.WEBHOME_EXT), retention, () -> now, Set.of());
         // 过期节目单必须照常修剪：过期数据留着只占空间，还会挡住新节目单的写入。
         // 锁只管"整模块被自动清理"，不管这类过期修剪（EPG 的整目录清空仍只在手动入口和自动清理计划里）。
         CacheRetentionManager.applyLimit(EpgParser.cacheDir(),
