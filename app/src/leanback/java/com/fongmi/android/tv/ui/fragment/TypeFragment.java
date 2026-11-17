@@ -157,7 +157,9 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     private void setRecyclerView() {
         CustomSelector selector = new CustomSelector();
         selector.addPresenter(Vod.class, new VodPresenter(this, Style.list()));
-        selector.addPresenter(ListRow.class, new CustomRowPresenter(ResUtil.dpOf(R.dimen.webhtv_size_tv_card_gap), this::onContentHorizontalEdge), VodPresenter.class);
+        // 卡片行按到最左/最右时在本行内环跳到另一端。此前边界键交给 edgeListener 由 VodActivity 切到
+        // 相邻分类，用户反馈"想继续在同列表里翻，不该整个分类换掉"，所以改走行内环绕。
+        selector.addPresenter(ListRow.class, new CustomRowPresenter(ResUtil.dpOf(R.dimen.webhtv_size_tv_card_gap), this::onContentHorizontalEdge).setWrapFocus(true), VodPresenter.class);
         selector.addPresenter(ListRow.class, new CustomRowPresenter(8, FocusHighlight.ZOOM_FACTOR_NONE, HorizontalGridView.FOCUS_SCROLL_ALIGNED, true), FilterPresenter.class);
         mBinding.recycler.setAdapter(new ItemBridgeAdapter(mAdapter = new ArrayObjectAdapter(selector)));
         mBinding.recycler.setHeader(getActivity(), getParent().getScrollHeaderIds());
