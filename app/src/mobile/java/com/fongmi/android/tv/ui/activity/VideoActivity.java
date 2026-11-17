@@ -640,6 +640,8 @@ private int mAudioBackgroundRandomNonce;
     private boolean mTmdbFallbackToNative = false;
     // TMDB 模式下先按站源原生字段上屏，等 TMDB 匹配结果回来再切成 TMDB 布局
     private boolean mNativePreviewShown = false;
+    // 站源在 vod_actor / vod_director 里下发的 [a=cr:] 点击链接（人名 → JSON）
+    private com.fongmi.android.tv.ui.helper.SourceClickLinks mSourceClickLinks = com.fongmi.android.tv.ui.helper.SourceClickLinks.empty();
     private boolean mTmdbControlsMoved = false;
     private boolean mTmdbAutoDialogShown = false;
     private boolean mFusionChromeApplied = false;
@@ -2831,6 +2833,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         if (isSmbSource() && !TextUtils.isEmpty(getName())) item.setName(getName());
         mSourceVodName = item.getName();
         mVod = item;
+        mSourceClickLinks = com.fongmi.android.tv.ui.helper.SourceClickLinks.from(item);
         item.checkPic(getPic());
         item.checkName(getName());
         item.checkContent(getTmdbVodContent());
@@ -9211,6 +9214,11 @@ private void checkOrientation() {
         mTmdbHeaderView = new com.fongmi.android.tv.ui.custom.TmdbHeaderView(this, scrollContainer);
         mTmdbHeaderView.setDetailThemeMode(getFusionDetailThemeMode());
         mTmdbHeaderView.inflate();
+        // 站源提供了演员/导演超链接时：TMDB 演员卡片点开有资料 → 弹窗里出“相关作品”；
+        // TMDB 没有这个人的资料 → 直接打开站源列表
+        mTmdbHeaderView.setSourceClickLink(
+                name -> mSourceClickLinks.find(name),
+                link -> FolderActivity.start(this, getKey(), Result.type(link)));
         installTmdbDownloadAction(mTmdbHeaderView.getHeaderRoot());
         mTmdbHeaderView.setActionListener(new com.fongmi.android.tv.ui.custom.TmdbHeaderView.ActionListener() {
             @Override

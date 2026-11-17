@@ -577,6 +577,8 @@ private boolean runtimeSourceOnly;
     private com.fongmi.android.tv.ui.helper.TmdbUIAdapter mTmdbUIAdapter;
     private com.fongmi.android.tv.ui.custom.TmdbHeaderView mTmdbHeaderView;
     private Vod mVod;
+    // 站源在 vod_actor / vod_director 里下发的 [a=cr:] 点击链接（人名 → JSON）
+    private com.fongmi.android.tv.ui.helper.SourceClickLinks mSourceClickLinks = com.fongmi.android.tv.ui.helper.SourceClickLinks.empty();
     private String mSourceVodName = "";
     private final SourceEpisodeSeasonCache mSourceEpisodeSeasonCache = new SourceEpisodeSeasonCache();
     private boolean mTmdbAutoDialogShown;
@@ -3250,6 +3252,7 @@ private boolean runtimeSourceOnly;
         if (isSmbSource() && !TextUtils.isEmpty(getName())) item.setName(getName());
         mSourceVodName = item.getName();
         mVod = item;
+        mSourceClickLinks = com.fongmi.android.tv.ui.helper.SourceClickLinks.from(item);
         resetPendingTmdbBind();
         mTmdbAutoDialogShown = false;
         mTmdbDetailFieldsApplied = false;
@@ -8964,7 +8967,23 @@ private boolean runtimeSourceOnly;
 
     private void onTmdbPersonClick(com.fongmi.android.tv.bean.TmdbPerson person) {
         if (person == null) return;
-        com.fongmi.android.tv.ui.dialog.TmdbPersonDialog.show(this, person, getSite());
+        String clickLink = mSourceClickLinks.find(person.getName());
+        // 站源没有这个人的超链接：维持原来的 TMDB 人物资料
+        if (TextUtils.isEmpty(clickLink)) {
+            com.fongmi.android.tv.ui.dialog.TmdbPersonDialog.show(this, person, getSite());
+            return;
+        }
+        // TMDB 没有这个人的资料（personId 为 0）时弹窗是空的，直接用源站链接打开相关作品
+        if (person.getPersonId() <= 0) {
+            openSourceClickLink(clickLink);
+            return;
+        }
+        com.fongmi.android.tv.ui.dialog.TmdbPersonDialog.show(this, person, getSite(), () -> openSourceClickLink(clickLink));
+    }
+
+    private void openSourceClickLink(String clickLink) {
+        VodActivity.start(this, getKey(), Result.type(clickLink));
+        setRedirect(true);
     }
 
     private void onTmdbPhotoClick(String url, int position) {

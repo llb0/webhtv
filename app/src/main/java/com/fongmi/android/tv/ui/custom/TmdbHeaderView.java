@@ -138,6 +138,9 @@ public class TmdbHeaderView {
     private OnImagesLoadedListener imagesLoadedListener;
     private OnBackdropChangeListener backdropChangeListener;
     private ActionListener actionListener;
+    // 源站演员/导演点击链接：按人名取 [a=cr:] 的 JSON，取到就由宿主页面自己打开列表
+    private java.util.function.Function<String, String> sourceClickLinkResolver;
+    private java.util.function.Consumer<String> sourceClickLinkOpener;
 
     // 幻灯片相关
     private ImageView backdropView;
@@ -171,6 +174,15 @@ public class TmdbHeaderView {
 
     public void setActionListener(ActionListener listener) {
         this.actionListener = listener;
+    }
+
+    /**
+     * 注入源站演员/导演点击链接：resolver 按人名返回 [a=cr:] 的 JSON（没有返回空），
+     * opener 负责真正打开站源列表（手机端/电视端各自的列表页）。
+     */
+    public void setSourceClickLink(java.util.function.Function<String, String> resolver, java.util.function.Consumer<String> opener) {
+        this.sourceClickLinkResolver = resolver;
+        this.sourceClickLinkOpener = opener;
     }
 
     public void setDetailThemeMode(int detailThemeMode) {
@@ -703,7 +715,21 @@ public class TmdbHeaderView {
      */
     private void onPersonClick(com.fongmi.android.tv.bean.TmdbPerson person) {
         if (person == null) return;
-        com.fongmi.android.tv.ui.dialog.TmdbPersonDialog.show(activity, person, currentSite());
+        String clickLink = sourceClickLinkResolver == null ? "" : sourceClickLinkResolver.apply(person.getName());
+        if (TextUtils.isEmpty(clickLink)) {
+            com.fongmi.android.tv.ui.dialog.TmdbPersonDialog.show(activity, person, currentSite());
+            return;
+        }
+        // TMDB 没有这个人的资料（personId 为 0）时弹窗是空的，直接用源站链接打开相关作品
+        if (person.getPersonId() <= 0) {
+            openSourceClickLink(clickLink);
+            return;
+        }
+        com.fongmi.android.tv.ui.dialog.TmdbPersonDialog.show(activity, person, currentSite(), () -> openSourceClickLink(clickLink));
+    }
+
+    private void openSourceClickLink(String clickLink) {
+        if (sourceClickLinkOpener != null) sourceClickLinkOpener.accept(clickLink);
     }
 
     /**

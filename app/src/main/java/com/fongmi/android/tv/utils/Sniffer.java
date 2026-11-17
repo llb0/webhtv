@@ -178,7 +178,7 @@ public class Sniffer {
     }
 
     private static void appendClickable(SpannableStringBuilder span, String json, String label, Function<Result, ClickableSpan> factory) {
-        List<String> types = clickTypes(json);
+        List<String> types = clickItems(json);
         String value = Trans.s2t(label.trim());
         int start = span.length();
         span.append(value);
@@ -199,7 +199,7 @@ public class Sniffer {
     }
 
     // {…} 原样返回；[…] 按顶层大括号拆成多条，供逐个名字挂点击
-    private static List<String> clickTypes(String json) {
+    public static List<String> clickItems(String json) {
         List<String> list = new ArrayList<>();
         if (json == null) return list;
         String body = json.trim();
