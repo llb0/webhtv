@@ -9498,7 +9498,9 @@ private void checkOrientation() {
         if (view instanceof RecyclerView) return;
         if (view instanceof TextView textView) {
             textView.setTextColor(light ? 0xFF12202D : 0xFFFFFFFF);
-            textView.setLinkTextColor(light ? 0xFF1D8F5A : Color.WHITE);
+            // 超链接不能跟着正文一起刷成白色：正文是白/深色随主题，链接要一直是线路/剧集那种金黄，
+            // 否则详情页一进入融合模式（或 TMDB 兜底）就把之前点得进去的金色链接洗成白色。
+            textView.setLinkTextColor(light ? 0xFF1D8F5A : com.github.bassaer.library.MDColor.YELLOW_500);
             if (light) textView.setShadowLayer(0, 0, 0, 0);
             else textView.setShadowLayer(ResUtil.dp2px(2), 0, ResUtil.dp2px(1), 0xB0000000);
         }
@@ -9541,7 +9543,8 @@ private void checkOrientation() {
     private void tintFusionPlaybackText(TextView textView, int color, boolean light) {
         if (textView == null) return;
         textView.setTextColor(color);
-        textView.setLinkTextColor(light ? 0xFF1D8F5A : Color.WHITE);
+        // 同上：正文按主题走，链接保持金黄。
+        textView.setLinkTextColor(light ? 0xFF1D8F5A : com.github.bassaer.library.MDColor.YELLOW_500);
         if (light) textView.setShadowLayer(0, 0, 0, 0);
         else textView.setShadowLayer(ResUtil.dp2px(2), 0, ResUtil.dp2px(1), 0xB0000000);
     }
