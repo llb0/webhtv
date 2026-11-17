@@ -169,7 +169,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mResult = Result.empty();
         mHomeResult = Result.empty();
         mClock = Clock.create(mBinding.clock);
-        mBinding.progressLayout.showProgress();
+        showHomeProgress();
         setRecyclerView();
         setViewModel();
         setAdapter();
@@ -421,13 +421,26 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      */
     private void refreshHome() {
         refreshingConfig = true;
-        mBinding.progressLayout.showProgress();
+        showHomeProgress();
         initConfig(true, true);
+    }
+
+    /**
+     * 首页进入加载态：居中转圈 + 收起内容。
+     * 分类行（typeRecycler）在 progressLayout 之外，三态切不到它，必须单独收起来，
+     * 否则刷新时会出现「视频列表都收走了、分类还在」的割裂画面。
+     * hideContent() 把刚被改回 VISIBLE 的子视图重新压回隐藏——否则旧列表会在转圈期间闪一下
+     * （清 adapter 之前 RecyclerView 还挂着旧行）。
+     */
+    private void showHomeProgress() {
+        mBinding.typeRecycler.setVisibility(View.GONE);
+        mBinding.progressLayout.showProgress();
+        mBinding.progressLayout.hideContent();
     }
 
     /** 配置整体重建（换配置、导入备份等）：仍走完整的 init()。 */
     private void reloadConfigNow() {
-        mBinding.progressLayout.showProgress();
+        showHomeProgress();
         initConfig(true, false);
     }
 
@@ -566,8 +579,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         if (mWeb != null) mWeb.hide();
         hideWebOverlay();
         applyTvChrome(TV_NORMAL);
-        mBinding.recycler.setVisibility(View.VISIBLE);
-        mBinding.progressLayout.showProgress();
+        showHomeProgress();
         mResult = Result.empty();
         mHomeResult = Result.empty();
         loadingHomeCategory = false;
@@ -607,7 +619,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             SpiderDebug.log("home", "home list empty, auto open first category key=%s tid=%s", getHome().getKey(), type.getTypeId());
             loadingHomeCategory = true;
             // 首个分类还在路上时继续用 progressLayout 的居中转圈，列表顶部不再插 progress 行。
-            mBinding.progressLayout.showProgress();
+            showHomeProgress();
             mViewModel.categoryContent(getHome().getKey(), type.getTypeId(), "1", true, new java.util.HashMap<>());
             return;
         }
@@ -1167,6 +1179,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     @Override
     public void onWebLoading() {
         showWebOverlay();
+        mBinding.typeRecycler.setVisibility(View.GONE);
         mBinding.progressLayout.showProgress();
     }
 
