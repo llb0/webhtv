@@ -7039,9 +7039,13 @@ private boolean runtimeSourceOnly;
     private void suppressTmdbNativeTextFields() {
         if (isIntentTmdbPlayback()) return;
         mBinding.remark.setVisibility(View.GONE);
-        // 站源演员/导演带 [a=cr:] 点击链接的，TMDB 接管后也保留这一行，别把站源入口整行抹掉
-        if (!hasClickLink(mBinding.actor)) mBinding.actor.setVisibility(View.GONE);
-        if (!hasClickLink(mBinding.director)) mBinding.director.setVisibility(View.GONE);
+        // 只有 TMDB 真正匹配并加载完成（isLoaded()）才让出演员/导演这两行：
+        // 匹配成功时它们的信息和超链接入口在 TMDB 侧（「相关作品」）已经有了；
+        // 匹配失败/超时时 TMDB 这两行本来就是空的，再压掉原生行等于把信息抹成空白。
+        boolean tmdbOwnsMetadata = mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded();
+        if (!tmdbOwnsMetadata) return;
+        mBinding.actor.setVisibility(View.GONE);
+        mBinding.director.setVisibility(View.GONE);
     }
 
     private boolean hasClickLink(TextView view) {
@@ -11926,17 +11930,15 @@ private void applyAudioStageLayout(boolean visible) {
 
 private void setVideoDetailsVisible(boolean visible) {
         int value = visible ? View.VISIBLE : View.GONE;
-        boolean showNativeMetadata = visible && (!shouldUseTmdbLayout() || isIntentTmdbPlayback());
+        // 关键：TMDB 只是“配置就绪”并不等于“匹配到了”。没匹配到（isLoaded()==false）时它既没有
+        // 演员也没有导演，这里必须继续显示站源的原生行，否则两边都空，用户看到金色行一闪就没。
+        boolean tmdbOwnsMetadata = shouldUseTmdbLayout() && mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded();
+        boolean showNativeMetadata = visible && (!tmdbOwnsMetadata || isIntentTmdbPlayback());
         mBinding.name.setVisibility(value);
         mBinding.remark.setVisibility(shouldShowVideoDetailRemark(visible) ? View.VISIBLE : View.GONE);
         mBinding.row1.setVisibility(value);
-        // 站源演员/导演带 [a=cr:] 点击链接（也就是源站提供的超链接）时，TMDB 接管后也要留着这一行：
-        // 否则 TMDB 布局一生效 showNativeMetadata 就翻 false，刚显示出来的金色演员/导演整行消失，
-        // 表现为「闪一下就没了」。suppressTmdbNativeTextFields() 已按同样规则豁免它们，这里对齐。
-        boolean showDirector = visible && (showNativeMetadata || hasClickLink(mBinding.director)) && !TextUtils.isEmpty(mBinding.director.getText());
-        boolean showActor = visible && (showNativeMetadata || hasClickLink(mBinding.actor)) && !TextUtils.isEmpty(mBinding.actor.getText());
-        mBinding.director.setVisibility(showDirector ? View.VISIBLE : View.GONE);
-        mBinding.actor.setVisibility(showActor ? View.VISIBLE : View.GONE);
+        mBinding.director.setVisibility(showNativeMetadata && !TextUtils.isEmpty(mBinding.director.getText()) ? View.VISIBLE : View.GONE);
+        mBinding.actor.setVisibility(showNativeMetadata && !TextUtils.isEmpty(mBinding.actor.getText()) ? View.VISIBLE : View.GONE);
         // 简介区必须跟着一起收：沉浸音频/纯音频播放时它叠在播放器右侧，不收会在音频面板旁边
         // 留一块详情文本。影视原生此前没有内容所以看不出来，现在它真的有文字了。
         mBinding.tmdbOverview.setVisibility(visible && !TextUtils.isEmpty(mBinding.tmdbOverview.getText()) ? View.VISIBLE : View.GONE);
