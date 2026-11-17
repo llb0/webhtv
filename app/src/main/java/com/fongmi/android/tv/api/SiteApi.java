@@ -19,6 +19,7 @@ import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
+import com.fongmi.android.tv.smb.SmbCastSource;
 import com.fongmi.android.tv.utils.PushParser;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -357,7 +358,16 @@ public class SiteApi {
     }
 
     static String resolvePushPlayerUrl(String id) {
-        return Sniffer.pushUrl(PushParser.fromId(id).getUrl());
+        String pushUrl = PushParser.fromId(id).getUrl();
+        // 投屏过来的本地 SMB 源：下发的是 SMB 连接要素描述符，这里由接收端自己启动代理，
+        // 换成本机 127.0.0.1 直链后走和本机 SMB 完全相同的播放路径，不依赖发送端。
+        try {
+            String smb = SmbCastSource.toLocalUrl(pushUrl);
+            if (!TextUtils.isEmpty(smb)) return smb;
+        } catch (Exception e) {
+            SpiderDebug.log("push-smb", "resolve failed=%s", e.getClass().getSimpleName());
+        }
+        return Sniffer.pushUrl(pushUrl);
     }
 
     /**
@@ -430,9 +440,13 @@ public class SiteApi {
         Vod vod = new Vod();
         vod.setId(id);
         vod.setName(push.getName());
+        // 投屏过来的本地 SMB 源：描述符里带着真实文件名，片名不能显示成一整串描述符；
+        // 地址保持描述符，等播放入口再换成本机代理地址（见 resolvePushPlayerUrl）。
+        boolean smb = SmbCastSource.isDescriptor(push.getUrl());
+        if (smb && !push.hasExplicitTitle()) vod.setName(SmbCastSource.titleOf(push.getUrl()));
         // 本地文件播放/推送到远程 app 时，把 file:/// 转成本机局域网代理地址，
         // 否则远程设备拿到 file:/// 无法访问（会崩）。与 fish 的 buildPushVod 一致。
-        vod.setPlayUrl(push.getUrl().startsWith("file://") ? toLanHttpUrl(push.getUrl()) : push.getUrl());
+        vod.setPlayUrl(!smb && push.getUrl().startsWith("file://") ? toLanHttpUrl(push.getUrl()) : push.getUrl());
         vod.setPlayFrom(ResUtil.getString(R.string.push));
         vod.setPic(ResUtil.getString(R.string.push_image));
         Source.get().parse(vod.setFlags());

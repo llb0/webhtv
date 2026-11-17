@@ -59,6 +59,7 @@ public class TmdbPersonDialog {
     private final Site site;
     private final TmdbService tmdbService;
     private final TmdbConfig tmdbConfig;
+    private final Runnable onSourceWorks;
 
     private Dialog dialog;
     private TextView biography;
@@ -92,7 +93,12 @@ public class TmdbPersonDialog {
     }
 
     public static void show(Activity activity, TmdbPerson person, Site site) {
-        new TmdbPersonDialog(activity, person, site).show();
+        show(activity, person, site, null);
+    }
+
+    /** onSourceWorks 非空时在人物资料里展示“相关作品”，点击后由调用方打开站源列表。 */
+    public static void show(Activity activity, TmdbPerson person, Site site, Runnable onSourceWorks) {
+        new TmdbPersonDialog(activity, person, site, onSourceWorks).show();
     }
 
     private static Site currentSite(Activity activity) {
@@ -100,10 +106,11 @@ public class TmdbPersonDialog {
         return VodConfig.get().getSite(key);
     }
 
-    private TmdbPersonDialog(Activity activity, TmdbPerson person, Site site) {
+    private TmdbPersonDialog(Activity activity, TmdbPerson person, Site site, Runnable onSourceWorks) {
         this.activity = activity;
         this.person = person;
         this.site = site;
+        this.onSourceWorks = onSourceWorks;
         this.tmdbService = new TmdbService();
         this.tmdbConfig = TmdbConfig.effectiveCurrent();
         this.light = resolveLightTheme(activity);
@@ -161,6 +168,7 @@ public class TmdbPersonDialog {
         departmentChips = view.findViewById(R.id.departmentChips);
         mediaChips = view.findViewById(R.id.mediaChips);
         View closeBtn = view.findViewById(R.id.closeBtn);
+        bindSourceWorks(view.findViewById(R.id.sourceWorks));
 
         applyPanelSize(view);
         applyTheme(view);
@@ -202,6 +210,19 @@ public class TmdbPersonDialog {
         } else {
             closeBtn.setOnClickListener(v -> dialog.dismiss());
         }
+    }
+
+    private void bindSourceWorks(com.google.android.material.button.MaterialButton button) {
+        if (button == null) return;
+        if (onSourceWorks == null) {
+            button.setVisibility(View.GONE);
+            return;
+        }
+        button.setVisibility(View.VISIBLE);
+        button.setOnClickListener(v -> {
+            if (dialog != null) dialog.dismiss();
+            onSourceWorks.run();
+        });
     }
 
     private void applyPanelSize(View view) {

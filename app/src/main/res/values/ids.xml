@@ -3,4 +3,6 @@
     <item name="tmdb_episode_still_request_key" type="id" />
     <item name="update_fullscreen_inset" type="id" />
     <item name="loadHost" type="id" />
+    <!-- 详情字段原始文本（含 [a=cr:] 标记）：渲染成可点击 span 后标记会被吃掉，判“这一行有没有源站超链接”只能看它 -->
+    <item name="tag_click_link" type="id" />
 </resources>

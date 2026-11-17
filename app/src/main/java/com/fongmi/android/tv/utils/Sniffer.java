@@ -15,6 +15,7 @@ import com.github.catvod.utils.Trans;
 import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,7 +26,9 @@ import java.util.regex.Pattern;
 
 public class Sniffer {
 
-    public static final Pattern CLICKER = Pattern.compile("\\[a=cr:(\\{.*?\\})\\/](.*?)\\[\\/a]");
+    // 单条 [a=cr:{...}/]名[/a] 与多条 [a=cr:[{...},{...}]/]名1/名2[/a] 都算点击标记：
+    // 后者是站源（如 XBPQ）按人逐个下发时用的写法，每条名字对应列表里的一项。
+    public static final Pattern CLICKER = Pattern.compile("\\[a=cr:((?:\\{.*?\\}|\\[.*?\\]))\\/](.*?)\\[\\/a]");
     public static final Pattern AI_PUSH = Pattern.compile("(https?|thunder|magnet|ed2k|video):\\S+");
     public static final Pattern SNIFFER = Pattern.compile("https?://[^\\s]{12,}\\.(?:m3u8|mp4|mkv|flv|mp3|m4a|aac|mpd)(?:\\?.*)?|https?://.*?video/tos[^\\s]*|rtmp:[^\\s]+");
     // /file 是 WebHTV 本机文件代理，必须按真实后缀判直链；否则 avi/wmv 等会被当成网页，
@@ -167,12 +170,59 @@ public class Sniffer {
         int last = 0;
         while (matcher.find()) {
             span.append(text, last, matcher.start());
-            int start = span.length();
-            span.append(Trans.s2t(matcher.group(2).trim()));
-            span.setSpan(factory.apply(Result.type(matcher.group(1))), start, span.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            appendClickable(span, matcher.group(1), matcher.group(2), factory);
             last = matcher.end();
         }
         span.append(text, last, text.length());
         return span;
+    }
+
+    private static void appendClickable(SpannableStringBuilder span, String json, String label, Function<Result, ClickableSpan> factory) {
+        List<String> types = clickItems(json);
+        String value = Trans.s2t(label.trim());
+        int start = span.length();
+        span.append(value);
+        if (types.isEmpty()) return;
+        // 多条链接按"/"拆分名字，与数组顺序一一对应；条数对不上就整段挂第一项，避免拆出半截文本
+        String[] names = types.size() > 1 ? value.split("/") : new String[]{value};
+        if (names.length != types.size()) {
+            span.setSpan(factory.apply(Result.type(types.get(0))), start, span.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            return;
+        }
+        int offset = start;
+        for (int i = 0; i < names.length; i++) {
+            int begin = offset + (i > 0 ? 1 : 0);
+            int end = begin + names[i].length();
+            span.setSpan(factory.apply(Result.type(types.get(i))), begin, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            offset = end;
+        }
+    }
+
+    // {…} 原样返回；[…] 按顶层大括号拆成多条，供逐个名字挂点击
+    public static List<String> clickItems(String json) {
+        List<String> list = new ArrayList<>();
+        if (json == null) return list;
+        String body = json.trim();
+        if (body.isEmpty()) return list;
+        if (!body.startsWith("[")) {
+            list.add(body);
+            return list;
+        }
+        int depth = 0;
+        int start = -1;
+        for (int i = 1; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (c == '{') {
+                if (depth == 0) start = i;
+                depth++;
+            } else if (c == '}' && depth > 0) {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    list.add(body.substring(start, i + 1));
+                    start = -1;
+                }
+            }
+        }
+        return list;
     }
 }

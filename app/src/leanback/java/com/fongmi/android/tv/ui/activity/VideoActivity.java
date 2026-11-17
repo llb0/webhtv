@@ -382,6 +382,9 @@ private boolean runtimeSourceOnly;
     private static final String EXTRA_TMDB_PLAY_SEASON_NUMBER = "tmdb_play_season_number";
     private static final String EXTRA_TMDB_PLAY_EPISODE_NUMBER = "tmdb_play_episode_number";
     private static final String EXTRA_RESUME_FROM_HISTORY = "resume_from_history";
+    // 从播放历史进入：详情缓存会直接命中，站点替换变量（如 XBPQ 的 {{xxid}}）就没人填，
+    // 取流时链接里还带着占位符，站点返回 400。历史播放必须向站点重取一次详情。
+    private static final String EXTRA_REFRESH_DETAIL_FROM_HISTORY = "refresh_detail_from_history";
     private static final String EXTRA_RESUME_HISTORY_CID = "resume_history_cid";
     private static final String EXTRA_RESUME_HISTORY_KEY = "resume_history_key";
     private static final String EXTRA_TMDB_VOD_CACHE_KEY = "tmdb_vod_cache_key";
@@ -577,6 +580,8 @@ private boolean runtimeSourceOnly;
     private com.fongmi.android.tv.ui.helper.TmdbUIAdapter mTmdbUIAdapter;
     private com.fongmi.android.tv.ui.custom.TmdbHeaderView mTmdbHeaderView;
     private Vod mVod;
+    // 站源在 vod_actor / vod_director 里下发的 [a=cr:] 点击链接（人名 → JSON）
+    private com.fongmi.android.tv.ui.helper.SourceClickLinks mSourceClickLinks = com.fongmi.android.tv.ui.helper.SourceClickLinks.empty();
     private String mSourceVodName = "";
     private final SourceEpisodeSeasonCache mSourceEpisodeSeasonCache = new SourceEpisodeSeasonCache();
     private boolean mTmdbAutoDialogShown;
@@ -1048,6 +1053,7 @@ private boolean runtimeSourceOnly;
         intent.putExtra("key", target.getSiteKey());
         intent.putExtra("id", target.getId());
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, true);
+        intent.putExtra(EXTRA_REFRESH_DETAIL_FROM_HISTORY, true);
         intent.putExtra(EXTRA_RESUME_HISTORY_CID, source.getCid());
         intent.putExtra(EXTRA_RESUME_HISTORY_KEY, HistoryResumePayload.encode(source));
         int flagIndex = com.fongmi.android.tv.ui.helper.TmdbUIAdapter.flagIndex(target.getFlags(), flag);
@@ -1102,6 +1108,7 @@ private boolean runtimeSourceOnly;
         intent.putExtra("key", key);
         intent.putExtra("id", id);
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, resumeFromHistory);
+        intent.putExtra(EXTRA_REFRESH_DETAIL_FROM_HISTORY, resumeFromHistory);
         if (resumeHistory != null) {
             intent.putExtra(EXTRA_RESUME_HISTORY_CID, resumeHistory.getCid());
             intent.putExtra(EXTRA_RESUME_HISTORY_KEY, HistoryResumePayload.encode(resumeHistory));
@@ -1189,6 +1196,7 @@ private boolean runtimeSourceOnly;
         intent.putExtra("key", key);
         intent.putExtra("id", id);
         intent.putExtra(EXTRA_RESUME_FROM_HISTORY, resumeHistory != null);
+        intent.putExtra(EXTRA_REFRESH_DETAIL_FROM_HISTORY, resumeHistory != null);
         if (resumeHistory != null) {
             intent.putExtra(EXTRA_RESUME_HISTORY_CID, resumeHistory.getCid());
             intent.putExtra(EXTRA_RESUME_HISTORY_KEY, HistoryResumePayload.encode(resumeHistory));
@@ -1250,8 +1258,10 @@ private boolean runtimeSourceOnly;
     /** 本地 SMB 播放：源站 Vod 名只是代理地址，不能用它覆盖文件名。 */
     private boolean isSmbSource() {
         if (getIntent().getBooleanExtra("smb_source", false)) return true;
-        // 从历史再次播放时 smb_source 不一定会重新写入，代理地址本身仍能识别。
-        return SiteApi.PUSH.equals(getKey()) && getId().startsWith("http://127.0.0.1:");
+        // 从历史再次播放时 smb_source 不一定会重新写入，代理地址本身仍能识别；
+        // 投屏过来的是 smbcast 描述符（由本机启动代理），同样属于本地 SMB 播放。
+        return SiteApi.PUSH.equals(getKey())
+                && (getId().startsWith("http://127.0.0.1:") || com.fongmi.android.tv.smb.SmbCastSource.isDescriptor(getId()));
     }
 
     private String getPic() {
@@ -1426,6 +1436,20 @@ private boolean runtimeSourceOnly;
         return getIntent().getBooleanExtra(EXTRA_RESUME_FROM_HISTORY, false);
     }
 
+    /**
+     * 从播放历史进入时要跳过详情缓存、向站点重取一次详情：
+     * 详情缓存命中时站点的 spider 不会执行 detailContent，那些在详情阶段才生成的替换变量
+     * （典型是 XBPQ 配置里的 {{xxxid}}）就留在原位，取流时站点直接 400。
+     * 推送/本地 SMB 这类自带地址的没有站源详情，跳过重取。
+     */
+    private boolean shouldRefreshDetailFromHistory() {
+        if (!getIntent().getBooleanExtra(EXTRA_REFRESH_DETAIL_FROM_HISTORY, false)) return false;
+        String key = getKey();
+        if (SiteApi.PUSH.equals(key)) return false;
+        if (com.fongmi.android.tv.smb.SmbCastSource.isDescriptor(getId())) return false;
+        return true;
+    }
+
     private History getIntentResumeHistory() {
         String key = Objects.toString(getIntent().getStringExtra(EXTRA_RESUME_HISTORY_KEY), "");
         if (key.isEmpty()) return null;
@@ -1455,7 +1479,10 @@ private boolean runtimeSourceOnly;
 
     private String getHistoryKey() {
         if (isOriginSession()) return mOrigin.historyKey();
-        return getKey().concat(AppDatabase.SYMBOL).concat(getId()).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
+        // 本机 SMB 播放的 id 是带随机端口/token 的回环地址，直接当 vodId 会让同一文件每次打开
+        // 都新增一条最近观看；换回 smbcast 描述符后 key 才稳定（非 SMB 地址原样返回）。
+        String id = com.fongmi.android.tv.smb.SmbCastSource.stableId(getId());
+        return getKey().concat(AppDatabase.SYMBOL).concat(id).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
     }
 
     private void restoreImmersiveAudioRequest() {
@@ -2555,7 +2582,11 @@ private boolean runtimeSourceOnly;
         detailRequested = true;
         if (getId().startsWith("push://")) getIntent().putExtra("key", SiteApi.PUSH).putExtra("id", getId().substring(7));
         if (getId().isEmpty() || getId().startsWith("msearch:")) setEmpty(false);
-        else if (!setCachedTmdbDetail()) getDetail();
+        else {
+            // 历史播放要重取详情，连 Vod 级缓存也不能用，否则同样跳过 spider 的 detailContent。
+            boolean refreshFromHistory = shouldRefreshDetailFromHistory();
+            if (refreshFromHistory || !setCachedTmdbDetail()) getDetail(refreshFromHistory);
+        }
     }
 
     private boolean setCachedTmdbDetail() {
@@ -3248,6 +3279,7 @@ private boolean runtimeSourceOnly;
         if (isSmbSource() && !TextUtils.isEmpty(getName())) item.setName(getName());
         mSourceVodName = item.getName();
         mVod = item;
+        mSourceClickLinks = com.fongmi.android.tv.ui.helper.SourceClickLinks.from(item);
         resetPendingTmdbBind();
         mTmdbAutoDialogShown = false;
         mTmdbDetailFieldsApplied = false;
@@ -3315,7 +3347,8 @@ private boolean runtimeSourceOnly;
     }
 
     private boolean shouldShowTmdbLoadingOverlay() {
-        return !mFastTmdbPlaybackStarted && !shouldRevealShellWhileLoading();
+        // 详情页不再整页等 TMDB：站源详情到手就上屏，TMDB 结果到了再原地补齐/替换
+        return false;
     }
 
     /**
@@ -3364,7 +3397,7 @@ private boolean runtimeSourceOnly;
     private void revealShellWhileTmdbLoads() {
         boolean hiddenByLoading = !mBinding.progressLayout.isContent();
         if (!mBinding.progressLayout.isContent()) mBinding.progressLayout.showContent();
-        if (shouldUseTmdbLayout()) suppressTmdbNativeTextFields();
+        // 原生详情（标题/年份/演员/导演/简介）先展示，TMDB 富集完成后再由 applyTmdbDetailFields 接管
         if (hiddenByLoading && !mBinding.getRoot().hasFocus()) {
             mBinding.video.post(() -> {
                 if (!mBinding.getRoot().hasFocus()) requestInitialPlaybackFocus();
@@ -3535,9 +3568,9 @@ private boolean runtimeSourceOnly;
         setText(mBinding.director, R.string.detail_director, item.getDirector());
         setText(mBinding.actor, R.string.detail_actor, item.getActor());
         setText(mBinding.remark, 0, item.getRemarks());
-        // TMDB 模式下简介区由 applyTmdbDetailFields() 按富集结果接管，此处只喂影视原生，
-        // 否则站源简介会先上屏、TMDB 到达后再换一次，产生用户可见的文本闪动。
-        if (!isTmdbSourceEnabled()) updateOverviewPreview();
+        // TMDB 模式下简介区由 applyTmdbDetailFields() 按富集结果接管；富集结果未到之前
+        // 先显示站源简介，避免详情页要空等到 TMDB 返回才有内容。
+        updateOverviewPreview();
         updateAudioStageText();
     }
 
@@ -3553,12 +3586,16 @@ private boolean runtimeSourceOnly;
             // 无条件清空会把那条路径的结果抹掉，因此保留原来的"空值不覆盖已有文本"语义。
             if (resId > 0) {
                 if (!TextUtils.isEmpty(view.getText())) view.setText(null);
+                view.setTag(R.id.tag_click_link, null);
                 view.setVisibility(View.GONE);
             }
             return;
         }
         String value = resId > 0 ? getString(resId, text) : text;
         view.setVisibility(View.VISIBLE);
+        // 原始文本（含 [a=cr:]）留在 tag 上：buildClickable 会把标记换成 span，渲染后的文本里
+        // 已经找不到标记，hasClickLink() 只能靠这里判断这一行到底有没有源站超链接。
+        view.setTag(R.id.tag_click_link, text);
         if (TextUtils.equals(view.getText(), value)) return;
         view.setText(Sniffer.buildClickable(value, this::clickableSpan), TextView.BufferType.SPANNABLE);
         view.setLinkTextColor(MDColor.YELLOW_500);
@@ -7026,8 +7063,21 @@ private boolean runtimeSourceOnly;
     private void suppressTmdbNativeTextFields() {
         if (isIntentTmdbPlayback()) return;
         mBinding.remark.setVisibility(View.GONE);
+        // 只有 TMDB 真正匹配并加载完成（isLoaded()）才让出演员/导演这两行：
+        // 匹配成功时它们的信息和超链接入口在 TMDB 侧（「相关作品」）已经有了；
+        // 匹配失败/超时时 TMDB 这两行本来就是空的，再压掉原生行等于把信息抹成空白。
+        boolean tmdbOwnsMetadata = mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded();
+        if (!tmdbOwnsMetadata) return;
         mBinding.actor.setVisibility(View.GONE);
         mBinding.director.setVisibility(View.GONE);
+    }
+
+    private boolean hasClickLink(TextView view) {
+        if (view == null) return false;
+        // 优先看 setText 存下的原始文本；渲染后的 getText() 里 [a=cr:] 已被换成 span，匹配不到。
+        Object raw = view.getTag(R.id.tag_click_link);
+        CharSequence text = raw instanceof CharSequence ? (CharSequence) raw : view.getText();
+        return text != null && text.length() > 0 && Sniffer.CLICKER.matcher(text).find();
     }
 
     private String getHistoryEpisodeName(Episode episode) {
@@ -8955,7 +9005,23 @@ private boolean runtimeSourceOnly;
 
     private void onTmdbPersonClick(com.fongmi.android.tv.bean.TmdbPerson person) {
         if (person == null) return;
-        com.fongmi.android.tv.ui.dialog.TmdbPersonDialog.show(this, person, getSite());
+        String clickLink = mSourceClickLinks.find(person.getName());
+        // 站源没有这个人的超链接：维持原来的 TMDB 人物资料
+        if (TextUtils.isEmpty(clickLink)) {
+            com.fongmi.android.tv.ui.dialog.TmdbPersonDialog.show(this, person, getSite());
+            return;
+        }
+        // TMDB 没有这个人的资料（personId 为 0）时弹窗是空的，直接用源站链接打开相关作品
+        if (person.getPersonId() <= 0) {
+            openSourceClickLink(clickLink);
+            return;
+        }
+        com.fongmi.android.tv.ui.dialog.TmdbPersonDialog.show(this, person, getSite(), () -> openSourceClickLink(clickLink));
+    }
+
+    private void openSourceClickLink(String clickLink) {
+        VodActivity.start(this, getKey(), Result.type(clickLink));
+        setRedirect(true);
     }
 
     private void onTmdbPhotoClick(String url, int position) {
@@ -11888,7 +11954,10 @@ private void applyAudioStageLayout(boolean visible) {
 
 private void setVideoDetailsVisible(boolean visible) {
         int value = visible ? View.VISIBLE : View.GONE;
-        boolean showNativeMetadata = visible && (!shouldUseTmdbLayout() || isIntentTmdbPlayback());
+        // 关键：TMDB 只是“配置就绪”并不等于“匹配到了”。没匹配到（isLoaded()==false）时它既没有
+        // 演员也没有导演，这里必须继续显示站源的原生行，否则两边都空，用户看到金色行一闪就没。
+        boolean tmdbOwnsMetadata = shouldUseTmdbLayout() && mTmdbUIAdapter != null && mTmdbUIAdapter.isLoaded();
+        boolean showNativeMetadata = visible && (!tmdbOwnsMetadata || isIntentTmdbPlayback());
         mBinding.name.setVisibility(value);
         mBinding.remark.setVisibility(shouldShowVideoDetailRemark(visible) ? View.VISIBLE : View.GONE);
         mBinding.row1.setVisibility(value);

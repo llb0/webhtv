@@ -21,6 +21,7 @@ import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.following.FollowingStore;
 import com.fongmi.android.tv.impl.Diffable;
+import com.fongmi.android.tv.smb.SmbCastSource;
 import com.fongmi.android.tv.history.HistoryDisplayPolicy;
 import com.fongmi.android.tv.player.VideoAspectMode;
 import com.fongmi.android.tv.playback.PlaybackProgressWriter;
@@ -1082,6 +1083,17 @@ public class History implements Diffable<History> {
 
     public String getSiteKey() {
         return getKey().split(AppDatabase.SYMBOL)[0];
+    }
+
+    /**
+     * 这条记录是否自带播放信息、不依赖任何站源配置。
+     *
+     * <p>本地 SMB 投屏自带 smbcast 描述符，纯推送（push_agent）自带直链，两者播放都不查站源。
+     * 接收端据此跳过的“切换发送端接口”的动作——否则接收端会被切到一个自己拉不到的接口，
+     * 表现为“配置取得失败”、首页站源全部消失、无法选站/刷新，而投屏的视频反而能播。
+     */
+    public boolean isSelfContainedCast() {
+        return SmbCastSource.isDescriptor(getVodId()) || SiteApi.PUSH.equals(getSiteKey());
     }
 
     public String getVodId() {

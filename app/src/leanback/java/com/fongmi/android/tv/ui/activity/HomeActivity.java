@@ -118,6 +118,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     private boolean webToolbarVisible = true;
     private boolean loadingHomeCategory;
     private boolean configInitStarted;
+    // 手动刷新期间置真：这一轮配置重载由 refreshHome() 收口（居中转圈 + 回调 showContent()->getVideo()），
+    // 不让 ConfigEvent.VOD 再发一次 HOME，否则首页会 getVideo 两遍，表现为闪一下。
+    private boolean refreshingConfig;
     private boolean homeContentShown;
     private long homeLoadedAt;
     private boolean mStartupActionDone;
@@ -166,7 +169,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mResult = Result.empty();
         mHomeResult = Result.empty();
         mClock = Clock.create(mBinding.clock);
-        mBinding.progressLayout.showProgress();
+        showHomeProgress();
         setRecyclerView();
         setViewModel();
         setAdapter();
@@ -395,20 +398,65 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void initConfig() {
+        initConfig(false);
+    }
+
+    private void initConfig(boolean force) {
+        initConfig(force, false);
+    }
+
+    private void initConfig(boolean force, boolean refresh) {
         // initAfterFirstFrame 会先主动 initConfig，随后权限回调在已授权设备上还会再调一次；
         // 不设门槛时首页会 load 两遍配置，表现为列表出现→消失→重新出现。
-        if (configInitStarted) return;
+        // force 给「用户主动刷新」用：刷新必须能穿透这个一次性门槛，否则点刷新/长按标题
+        // 直接被 return 掉，表现就是刷新失效。
+        if (configInitStarted && !force) return;
         configInitStarted = true;
-        PreviousProcessCrashRecovery.checkBeforeConfig(this, this::loadConfig);
+        PreviousProcessCrashRecovery.checkBeforeConfig(this, () -> loadConfig(refresh));
+    }
+
+    /**
+     * 首页刷新（下拉菜单的「刷新」按钮、长按标题）：重新初始化配置（重新下载、重新解析站点/解析器/规则），
+     * 然后由加载回调 showContent() 重新取首页数据。转圈统一用启动时那个居中的 progressLayout。
+     */
+    private void refreshHome() {
+        refreshingConfig = true;
+        showHomeProgress();
+        initConfig(true, true);
+    }
+
+    /**
+     * 首页进入加载态：居中转圈 + 收起内容。
+     * 分类行（typeRecycler）在 progressLayout 之外，三态切不到它，必须单独收起来，
+     * 否则刷新时会出现「视频列表都收走了、分类还在」的割裂画面。
+     * hideContent() 把刚被改回 VISIBLE 的子视图重新压回隐藏——否则旧列表会在转圈期间闪一下
+     * （清 adapter 之前 RecyclerView 还挂着旧行）。
+     */
+    private void showHomeProgress() {
+        mBinding.typeRecycler.setVisibility(View.GONE);
+        mBinding.progressLayout.showProgress();
+        mBinding.progressLayout.hideContent();
+    }
+
+    /** 配置整体重建（换配置、导入备份等）：仍走完整的 init()。 */
+    private void reloadConfigNow() {
+        showHomeProgress();
+        initConfig(true, false);
     }
 
     private void loadConfig() {
+        loadConfig(false);
+    }
+
+    private void loadConfig(boolean refresh) {
         if (CrashRestartMode.consume()) {
             SpiderDebug.log("startup", "skip config load once after crash restart");
             showContent();
             return;
         }
-        SpiderDebug.log("startup", "config load start cost=%sms", System.currentTimeMillis() - App.time());
+        SpiderDebug.log("startup", "config load start cost=%sms refresh=%s", System.currentTimeMillis() - App.time(), refresh);
+        // 手动刷新与启动用同一条初始化链路：clear() 销毁 jar/js/py 加载器后由这一次 load 重新建立，
+        // 和刚启动时一样，历史播放照样能用。
         VodConfig.get().init().load(getCallback());
         LiveConfig.get().init().load();
         WallConfig.get().init();
@@ -419,6 +467,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             @Override
             public void success() {
                 SpiderDebug.log("startup", "config load success cost=%sms", System.currentTimeMillis() - App.time());
+                refreshingConfig = false;
                 showContent();
             }
 
@@ -426,6 +475,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             public void error(String msg) {
                 SpiderDebug.log("startup", "config load error cost=%sms msg=%s", System.currentTimeMillis() - App.time(), msg);
                 Notify.show(msg);
+                refreshingConfig = false;
                 showContent();
             }
         };
@@ -529,8 +579,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         if (mWeb != null) mWeb.hide();
         hideWebOverlay();
         applyTvChrome(TV_NORMAL);
-        mBinding.recycler.setVisibility(View.VISIBLE);
-        mBinding.progressLayout.showProgress();
+        showHomeProgress();
         mResult = Result.empty();
         mHomeResult = Result.empty();
         loadingHomeCategory = false;
@@ -570,7 +619,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             SpiderDebug.log("home", "home list empty, auto open first category key=%s tid=%s", getHome().getKey(), type.getTypeId());
             loadingHomeCategory = true;
             // 首个分类还在路上时继续用 progressLayout 的居中转圈，列表顶部不再插 progress 行。
-            mBinding.progressLayout.showProgress();
+            showHomeProgress();
             mViewModel.categoryContent(getHome().getKey(), type.getTypeId(), "1", true, new java.util.HashMap<>());
             return;
         }
@@ -641,7 +690,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
                 RefreshEvent.history();
                 // 首次配置加载由 showContent() 自己触发 getVideo()；这里再发一次 HOME
                 // 会让首页列表先出现、再被清空重载，表现为启动时刷新两次。
-                if (homeContentShown && android.os.SystemClock.elapsedRealtime() - homeLoadedAt > 1000) RefreshEvent.home();
+                // 手动刷新时这次重载由 refreshHome() 的加载回调收口，这里再发 HOME 会让首页取两遍、闪一下。
+                if (!refreshingConfig && homeContentShown && android.os.SystemClock.elapsedRealtime() - homeLoadedAt > 1000) RefreshEvent.home();
                 setLogo();
                 break;
             case COMMON:
@@ -695,8 +745,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     }
 
     private void dispatchCast(CastEvent event) {
-        if (VodConfig.get().getConfig().equals(event.config())) {
-            VideoActivity.cast(this, event.history());
+        History history = event.history();
+        // 本地 SMB / 纯推送这类自带地址的投屏不需要任何站源：直接播，绝不切换接收端接口。
+        // 之前一律 VodConfig.load(发送端接口)，接口在电视上拉不到就报“配置取得失败”，
+        // 首页站源随之全空、无法选站和刷新。
+        if ((history != null && history.isSelfContainedCast()) || VodConfig.get().getConfig().equals(event.config())) {
+            VideoActivity.cast(this, history);
         } else {
             VodConfig.load(event.config(), getCallback(event));
         }
@@ -858,7 +912,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
             return;
         }
         if (which == mMenuButtonCount) {
-            initConfig();
+            refreshHome();
             return;
         }
         int categoryIndex = which - mMenuButtonCount - 1;
@@ -916,12 +970,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     public void onRefresh() {
-        initConfig();
+        refreshHome();
     }
 
     @Override
     public void reloadConfig() {
-        onRefresh();
+        reloadConfigNow();
     }
 
     @Override
@@ -1125,6 +1179,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     @Override
     public void onWebLoading() {
         showWebOverlay();
+        mBinding.typeRecycler.setVisibility(View.GONE);
         mBinding.progressLayout.showProgress();
     }
 

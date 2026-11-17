@@ -75,6 +75,25 @@ public final class SmbPlaybackProxy {
         return prefix + token + "/" + encodePathSegment(name) + "?smb=1";
     }
 
+    /**
+     * 内部：本机代理地址 → SMB 文件要素 {host, share, path, username, password, domain}。
+     * 投屏只传这些要素，由接收端自己启动代理（见 {@link SmbCastSource}）。
+     * 不是本代理生成的地址时返回 {@code null}。
+     */
+    static synchronized String[] fileRefOf(String internalUrl) {
+        if (internalUrl == null || internalUrl.isEmpty() || server == null) return null;
+        int port = server.getListeningPort();
+        if (port <= 0) return null;
+        String internalPrefix = "http://127.0.0.1:" + port + "/";
+        if (!internalUrl.startsWith(internalPrefix)) return null;
+        String rest = internalUrl.substring(internalPrefix.length());
+        int slash = rest.indexOf('/');
+        String token = slash < 0 ? rest : rest.substring(0, slash);
+        FileRef ref = FILES.get(token);
+        if (ref == null) return null;
+        return new String[]{ref.host, ref.share, ref.path, ref.username, ref.password, ref.domain};
+    }
+
     private static String encodePathSegment(String value) {
         try {
             // 不用 API 33 才有的 Charset 重载，保证 Android 7/8 设备也能按 UTF-8 编码。
