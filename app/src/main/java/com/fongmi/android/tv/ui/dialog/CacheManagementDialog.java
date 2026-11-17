@@ -274,8 +274,9 @@ public class CacheManagementDialog extends DialogFragment {
     }
 
     /**
-     * 每把锁只管"自动清理能不能动它"：锁闭合（🔒）时后台定时/低空间/总量收敛的清理都跳过该模块，
-     * 保留期修剪也不会修剪它；锁打开（🔓）时不额外限制。手动点模块自己的清理按钮不受锁影响。
+     * 每把锁只管"自动清理能不能整模块地动它"：锁闭合（🔒）时后台定时/低空间/总量收敛的清理
+     * 都跳过该模块，残留清扫也保留它的目录；锁打开（🔓）时不额外限制。
+     * 手动点模块自己的清理按钮、以及各模块自己的过期修剪都不受锁影响。
      */
     private void bindLock(MaterialButton button, CacheModuleId id) {
         applyFocusRing(button, R.color.focus_ring_secondary);

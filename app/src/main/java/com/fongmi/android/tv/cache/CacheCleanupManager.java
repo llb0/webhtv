@@ -103,12 +103,11 @@ public final class CacheCleanupManager {
             CacheRetentionManager.applyLimit(new File(cache, "webhome_ext"),
                     CachePolicyStore.getLimit(CacheModuleId.WEBHOME_EXT), retention, () -> now, Set.of());
         }
-        // EPG 现在由缓存管理面板里的锁决定要不要自动修剪；锁打开时按 6 小时保留期修剪过期节目单。
-        if (!CachePolicyStore.isAutoLocked(CacheModuleId.EPG)) {
-            CacheRetentionManager.applyLimit(EpgParser.cacheDir(),
-                    CachePolicyStore.getLimit(CacheModuleId.EPG), Math.min(retention, 6L * 60L * 60L * 1000L),
-                    () -> now, Set.of());
-        }
+        // 过期节目单必须照常修剪：过期数据留着只占空间，还会挡住新节目单的写入。
+        // 锁只管"整模块被自动清理"，不管这类过期修剪（EPG 的整目录清空仍只在手动入口和自动清理计划里）。
+        CacheRetentionManager.applyLimit(EpgParser.cacheDir(),
+                CachePolicyStore.getLimit(CacheModuleId.EPG), Math.min(retention, 6L * 60L * 60L * 1000L),
+                () -> now, Set.of());
         CacheCenter.get().notifyChanged();
     }
 
