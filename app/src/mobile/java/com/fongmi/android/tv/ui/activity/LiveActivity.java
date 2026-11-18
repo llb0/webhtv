@@ -98,6 +98,7 @@ import com.fongmi.android.tv.ui.dialog.PassDialog;
 import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
+import com.fongmi.android.tv.voice.LiveDeepLink;
 import com.fongmi.android.tv.utils.Biometric;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -271,6 +272,24 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     @Override
     protected boolean shouldAutoPlay() {
         return true;
+    }
+
+    /**
+     * 已在直播页时收到新的"看某某台"：直接在当前实例换台，不再叠一个直播页。
+     * 菜单还没渲染完（首轮加载中）就把 intent 留在那里，等 renderLive 统一处理。
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (!liveMenuRendered) return;
+        Live live = getHome();
+        if (live == null || live.getGroups().isEmpty()) return;
+        LiveDeepLink.handlePending(this, live, (group, channel) -> {
+            if (group == null || group.getChannel() == null || group.getChannel().isEmpty()) return;
+            onItemClick(group);
+            onItemClick(channel);
+        });
     }
 
     @Override
@@ -621,6 +640,11 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         liveMenuRendered = true;
         setGroup(live);
         setWidth(live);
+        LiveDeepLink.handlePending(this, live, (group, channel) -> {
+            if (group == null || group.getChannel() == null || group.getChannel().isEmpty()) return;
+            onItemClick(group);
+            onItemClick(channel);
+        });
     }
 
     /**

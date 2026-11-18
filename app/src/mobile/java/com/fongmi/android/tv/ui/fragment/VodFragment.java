@@ -63,6 +63,7 @@ import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.ui.dialog.TypeDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.fongmi.android.tv.voice.VoiceControlDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ConfigDownload;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -386,13 +387,25 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         });
     }
 
+    /** 顶部搜索按钮：点击照旧进搜索，长按进语音控制入口。 */
     private void setSearchLongClick() {
         View search = mBinding.toolbar.findViewById(R.id.search);
         if (search == null) return;
+        // 个性设置里可以切换分工：默认单击搜索、长按语音遥控；也可以反过来。
+        boolean normalClickSearches = com.fongmi.android.tv.setting.Setting.isVoiceSearchLongPress();
+        search.setOnClickListener(view -> {
+            if (normalClickSearches) SearchActivity.start(requireActivity());
+            else openVoiceControl();
+        });
         search.setOnLongClickListener(view -> {
-            SearchActivity.start(requireActivity(), "", getHome().getKey());
+            if (normalClickSearches) openVoiceControl();
+            else SearchActivity.start(requireActivity());
             return true;
         });
+    }
+
+    private void openVoiceControl() {
+        VoiceControlDialog.create().show(getChildFragmentManager(), "voice_control");
     }
 
     private void showProgress() {
