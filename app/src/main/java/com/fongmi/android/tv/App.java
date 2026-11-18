@@ -104,6 +104,54 @@ public class App extends Application implements Application.ActivityLifecycleCal
         return get().activity;
     }
 
+    /** 首页类名：退栈时永远保留，避免把主界面 finish 掉。 */
+    public static final String HOME_ACTIVITY = "com.fongmi.android.tv.ui.activity.HomeActivity";
+
+    private final java.util.List<java.lang.ref.WeakReference<Activity>> trackedActivities = new java.util.ArrayList<>();
+
+    private void trackActivity(Activity activity) {
+        if (activity == null) return;
+        synchronized (trackedActivities) {
+            trackedActivities.add(new java.lang.ref.WeakReference<>(activity));
+        }
+    }
+
+    private void untrackActivity(Activity activity) {
+        synchronized (trackedActivities) {
+            trackedActivities.removeIf(ref -> ref.get() == null || ref.get() == activity);
+        }
+    }
+
+    /**
+     * 语音导航用：关掉除首页与本类以外的所有页面，保证"返回一次就回到首页"，不会层层叠页。
+     *
+     * @param keepClassName 想复用的目标页类名（复用实例才能走 onNewIntent 原地刷新），可省略
+     */
+    public static void finishPagesExcept(String... keepClassName) {
+        App app = get();
+        if (app == null) return;
+        java.util.List<Activity> targets = new java.util.ArrayList<>();
+        synchronized (app.trackedActivities) {
+            for (java.lang.ref.WeakReference<Activity> ref : app.trackedActivities) {
+                Activity activity = ref.get();
+                if (activity == null || activity.isFinishing()) continue;
+                String name = activity.getClass().getName();
+                if (HOME_ACTIVITY.equals(name)) continue;
+                boolean keep = false;
+                for (String keepName : keepClassName) if (keepName != null && keepName.equals(name)) keep = true;
+                if (!keep) targets.add(activity);
+            }
+        }
+        Runnable finish = () -> {
+            for (Activity activity : targets) {
+                if (activity.isFinishing() || activity.isDestroyed()) continue;
+                activity.finish();
+            }
+        };
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) finish.run();
+        else post(finish);
+    }
+
     public static boolean isForeground() {
         App app = get();
         return app != null && app.foregroundActivities > 0;
@@ -536,10 +584,12 @@ public class App extends Application implements Application.ActivityLifecycleCal
     @Override
     public void onActivityCreated(@NonNull Activity activity, @Nullable Bundle savedInstanceState) {
         PluginHostEvents.activityCreated(activity);
+        trackActivity(activity);
     }
 
     @Override
     public void onActivityDestroyed(@NonNull Activity activity) {
+        untrackActivity(activity);
         PluginHostEvents.activityDestroyed(activity);
         PluginController.safeOnDestroyed(activity);
     }
