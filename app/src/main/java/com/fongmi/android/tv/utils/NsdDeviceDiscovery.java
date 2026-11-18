@@ -126,8 +126,10 @@ public class NsdDeviceDiscovery {
             @Override
             public void onServiceResolved(NsdServiceInfo serviceInfo) {
                 if (serviceInfo.getHost() == null || serviceInfo.getPort() <= 0) return;
-                String url = "http://" + serviceInfo.getHost().getHostAddress() + ":" + serviceInfo.getPort();
-                App.post(() -> listener.onServiceFound(url));
+                final String url = "http://" + serviceInfo.getHost().getHostAddress() + ":" + serviceInfo.getPort();
+                String raw = serviceInfo.getServiceName();
+                final String name = raw != null && raw.startsWith("WebHTV-") ? raw.substring("WebHTV-".length()) : raw;
+                App.post(() -> listener.onServiceFound(name, url));
             }
         }));
         logFailure("resolve", failure);
@@ -174,5 +176,10 @@ public class NsdDeviceDiscovery {
     public interface Listener {
 
         void onServiceFound(String url);
+
+        /** 带设备名（注册时的 "WebHTV-设备名" 去掉前缀），列表里显示"设备名 + IP"用。 */
+        default void onServiceFound(String name, String url) {
+            onServiceFound(url);
+        }
     }
 }
