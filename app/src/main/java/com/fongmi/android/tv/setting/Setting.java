@@ -1834,4 +1834,14 @@ public class Setting {
     public static void putSmbEntryEnabled(boolean enabled) {
         Prefers.put("smb_entry_enabled", enabled);
     }
+
+    // ===== 首页搜索按钮：单击/长按分工 =====
+    /** true=单击搜索、长按语音遥控（默认，保持老习惯）；false=单击语音遥控、长按搜索。 */
+    public static boolean isVoiceSearchLongPress() {
+        return Prefers.getBoolean("voice_search_long_press", true);
+    }
+
+    public static void putVoiceSearchLongPress(boolean longPress) {
+        Prefers.put("voice_search_long_press", longPress);
+    }
 }
