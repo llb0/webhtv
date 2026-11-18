@@ -63,6 +63,7 @@ import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.ui.dialog.TypeDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.fongmi.android.tv.voice.VoiceControlDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ConfigDownload;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -295,7 +296,10 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
             if (mWeb != null && mWeb.isVisible()) mWeb.reload();
             else homeContent();
         } else if (item.getItemId() == R.id.keep) KeepActivity.start(requireActivity());
-        else if (item.getItemId() == R.id.search) SearchActivity.start(requireActivity());
+        else if (item.getItemId() == R.id.search) {
+            if (com.fongmi.android.tv.setting.Setting.isVoiceSearchLongPress()) SearchActivity.start(requireActivity());
+            else openVoiceControl();
+        }
         else if (item.getItemId() == R.id.history) HistoryActivity.start(requireActivity());
         else if (item.getItemId() == R.id.sync) OneKeySyncDialog.create().show(requireActivity());
         else if (item.getItemId() == R.id.push_apk) ApkPushDialog.create().listener(this::onApkDeviceSelected).show(requireActivity());
@@ -386,13 +390,26 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         });
     }
 
+    /** 顶部搜索按钮：单击/长按的分工每次点击时重新读设置，改完设置立刻生效，不用重进页面。 */
     private void setSearchLongClick() {
         View search = mBinding.toolbar.findViewById(R.id.search);
         if (search == null) return;
+        search.setOnClickListener(view -> {
+            if (com.fongmi.android.tv.setting.Setting.isVoiceSearchLongPress()) SearchActivity.start(requireActivity());
+            else openVoiceControl();
+        });
         search.setOnLongClickListener(view -> {
-            SearchActivity.start(requireActivity(), "", getHome().getKey());
+            if (com.fongmi.android.tv.setting.Setting.isVoiceSearchLongPress()) openVoiceControl();
+            else SearchActivity.start(requireActivity());
             return true;
         });
+    }
+
+    private void openVoiceControl() {
+        // 已经开着就别再开一个（连点/长按会叠出多层，镜像里还会照到自己，越套越深）
+        androidx.fragment.app.Fragment existing = getChildFragmentManager().findFragmentByTag("voice_control");
+        if (existing != null && existing.isAdded()) return;
+        VoiceControlDialog.create().show(getChildFragmentManager(), "voice_control");
     }
 
     private void showProgress() {
