@@ -18,6 +18,7 @@
 
     <application>
 
+
         <activity
             android:name=".ui.activity.HomeActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
@@ -108,6 +109,7 @@
         <activity
             android:name=".ui.activity.SearchActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:launchMode="singleTop"
             android:screenOrientation="fullUser"
             android:windowSoftInputMode="adjustPan" />
 
