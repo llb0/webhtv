@@ -73,6 +73,11 @@
                 android:title="@string/setting_enhance" />
 
             <item
+                android:id="@+id/voice"
+                android:icon="@drawable/ic_nav_voice"
+                android:title="@string/voice_overlay_label" />
+
+            <item
                 android:id="@+id/download_manager"
                 android:icon="@drawable/ic_control_download_shadow"
                 android:title="@string/download_manager_title"

@@ -63,6 +63,7 @@ import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.ui.dialog.TypeDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.fongmi.android.tv.voice.VoiceControlDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ConfigDownload;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -302,6 +303,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         else if (item.getItemId() == R.id.push_play) PushPlayDialog.create().listener(this::onPushPlayDeviceSelected).show(requireActivity());
         else if (item.getItemId() == R.id.download_config) downloadConfig();
         else if (item.getItemId() == R.id.enhance && homeActivity() != null) homeActivity().openEnhanceFromVod();
+        else if (item.getItemId() == R.id.voice) VoiceControlDialog.create().show(getChildFragmentManager(), "voice_control");
         else if (item.getItemId() == R.id.download_manager) DownloadManagerActivity.start(requireActivity());
         else if (item.getItemId() == R.id.web_home_fullscreen) onWebHomeFullscreen();
         else return false;
