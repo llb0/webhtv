@@ -114,6 +114,36 @@ public final class CachePolicyStore {
         Prefers.put(PREFIX + "total_limit_bytes", Math.max(UNLIMITED, bytes));
     }
 
+    /**
+     * 自动清理锁（缓存管理面板里每把锁的持久化状态）。
+     *
+     * <p>{@code locked = true}（锁闭合）表示自动清理不允许碰这个模块：定时/低空间/总量收敛的
+     * 自动清理会跳过它，残留清扫也保留它的目录；手动点模块自己的清理按钮照样能清。
+     * 过期修剪（例如 EPG 的过期节目单）不属于"清理整模块"，照常执行、不受锁影响。
+     * 默认只有诊断日志闭合——它是排障证据，且历史自动清空正是从它开始被怀疑。</p>
+     */
+    public static boolean isAutoLocked(CacheModuleId id) {
+        if (id == null) return false;
+        return Prefers.getBoolean(lockKey(id), defaultAutoLocked(id));
+    }
+
+    public static void putAutoLocked(CacheModuleId id, boolean locked) {
+        if (id == null) return;
+        Prefers.put(lockKey(id), locked);
+    }
+
+    /** 默认闭合的模块。 */
+    static boolean defaultAutoLocked(CacheModuleId id) {
+        return id == CacheModuleId.DIAGNOSTIC_LOGS;
+    }
+
+    /** 当前全部处于闭合状态的模块，供自动清理计划与保留期修剪过滤。 */
+    public static java.util.Set<CacheModuleId> lockedModules() {
+        java.util.EnumSet<CacheModuleId> ids = java.util.EnumSet.noneOf(CacheModuleId.class);
+        for (CacheModuleId id : CacheModuleId.values()) if (isAutoLocked(id)) ids.add(id);
+        return ids;
+    }
+
     public static long defaultLimit(CacheModuleId id) {
         return switch (id) {
             case GLIDE, LYRICS, KARAOKE, WEBHOME_EXT, PLUGIN_SCRIPTS -> 256L * 1024L * 1024L;
@@ -126,6 +156,10 @@ public final class CachePolicyStore {
 
     private static String key(CacheModuleId id) {
         return PREFIX + "limit_" + id.id().replace('.', '_');
+    }
+
+    private static String lockKey(CacheModuleId id) {
+        return PREFIX + "auto_lock_" + id.id().replace('.', '_');
     }
 
     private static int clamp(int value, int min, int max) {

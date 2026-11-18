@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:clipToPadding="false"
@@ -93,51 +94,118 @@
                 app:strokeWidth="@dimen/webhtv_focus_ring_width" />
         </androidx.appcompat.widget.LinearLayoutCompat>
 
-        <androidx.appcompat.widget.LinearLayoutCompat
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:gravity="start"
-            android:orientation="horizontal">
+            android:focusable="false"
+            android:scrollbars="none">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/cleanupLight"
-                style="@style/Widget.Material3.Button.TonalButton"
+            <androidx.appcompat.widget.LinearLayoutCompat
                 android:layout_width="wrap_content"
-                android:layout_height="52dp"
-                android:minHeight="52dp"
-                android:nextFocusDown="@id/refresh"
-                android:nextFocusUp="@id/autoCleanup"
-                android:text="@string/cache_cleanup_light"
-                app:strokeColor="@color/focus_ring_secondary"
-                app:strokeWidth="@dimen/webhtv_focus_ring_width" />
+                android:layout_height="wrap_content"
+                android:gravity="start"
+                android:orientation="horizontal">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/cleanupStandard"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="wrap_content"
-                android:layout_height="52dp"
-                android:layout_marginStart="14dp"
-                android:minHeight="52dp"
-                android:nextFocusDown="@id/refresh"
-                android:nextFocusUp="@id/retention"
-                android:text="@string/cache_cleanup_standard"
-                app:strokeColor="@color/focus_ring_secondary"
-                app:strokeWidth="@dimen/webhtv_focus_ring_width" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lockGlide"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:minWidth="0dp"
+                    android:minHeight="52dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:textSize="13sp"
+                    app:strokeColor="@color/focus_ring_secondary"
+                    app:strokeWidth="@dimen/webhtv_focus_ring_width"
+                    tools:text="🔒 图片" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/cleanupDeep"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="wrap_content"
-                android:layout_height="52dp"
-                android:layout_marginStart="14dp"
-                android:minHeight="52dp"
-                android:nextFocusDown="@id/close"
-                android:nextFocusUp="@id/totalLimit"
-                android:text="@string/cache_cleanup_deep"
-                app:strokeColor="@color/focus_ring_secondary"
-                app:strokeWidth="@dimen/webhtv_focus_ring_width" />
-        </androidx.appcompat.widget.LinearLayoutCompat>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lockExo"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="10dp"
+                    android:minWidth="0dp"
+                    android:minHeight="52dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:textSize="13sp"
+                    app:strokeColor="@color/focus_ring_secondary"
+                    app:strokeWidth="@dimen/webhtv_focus_ring_width"
+                    tools:text="🔒 Exo" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lockEpg"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="10dp"
+                    android:minWidth="0dp"
+                    android:minHeight="52dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:textSize="13sp"
+                    app:strokeColor="@color/focus_ring_secondary"
+                    app:strokeWidth="@dimen/webhtv_focus_ring_width"
+                    tools:text="🔒 EPG" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/lockLogs"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="10dp"
+                    android:minWidth="0dp"
+                    android:minHeight="52dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:textSize="13sp"
+                    app:strokeColor="@color/focus_ring_secondary"
+                    app:strokeWidth="@dimen/webhtv_focus_ring_width"
+                    tools:text="🔒 日志" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/cleanupLight"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="16dp"
+                    android:minHeight="52dp"
+                    android:nextFocusDown="@id/refresh"
+                    android:nextFocusUp="@id/autoCleanup"
+                    android:text="@string/cache_cleanup_light"
+                    app:strokeColor="@color/focus_ring_secondary"
+                    app:strokeWidth="@dimen/webhtv_focus_ring_width" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/cleanupStandard"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="14dp"
+                    android:minHeight="52dp"
+                    android:nextFocusDown="@id/refresh"
+                    android:nextFocusUp="@id/retention"
+                    android:text="@string/cache_cleanup_standard"
+                    app:strokeColor="@color/focus_ring_secondary"
+                    app:strokeWidth="@dimen/webhtv_focus_ring_width" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/cleanupDeep"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="14dp"
+                    android:minHeight="52dp"
+                    android:nextFocusDown="@id/close"
+                    android:nextFocusUp="@id/totalLimit"
+                    android:text="@string/cache_cleanup_deep"
+                    app:strokeColor="@color/focus_ring_secondary"
+                    app:strokeWidth="@dimen/webhtv_focus_ring_width" />
+            </androidx.appcompat.widget.LinearLayoutCompat>
+        </HorizontalScrollView>
 
         <androidx.appcompat.widget.LinearLayoutCompat
             android:layout_width="match_parent"

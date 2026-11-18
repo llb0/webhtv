@@ -62,6 +62,11 @@ public class CacheManagementDialog extends DialogFragment {
     private boolean loading;
     private CharSequence resultLine;
     private final java.util.ArrayList<MaterialButton> moduleButtons = new java.util.ArrayList<>();
+    // 锁按钮的"打开（🔓）"外观基线：切回打开状态时要还原本来的 Tonal 底色和字色。
+    private final java.util.Map<MaterialButton, android.content.res.ColorStateList> lockDefaultTint =
+            new java.util.IdentityHashMap<>();
+    private final java.util.Map<MaterialButton, android.content.res.ColorStateList> lockDefaultText =
+            new java.util.IdentityHashMap<>();
 
     public static void show(Fragment fragment) {
         new CacheManagementDialog().show(fragment.getChildFragmentManager(), null);
@@ -182,6 +187,10 @@ public class CacheManagementDialog extends DialogFragment {
         binding.cleanupDeep.setOnClickListener(view -> {
             if (!CacheCleanupManager.isRunning()) confirmDeep(view);
         });
+        bindLock(binding.lockGlide, CacheModuleId.GLIDE);
+        bindLock(binding.lockExo, CacheModuleId.EXO);
+        bindLock(binding.lockEpg, CacheModuleId.EPG);
+        bindLock(binding.lockLogs, CacheModuleId.DIAGNOSTIC_LOGS);
         binding.autoCleanup.setOnClickListener(view -> toggleAutoCleanup());
         binding.retention.setOnClickListener(view -> chooseRetention());
         binding.totalLimit.setOnClickListener(view -> chooseTotalLimit());
@@ -269,6 +278,56 @@ public class CacheManagementDialog extends DialogFragment {
                 });
     }
 
+    /**
+     * 每把锁只管"自动清理能不能整模块地动它"：锁闭合（🔒）时后台定时/低空间/总量收敛的清理
+     * 都跳过该模块，残留清扫也保留它的目录；锁打开（🔓）时不额外限制。
+     * 手动点模块自己的清理按钮、以及各模块自己的过期修剪都不受锁影响。
+     */
+    private void bindLock(MaterialButton button, CacheModuleId id) {
+        applyFocusRing(button, R.color.focus_ring_secondary);
+        lockDefaultTint.put(button, button.getBackgroundTintList());
+        lockDefaultText.put(button, button.getTextColors());
+        button.setOnClickListener(view -> {
+            CachePolicyStore.putAutoLocked(id, !CachePolicyStore.isAutoLocked(id));
+            updateLockButtons();
+        });
+        setLockText(button, id);
+    }
+
+    private void updateLockButtons() {
+        if (binding == null) return;
+        setLockText(binding.lockGlide, CacheModuleId.GLIDE);
+        setLockText(binding.lockExo, CacheModuleId.EXO);
+        setLockText(binding.lockEpg, CacheModuleId.EPG);
+        setLockText(binding.lockLogs, CacheModuleId.DIAGNOSTIC_LOGS);
+    }
+
+    private void setLockText(MaterialButton button, CacheModuleId id) {
+        boolean locked = CachePolicyStore.isAutoLocked(id);
+        int labelRes = switch (id) {
+            case GLIDE -> R.string.cache_lock_glide;
+            case EXO -> R.string.cache_lock_exo;
+            case EPG -> R.string.cache_lock_epg;
+            default -> R.string.cache_lock_logs;
+        };
+        // 两个状态不能只靠锁形图标区分（小字号下 🔒/🔓 几乎一样），所以文字带状态词，
+        // 闭合态再换成实心红底 + 白字：一眼能看出"这条不会被自动清理"。
+        button.setText(getString(locked ? R.string.cache_lock_label_closed
+                : R.string.cache_lock_label_open, getString(labelRes)));
+        if (locked) {
+            button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    androidx.core.content.ContextCompat.getColor(requireContext(), R.color.cache_lock_closed_bg)));
+            button.setTextColor(android.graphics.Color.WHITE);
+        } else {
+            button.setBackgroundTintList(lockDefaultTint.get(button));
+            android.content.res.ColorStateList text = lockDefaultText.get(button);
+            if (text != null) button.setTextColor(text);
+        }
+        button.setContentDescription(locked
+                ? getString(R.string.cache_module_auto_locked, getString(getModuleNameRes(id)))
+                : getString(R.string.cache_module_auto_open, getString(getModuleNameRes(id))));
+    }
+
     private void updatePolicyButtons() {
         binding.autoCleanup.setText(CachePolicyStore.isAutoCleanupEnabled()
                 ? R.string.cache_auto_on : R.string.cache_auto_off);
@@ -279,6 +338,7 @@ public class CacheManagementDialog extends DialogFragment {
         binding.totalLimit.setText(getString(R.string.cache_total_limit_summary,
                 totalLimit <= 0 ? getString(R.string.cache_limit_unlimited)
                         : FileUtil.byteCountToDisplaySize(totalLimit)));
+        updateLockButtons();
     }
 
     private void confirm(CacheCleanupMode mode, View returnFocus) {
@@ -565,6 +625,7 @@ public class CacheManagementDialog extends DialogFragment {
     private MaterialButton limitButton(CacheModuleId id) {
         MaterialButton button = new MaterialButton(requireContext(), null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        button.setId(View.generateViewId());
         button.setMinHeight(ResUtil.dp2px(44));
         button.setMinWidth(ResUtil.dp2px(96));
         button.setMinimumHeight(ResUtil.dp2px(44));
@@ -649,6 +710,7 @@ public class CacheManagementDialog extends DialogFragment {
     private MaterialButton moduleButton(CacheModuleId id) {
         MaterialButton button = new MaterialButton(requireContext(), null,
                 com.google.android.material.R.attr.materialButtonTonalStyle);
+        button.setId(View.generateViewId());
         button.setMinHeight(ResUtil.dp2px(44));
         button.setMinWidth(ResUtil.dp2px(112));
         button.setMinimumHeight(ResUtil.dp2px(44));
@@ -685,6 +747,11 @@ public class CacheManagementDialog extends DialogFragment {
         linkVertical(binding.autoCleanup, null, binding.cleanupLight);
         linkVertical(binding.retention, null, binding.cleanupStandard);
         linkVertical(binding.totalLimit, null, binding.cleanupDeep);
+        // 锁按钮与清理按钮同处一行：向上回策略行，向下到页脚，和清理按钮一条竖向路径。
+        linkVertical(binding.lockGlide, binding.autoCleanup, binding.refresh);
+        linkVertical(binding.lockExo, binding.retention, binding.refresh);
+        linkVertical(binding.lockEpg, binding.totalLimit, binding.refresh);
+        linkVertical(binding.lockLogs, binding.autoCleanup, binding.refresh);
         linkVertical(binding.cleanupLight, binding.autoCleanup, binding.refresh);
         linkVertical(binding.cleanupStandard, binding.retention, binding.refresh);
         linkVertical(binding.cleanupDeep, binding.totalLimit, binding.close);
@@ -705,6 +772,13 @@ public class CacheManagementDialog extends DialogFragment {
             binding.retention.setNextFocusUpId(lastLimit.getId());
             binding.totalLimit.setNextFocusUpId(lastLimit.getId());
         }
+        // 上下环跳：页脚往下回到最上面（模块列表首行；没有模块时是策略行），
+        // 最上面前往上回到页脚，避免按到头就停住。
+        MaterialButton firstTop = moduleButtons.isEmpty() ? binding.autoCleanup : moduleButtons.get(0);
+        if (firstTop.getId() == View.NO_ID) firstTop = binding.autoCleanup;
+        firstTop.setNextFocusUpId(R.id.close);
+        binding.refresh.setNextFocusDownId(firstTop.getId());
+        binding.close.setNextFocusDownId(firstTop.getId());
     }
 
     private void linkVertical(View view, @Nullable View up, @Nullable View down) {
@@ -735,7 +809,11 @@ public class CacheManagementDialog extends DialogFragment {
     }
 
     private String getModuleName(CacheModuleId id) {
-        return getString(switch (id) {
+        return getString(getModuleNameRes(id));
+    }
+
+    private int getModuleNameRes(CacheModuleId id) {
+        return switch (id) {
             case EXO -> R.string.cache_module_exo;
             case MPV_HLS -> R.string.cache_module_mpv_hls;
             case MPV_DEMUXER -> R.string.cache_module_mpv_demuxer;
@@ -753,7 +831,7 @@ public class CacheManagementDialog extends DialogFragment {
             case DIAGNOSTIC_LOGS -> R.string.cache_module_diagnostic_logs;
             case LEGACY_FILES -> R.string.cache_module_legacy_files;
             case UNCLASSIFIED -> R.string.cache_module_unclassified;
-        });
+        };
     }
 
     private String formatTime(long value) {

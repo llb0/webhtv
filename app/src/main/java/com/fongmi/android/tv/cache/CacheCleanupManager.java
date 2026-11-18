@@ -90,14 +90,17 @@ public final class CacheCleanupManager {
         File cache = App.get().getCacheDir();
         long retention = CachePolicyStore.getRetentionDays() * 24L * 60L * 60L * 1000L;
         long now = System.currentTimeMillis();
+        // 模块自控（保留期 + 单模块上限）不受锁影响：上限是模块自身的天花板，超限时由新数据
+        // 挤掉旧数据，过期数据也照常修剪，否则锁上就等于缓存无限增长、新内容写不进来。
+        // 锁只拦"整模块被自动清理"，见 CachePolicyEngine.automaticPlan。
         CacheRetentionManager.applyLimit(new File(cache, "lyrics"),
                 CachePolicyStore.getLimit(CacheModuleId.LYRICS), retention, () -> now, Set.of());
         CacheRetentionManager.applyLimit(new File(cache, "karaoke_tracks"),
                 CachePolicyStore.getLimit(CacheModuleId.KARAOKE), retention, () -> now, Set.of());
         CacheRetentionManager.applyLimit(new File(cache, "webhome_ext"),
                 CachePolicyStore.getLimit(CacheModuleId.WEBHOME_EXT), retention, () -> now, Set.of());
-        // EPG 的整目录清空只走缓存管理里的手动入口；这里的保留期修剪保留，只清理过期
-        // 节目单，避免 files/epg 长期积累脏数据。
+        // 过期节目单必须照常修剪：过期数据留着只占空间，还会挡住新节目单的写入。
+        // 锁只管"整模块被自动清理"，不管这类过期修剪（EPG 的整目录清空仍只在手动入口和自动清理计划里）。
         CacheRetentionManager.applyLimit(EpgParser.cacheDir(),
                 CachePolicyStore.getLimit(CacheModuleId.EPG), Math.min(retention, 6L * 60L * 60L * 1000L),
                 () -> now, Set.of());
@@ -110,7 +113,7 @@ public final class CacheCleanupManager {
         long startedAt = System.currentTimeMillis();
         ArrayList<CacheCleanupResult> results = new ArrayList<>();
         try {
-            if (plan.mode() == CacheCleanupMode.FULL) {
+            if (plan.mode() == CacheCleanupMode.FULL || plan.mode() == CacheCleanupMode.AUTO) {
                 results.add(cleanEverything(plan, progress));
             } else {
                 int total = plan.modules().size();
@@ -176,6 +179,10 @@ public final class CacheCleanupManager {
         boolean success = true;
         boolean deferred = false;
         boolean cancelled = false;
+        // 自动清理时锁闭合的模块连目录都不能被残留清扫带走：计划里已经把它们剔除了，
+        // 这里再把它们的根登记为保留项，sweepResidual 才不会"顺手扫空"。
+        Set<CacheModuleId> autoLocked = plan.mode() == CacheCleanupMode.AUTO
+                ? CachePolicyStore.lockedModules() : Set.of();
         int total = plan.modules().size() + 1;
         for (int index = 0; index < plan.modules().size(); index++) {
             if (CANCELLED.get()) {
@@ -183,6 +190,10 @@ public final class CacheCleanupManager {
                 break;
             }
             CacheModuleId id = plan.modules().get(index);
+            if (autoLocked.contains(id)) {
+                preserved.addAll(moduleRoots(id, registry));
+                continue;
+            }
             if (progress != null) {
                 int completed = index;
                 App.post(() -> progress.accept(new CacheCleanupProgress(id, completed, total, 0, 0)));
@@ -214,6 +225,7 @@ public final class CacheCleanupManager {
                         CacheModuleId.UNCLASSIFIED, completed, total, 0, 0)));
             }
             preserved.addAll(activePluginScripts(cache));
+            for (CacheModuleId locked : autoLocked) preserved.addAll(moduleRoots(locked, registry));
             sweepResidual(cache, preserved, Updater.isDownloading(), ApkUrlPush.isActive(), warnings);
         }
         CacheUsage after = measureCache(cache);
@@ -397,6 +409,7 @@ public final class CacheCleanupManager {
      */
     static boolean explicitRequest(CacheCleanupMode mode) {
         return mode == CacheCleanupMode.MODULE || mode == CacheCleanupMode.FULL
+                || mode == CacheCleanupMode.AUTO
                 || mode == CacheCleanupMode.CONVERGE;
     }
 

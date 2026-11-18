@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:clipToPadding="false"
@@ -100,6 +101,54 @@
             android:layout_marginTop="12dp"
             app:alignItems="stretch"
             app:flexWrap="wrap">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/lockGlide"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="4dp"
+                android:minHeight="48dp"
+                app:strokeColor="@color/focus_ring_secondary"
+                app:strokeWidth="@dimen/webhtv_focus_ring_width"
+                tools:text="🔒 图片" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/lockExo"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="4dp"
+                android:minHeight="48dp"
+                app:strokeColor="@color/focus_ring_secondary"
+                app:strokeWidth="@dimen/webhtv_focus_ring_width"
+                tools:text="🔒 Exo" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/lockEpg"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="4dp"
+                android:minHeight="48dp"
+                app:strokeColor="@color/focus_ring_secondary"
+                app:strokeWidth="@dimen/webhtv_focus_ring_width"
+                tools:text="🔒 EPG" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/lockLogs"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="4dp"
+                android:minHeight="48dp"
+                app:strokeColor="@color/focus_ring_secondary"
+                app:strokeWidth="@dimen/webhtv_focus_ring_width"
+                tools:text="🔒 日志" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/cleanupLight"

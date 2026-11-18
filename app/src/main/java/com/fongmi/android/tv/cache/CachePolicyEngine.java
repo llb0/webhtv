@@ -46,8 +46,8 @@ public final class CachePolicyEngine {
         ids.remove(CacheModuleId.PLUGIN_AUDIT);
         ids.remove(CacheModuleId.PLUGIN_HTTP_CACHE);
         ids.remove(CacheModuleId.UNCLASSIFIED);
-        // EPG 数据落在 files/epg，体积小但重建需要重新拉取节目单；按要求只允许在缓存管理里
-        // 手动点 EPG 自己的清理按钮，任何分级/一键/自动清理都必须保留。
+        // EPG 数据落在 files/epg，体积小但重建需要重新拉取节目单：分级清理仍然保留它，
+        // 是否参与自动清理由缓存管理面板里的锁决定（见 automaticPlan），手动入口永远可用。
         ids.remove(CacheModuleId.EPG);
         return ids;
     }
@@ -62,6 +62,20 @@ public final class CachePolicyEngine {
     public static CacheCleanupPlan plan(CacheCleanupMode mode) {
         return new CacheCleanupPlan(mode == null ? CacheCleanupMode.LIGHT : mode,
                 List.copyOf(modules(mode == null ? CacheCleanupMode.LIGHT : mode)));
+    }
+
+    /**
+     * 自动清理计划：{@link CacheCleanupMode#FULL} 的覆盖范围减去锁闭合的模块。
+     *
+     * <p>锁只约束自动清理。手动的一键/分级清理仍然走 {@link #plan(CacheCleanupMode)}，
+     * 用户按下就是明确授权，不受锁限制。</p>
+     */
+    public static CacheCleanupPlan automaticPlan(Set<CacheModuleId> locked) {
+        EnumSet<CacheModuleId> ids = EnumSet.allOf(CacheModuleId.class);
+        if (locked != null) ids.removeAll(locked);
+        ArrayList<CacheModuleId> ordered = new ArrayList<>();
+        for (CacheModuleId id : CacheModuleId.values()) if (ids.contains(id)) ordered.add(id);
+        return new CacheCleanupPlan(CacheCleanupMode.AUTO, List.copyOf(ordered));
     }
 
     public static CacheCleanupPlan module(CacheModuleId id) {
@@ -89,11 +103,17 @@ public final class CachePolicyEngine {
      * response back into a network call the user never asked for.</p>
      */
     public static CacheCleanupPlan convergencePlan(java.io.File cache) {
+        return convergencePlan(cache, Set.of());
+    }
+
+    /** 总量收敛计划；锁闭合的模块不参与，它们的占用会在面板里报成"受保护"的剩余量。 */
+    public static CacheCleanupPlan convergencePlan(java.io.File cache, Set<CacheModuleId> locked) {
         if (cache == null) return new CacheCleanupPlan(CacheCleanupMode.CONVERGE, List.of());
         ArrayList<CacheModuleId> ids = new ArrayList<>();
         for (CacheModule module : CacheModuleRegistry.modules(cache)) {
             if (module == null || !module.protection().allowManualCleanup()) continue;
             if (AUTOMATIC_EXCLUDED.contains(module.id())) continue;
+            if (locked != null && locked.contains(module.id())) continue;
             ids.add(module.id());
         }
         ArrayList<CacheModuleId> ordered = new ArrayList<>();
@@ -148,11 +168,11 @@ public final class CachePolicyEngine {
             // leftovers a tiered run deliberately protects - except EPG, which stays manual-only.
             case FULL -> {
                 EnumSet<CacheModuleId> all = EnumSet.allOf(CacheModuleId.class);
-                // 一键清理与自动清理同源；EPG 不参与，只能在缓存管理里手动清理。
+                // 手动一键清理也不动 EPG：节目单要靠面板里它自己的按钮或锁打开后的自动清理。
                 all.remove(CacheModuleId.EPG);
                 yield all;
             }
-            case MODULE, CONVERGE -> Set.of();
+            case MODULE, CONVERGE, AUTO -> Set.of();
         };
         ArrayList<CacheModuleId> ordered = new ArrayList<>();
         for (CacheModuleId id : CacheModuleId.values()) if (selected.contains(id)) ordered.add(id);

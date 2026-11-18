@@ -221,7 +221,8 @@ public final class CacheScheduler {
             clearBlocked();
             return false;
         }
-        CacheCleanupPlan plan = CachePolicyEngine.convergencePlan(App.get().getCacheDir());
+        CacheCleanupPlan plan = CachePolicyEngine.convergencePlan(App.get().getCacheDir(),
+                CachePolicyStore.lockedModules());
         if (plan.modules().isEmpty()) return false;
         long protectedBytes = unclaimableBytes(snapshot, plan);
         if (protectedBytes > effective) {
@@ -262,7 +263,8 @@ public final class CacheScheduler {
                 CacheCenter.get().systemQuotaBytes());
         CacheSnapshot after = scanQuietly();
         if (after == null) return;
-        CacheCleanupPlan plan = CachePolicyEngine.convergencePlan(App.get().getCacheDir());
+        CacheCleanupPlan plan = CachePolicyEngine.convergencePlan(App.get().getCacheDir(),
+                CachePolicyStore.lockedModules());
         long over = Math.max(0L, after.totalBytes() - effective);
         long protectedBytes = unclaimableBytes(after, plan);
         boolean retryable = PlaybackService.isRunning()
@@ -334,6 +336,8 @@ public final class CacheScheduler {
         CacheCleanupMode resolved = mode == null ? CacheCleanupMode.LIGHT : mode;
         List<CacheModuleId> modules = CachePolicyEngine.plan(resolved).modules().stream()
                 .filter(CachePolicyEngine::allowsAutomatic)
+                // 锁闭合的模块在自动清理里一律排除，锁只影响"自动"，手动入口不经这里。
+                .filter(id -> !CachePolicyStore.isAutoLocked(id))
                 .toList();
         return new CacheCleanupPlan(resolved, modules);
     }
@@ -350,9 +354,9 @@ public final class CacheScheduler {
             if (finished != null) finished.run();
             return false;
         }
-        // 自动清理与设置页"一键清理"等价：跑 FULL 计划，逐模块按 owner 释放，
-        // 播放中的播放缓存仍由 cleanEverything 的 DEFERRED 逻辑保留，不做半套清理。
-        CacheCleanupManager.execute(CachePolicyEngine.plan(CacheCleanupMode.FULL), reason, result -> {
+        // 自动清理与设置页"一键清理"覆盖范围相同，但锁闭合的模块不参与（AUTO 计划）：
+        // 内容不删，残留清扫也会把它们的目录当保留项；播放中的播放缓存仍走 DEFERRED 保留。
+        CacheCleanupManager.execute(CachePolicyEngine.automaticPlan(CachePolicyStore.lockedModules()), reason, result -> {
             if (result.status() == CacheCleanupStatus.COMPLETED
                     || result.status() == CacheCleanupStatus.PARTIAL) {
                 Prefers.put(KEY_LAST_AUTO_MS, System.currentTimeMillis());
