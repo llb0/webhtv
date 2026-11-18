@@ -726,7 +726,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
     public void onServerEvent(ServerEvent event) {
         switch (event.type()) {
             case SEARCH:
-                SearchActivity.start(this, event.text());
+                SearchActivity.startFresh(this, event.text());
                 break;
             case PUSH:
                 VideoActivity.push(this, event.text(), event.name());
