@@ -835,8 +835,18 @@ private boolean runtimeSourceOnly;
     }
 
     public static void startDirectResolved(Activity activity, Vod vod) {
+        startDirectResolved(activity, vod, false);
+    }
+
+    /**
+     * @param collapse true 时压掉堆在上面的搜索页/详情页，语音点播只留首页 → 播放页，返回一次就退出。
+     */
+    public static void startDirectResolved(Activity activity, Vod vod, boolean collapse) {
         if (activity == null || vod == null) return;
-        Intent intent = new Intent(activity, VideoActivity.class);
+        // 语音点播：先关掉上面堆着的搜索/详情/直播页（本页保留，靠 onNewIntent 换片）
+        if (collapse) App.finishPagesExcept(VideoActivity.class.getName());
+        Intent intent = new Intent(collapse ? App.get() : activity, VideoActivity.class);
+        if (collapse) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra("detail_mode", Setting.DETAIL_OPEN_DIRECT);
         intent.putExtra(EXTRA_DETAIL_RUNTIME_MODE, Setting.DETAIL_OPEN_DIRECT);
         intent.putExtra("scan", false);
@@ -849,7 +859,7 @@ private boolean runtimeSourceOnly;
         intent.putExtra("mark", vod.getRemarks());
         intent.putExtra("content", vod.getContent());
         putDetailVodCache(intent, vod);
-        activity.startActivity(intent);
+        (collapse ? App.get() : activity).startActivity(intent);
     }
 
     public static void start(Activity activity, String url) {
