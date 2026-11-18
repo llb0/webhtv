@@ -18,6 +18,11 @@
 
     <application>
 
+        <service
+            android:name=".voice.VoiceOverlayService"
+            android:exported="false"
+            android:stopWithTask="true" />
+
         <activity
             android:name=".ui.activity.HomeActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"

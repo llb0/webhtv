@@ -32,6 +32,12 @@
         android:visible="false" />
 
     <item
+        android:id="@+id/voice"
+        android:icon="@drawable/ic_nav_voice"
+        android:title="@string/voice_overlay_label"
+        android:visible="true" />
+
+    <item
         android:id="@+id/setting"
         android:icon="@drawable/ic_nav_setting"
         android:title="@string/nav_setting"

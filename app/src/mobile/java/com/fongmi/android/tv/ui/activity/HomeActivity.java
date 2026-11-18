@@ -56,6 +56,7 @@ import com.fongmi.android.tv.utils.CrashRestartMode;
 import com.fongmi.android.tv.utils.PreviousProcessCrashRecovery;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.MobileWindow;
+import com.fongmi.android.tv.voice.VoiceOverlayService;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.Task;
@@ -361,6 +362,11 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         if (item.getItemId() == R.id.live) return openLive();
         if (item.getItemId() == R.id.following) {
             FollowingActivity.start(this, null);
+            return false;
+        }
+        if (item.getItemId() == R.id.voice) {
+            VoiceOverlayService.start(this);
+            syncNavigationSelection();
             return false;
         }
         if (item.getItemId() == R.id.smb) {
