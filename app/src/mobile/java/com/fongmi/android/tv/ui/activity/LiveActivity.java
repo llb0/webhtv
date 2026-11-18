@@ -98,6 +98,7 @@ import com.fongmi.android.tv.ui.dialog.PassDialog;
 import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
+import com.fongmi.android.tv.voice.LiveDeepLink;
 import com.fongmi.android.tv.utils.Biometric;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -621,6 +622,10 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         liveMenuRendered = true;
         setGroup(live);
         setWidth(live);
+        LiveDeepLink.handlePending(this, live, channel -> {
+            onItemClick(channel.getGroup());
+            onItemClick(channel);
+        });
     }
 
     /**

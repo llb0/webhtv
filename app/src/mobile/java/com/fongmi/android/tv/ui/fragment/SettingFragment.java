@@ -42,6 +42,7 @@ import com.fongmi.android.tv.cache.CacheCenter;
 import com.fongmi.android.tv.cache.CachePolicyStore;
 import com.fongmi.android.tv.ui.dialog.CacheManagementDialog;
 import com.fongmi.android.tv.utils.FileUtil;
+import com.fongmi.android.tv.voice.VoiceOverlayService;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -141,6 +142,7 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         mBinding.cache.setOnLongClickListener(this::onCacheManage);
         mBinding.backup.setOnClickListener(this::onBackup);
         mBinding.enhance.setOnClickListener(this::onEnhance);
+        mBinding.voice.setOnClickListener(view -> VoiceOverlayService.start(requireContext()));
         mBinding.tmdb.setOnClickListener(this::onTmdb);
         mBinding.ai.setOnClickListener(this::onAi);
         mBinding.personal.setOnClickListener(this::onPersonal);

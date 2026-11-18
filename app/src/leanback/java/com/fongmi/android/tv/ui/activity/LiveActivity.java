@@ -74,6 +74,7 @@ import com.fongmi.android.tv.ui.dialog.PlayerKernelDialog;
 import com.fongmi.android.tv.ui.dialog.PlayerOsdDialog;
 import com.fongmi.android.tv.ui.dialog.SubtitleDialog;
 import com.fongmi.android.tv.ui.dialog.TrackDialog;
+import com.fongmi.android.tv.voice.LiveDeepLink;
 import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.Formatters;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -473,6 +474,10 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
         liveParsed = true;
         setGroup(live);
         setWidth(live);
+        LiveDeepLink.handlePending(this, live, channel -> {
+            onItemClick(channel.getGroup());
+            onItemClick(channel);
+        });
         startEpg(live);
     }
 
