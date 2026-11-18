@@ -826,8 +826,16 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     public static void startDirectResolved(Activity activity, Vod vod) {
+        startDirectResolved(activity, vod, false);
+    }
+
+    /**
+     * @param collapse true 时压掉堆在上面的搜索页/详情页，语音点播只留首页 → 播放页，返回一次就退出。
+     */
+    public static void startDirectResolved(Activity activity, Vod vod, boolean collapse) {
         if (activity == null || vod == null) return;
         Intent intent = new Intent(activity, VideoActivity.class);
+        if (collapse) intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra("detail_mode", Setting.DETAIL_OPEN_DIRECT);
         intent.putExtra(EXTRA_DETAIL_RUNTIME_MODE, Setting.DETAIL_OPEN_DIRECT);
         intent.putExtra("scan", false);

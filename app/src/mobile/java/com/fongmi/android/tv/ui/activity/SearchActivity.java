@@ -38,6 +38,14 @@ public class SearchActivity extends BaseActivity {
         activity.startActivity(intent);
     }
 
+    /** 语音搜索入口：复用已有的搜索页（singleTop + onNewIntent），并压掉上面的播放页/列表页。 */
+    public static void startFresh(Activity activity, String keyword) {
+        Intent intent = new Intent(activity, SearchActivity.class);
+        intent.putExtra("keyword", keyword);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        activity.startActivity(intent);
+    }
+
     public static void direct(Activity activity, String keyword) {
         direct(activity, keyword, null);
     }
@@ -115,10 +123,20 @@ public class SearchActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        if (savedInstanceState == null) {
-            if (isDirect()) getSupportFragmentManager().beginTransaction().replace(R.id.container, CollectFragment.newInstance(getKeyword(), getSiteKey(), "", getPic(), getWallPic(), getHistoryResumeCid(), getHistoryResumeKey(), getHistoryResumeTargetCid()), CollectFragment.class.getSimpleName()).commit();
-            else getSupportFragmentManager().beginTransaction().replace(R.id.container, SearchFragment.newInstance(getKeyword(), getSiteKey(), getPic(), getWallPic()), SearchFragment.class.getSimpleName()).commit();
-        }
+        if (savedInstanceState == null) openContent();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // 连续语音搜索：同一个搜索页换关键词重查，不再叠出第二、第三个搜索页。
+        openContent();
+    }
+
+    private void openContent() {
+        if (isDirect()) getSupportFragmentManager().beginTransaction().replace(R.id.container, CollectFragment.newInstance(getKeyword(), getSiteKey(), "", getPic(), getWallPic(), getHistoryResumeCid(), getHistoryResumeKey(), getHistoryResumeTargetCid()), CollectFragment.class.getSimpleName()).commit();
+        else getSupportFragmentManager().beginTransaction().replace(R.id.container, SearchFragment.newInstance(getKeyword(), getSiteKey(), getPic(), getWallPic()), SearchFragment.class.getSimpleName()).commit();
     }
 
     @Override
