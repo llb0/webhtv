@@ -63,6 +63,7 @@ import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.ui.dialog.TypeDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.fongmi.android.tv.voice.VoiceControlDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ConfigDownload;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -386,11 +387,12 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         });
     }
 
+    /** 顶部搜索按钮：点击照旧进搜索，长按进语音控制入口。 */
     private void setSearchLongClick() {
         View search = mBinding.toolbar.findViewById(R.id.search);
         if (search == null) return;
         search.setOnLongClickListener(view -> {
-            SearchActivity.start(requireActivity(), "", getHome().getKey());
+            VoiceControlDialog.create().show(getChildFragmentManager(), "voice_control");
             return true;
         });
     }
