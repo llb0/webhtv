@@ -70,6 +70,7 @@ public class SettingPersonalFragment extends BaseFragment {
         mBinding.playbackOverlay.setOnClickListener(this::setPlaybackOverlay);
         mBinding.playBackToDetail.setOnClickListener(this::setPlayBackToDetail);
         mBinding.episodeHistory.setOnClickListener(this::setEpisodeHistory);
+        mBinding.voiceSearch.setOnClickListener(this::setVoiceSearch);
         // Require a touch sequence which starts on this row. Keep the marker through
         // ACTION_UP so the following real click can change the persisted mode.
         mBinding.globalHistory.setOnTouchListener((view, event) -> {
@@ -101,6 +102,7 @@ public class SettingPersonalFragment extends BaseFragment {
         mBinding.playbackOverlayText.setText(getSwitch(Setting.isPlaybackOverlayEnabled()));
         mBinding.playBackToDetailText.setText(getSwitch(Setting.isPlayBackToDetail()));
         mBinding.episodeHistoryText.setText(getSwitch(Setting.isEpisodeHistory()));
+        mBinding.voiceSearchText.setText(Setting.isVoiceSearchLongPress() ? R.string.setting_voice_search_default : R.string.setting_voice_search_swapped);
         mBinding.globalHistoryText.setText((globalHistoryMode = getResources().getStringArray(R.array.select_global_history_mode))[Setting.getGlobalHistoryMode()]);
         mBinding.interfaceFailoverText.setText((interfaceFailoverMode = getResources().getStringArray(R.array.select_interface_failover_mode))[Setting.getInterfaceFailoverMode()]);
         mBinding.playSpeedText.setText(getSpeedText(PlayerSetting.getDefaultSpeed()));
@@ -180,6 +182,12 @@ public class SettingPersonalFragment extends BaseFragment {
 
     private void setPlayBackToDetail(View view) {
         Setting.putPlayBackToDetail(!Setting.isPlayBackToDetail());
+        setText();
+    }
+
+    /** 首页搜索按钮的分工：默认单击搜索、长按语音；切换后单击语音、长按搜索。 */
+    private void setVoiceSearch(View view) {
+        Setting.putVoiceSearchLongPress(!Setting.isVoiceSearchLongPress());
         setText();
     }
 

@@ -20,6 +20,7 @@ import com.fongmi.android.tv.server.process.CatMessage;
 import com.fongmi.android.tv.server.process.RemoteTrustSetup;
 import com.fongmi.android.tv.server.process.SpiderApi;
 import com.fongmi.android.tv.server.process.VodApi;
+import com.fongmi.android.tv.server.process.Voice;
 import com.fongmi.android.tv.server.process.WebResourceGateway;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Asset;
@@ -62,6 +63,7 @@ public class Nano extends NanoHTTPD {
         process.add(new RemoteTrustSetup());
         process.add(new SpiderApi());
         process.add(new VodApi());
+        process.add(new Voice());
         process.add(new WebResourceGateway());
     }
 
@@ -75,6 +77,15 @@ public class Nano extends NanoHTTPD {
 
     public static Response error(String text) {
         return error(Response.Status.INTERNAL_ERROR, text);
+    }
+
+
+    public static Response jpeg(byte[] bytes, int width, int height) {
+        Response response = newFixedLengthResponse(Response.Status.OK, "image/jpeg", new java.io.ByteArrayInputStream(bytes), bytes.length);
+        response.addHeader("X-Frame-W", String.valueOf(width));
+        response.addHeader("X-Frame-H", String.valueOf(height));
+        response.addHeader("Cache-Control", "no-store");
+        return response;
     }
 
     public static Response error(Response.Status status, String text) {
