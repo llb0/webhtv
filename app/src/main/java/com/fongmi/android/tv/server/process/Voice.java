@@ -394,85 +394,26 @@ public class Voice implements Process {
         java.util.ArrayList<android.view.View> roots = new java.util.ArrayList<>();
         try {
             if (activity instanceof androidx.fragment.app.FragmentActivity support) {
-                collectSupportDialogs(support.getSupportFragmentManager(), roots, 0);
+                for (androidx.fragment.app.Fragment fragment : support.getSupportFragmentManager().getFragments()) {
+                    if (!(fragment instanceof androidx.fragment.app.DialogFragment dialogFragment)) continue;
+                    android.app.Dialog dialog = dialogFragment.getDialog();
+                    if (dialog == null || !dialog.isShowing() || dialog.getWindow() == null) continue;
+                    android.view.View view = dialog.getWindow().getDecorView();
+                    if (isExcluded(view)) continue;
+                    if (view.getWidth() > 0 && view.getHeight() > 0 && !roots.contains(view)) roots.add(view);
+                }
             }
-            collectPlatformDialogs(activity.getFragmentManager(), roots, 0);
+            for (android.app.Fragment fragment : activity.getFragmentManager().getFragments()) {
+                if (!(fragment instanceof android.app.DialogFragment)) continue;
+                android.app.Dialog dialog = ((android.app.DialogFragment) fragment).getDialog();
+                if (dialog == null || !dialog.isShowing() || dialog.getWindow() == null) continue;
+                android.view.View view = dialog.getWindow().getDecorView();
+                if (isExcluded(view)) continue;
+                if (view.getWidth() > 0 && view.getHeight() > 0 && !roots.contains(view)) roots.add(view);
+            }
         } catch (Throwable error) {
             com.github.catvod.crawler.DebugLogStore.add("voice", "枚举对话框失败：" + error);
         }
-        return roots;
-    }
-
-    /**
-     * 递归往下找 DialogFragment。
-     *
-     * <p>站选择、搜索页里的站弹窗都是 {@code show(this)} 挂在 Fragment 自己的
-     * childFragmentManager 上，只看 Activity 那一层会一个都枚举不到（日志表现就是"窗口=0"）。</p>
-     */
-    private static void collectSupportDialogs(androidx.fragment.app.FragmentManager manager, java.util.List<android.view.View> roots, int depth) {
-        if (manager == null || depth > 4) return;
-        for (androidx.fragment.app.Fragment fragment : manager.getFragments()) {
-            if (fragment instanceof androidx.fragment.app.DialogFragment dialogFragment) {
-                addDialogDecor(dialogFragment.getDialog(), roots);
-            }
-            collectSupportDialogs(fragment.getChildFragmentManager(), roots, depth + 1);
-        }
-    }
-
-    private static void collectPlatformDialogs(android.app.FragmentManager manager, java.util.List<android.view.View> roots, int depth) {
-        if (manager == null || depth > 4) return;
-        for (android.app.Fragment fragment : manager.getFragments()) {
-            if (fragment instanceof android.app.DialogFragment) {
-                addDialogDecor(((android.app.DialogFragment) fragment).getDialog(), roots);
-            }
-            collectPlatformDialogs(fragment.getChildFragmentManager(), roots, depth + 1);
-        }
-    }
-
-    private static void addDialogDecor(android.app.Dialog dialog, java.util.List<android.view.View> roots) {
-        if (dialog == null || !dialog.isShowing() || dialog.getWindow() == null) return;
-        android.view.View view = dialog.getWindow().getDecorView();
-        if (isExcluded(view)) return;
-        if (view.getWidth() > 0 && view.getHeight() > 0 && !roots.contains(view)) roots.add(view);
-    }
-
-    /**
-     * 弹出式菜单（工具栏溢出菜单那种 PopupWindow）不是 Dialog，FragmentManager 枚举不到，
-     * 只能从 WindowManagerGlobal.mViews 里挑出来。
-     *
-     * <p>这里**只认 PopupDecorView**，不做尺寸/坐标过滤 —— 以前那版按"必须完整落在 Activity
-     * 窗口内"过滤，把正常弹层整个滤掉，才是"点了没反应"的根因。</p>
-     */
-    private static void addPopupRoots(java.util.List<android.view.View> roots) {
-        int added = 0;
-        try {
-            Class<?> clazz = Class.forName("android.view.WindowManagerGlobal");
-            Object global = clazz.getMethod("getInstance").invoke(null);
-            java.lang.reflect.Field field = clazz.getDeclaredField("mViews");
-            field.setAccessible(true);
-            Object value = field.get(global);
-            if (value instanceof java.util.List) {
-                for (Object item : (java.util.List<?>) value) {
-                    if (!(item instanceof android.view.View)) continue;
-                    android.view.View view = (android.view.View) item;
-                    if (!view.getClass().getName().contains("PopupDecor")) continue;
-                    if (!view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) continue;
-                    if (isExcluded(view) || roots.contains(view)) continue;
-                    roots.add(view);
-                    added++;
-                }
-            }
-        } catch (Throwable error) {
-            com.github.catvod.crawler.DebugLogStore.add("voice", "枚举弹出菜单失败：" + error);
-            return;
-        }
-        if (added > 0) com.github.catvod.crawler.DebugLogStore.add("voice", "弹出菜单 " + added + " 个");
-    }
-
-    /** 参与截图和投递的全部窗口：对话框（含嵌套）+ 弹出菜单，按叠放顺序。 */
-    private static java.util.List<android.view.View> windowTargets(Activity activity) {
-        java.util.List<android.view.View> roots = dialogDecors(activity);
-        addPopupRoots(roots);
         return roots;
     }
 
@@ -482,8 +423,8 @@ public class Voice implements Process {
      */
     private static android.view.View targetView(Activity activity) {
         if (activity == null) return null;
-        java.util.List<android.view.View> targets = windowTargets(activity);
-        if (!targets.isEmpty()) return targets.get(targets.size() - 1);
+        java.util.List<android.view.View> dialogs = dialogDecors(activity);
+        if (!dialogs.isEmpty()) return dialogs.get(dialogs.size() - 1);
         return activity.getWindow().getDecorView();
     }
 
@@ -584,14 +525,7 @@ public class Voice implements Process {
             canvas.save();
             canvas.translate(location[0] - origin[0], location[1] - origin[1]);
             canvas.clipRect(0, 0, root.getWidth(), root.getHeight());
-            try {
-                root.draw(canvas);
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层 " + root.getClass().getSimpleName()
-                        + " 尺寸=" + root.getWidth() + "x" + root.getHeight()
-                        + " 位置=" + location[0] + "," + location[1] + " shown=" + root.isShown());
-            } catch (Throwable error) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层失败 " + root.getClass().getSimpleName() + "：" + error);
-            }
+            root.draw(canvas);
             canvas.restore();
         }
     }
@@ -644,7 +578,7 @@ public class Voice implements Process {
                 latch.countDown();
                 return;
             }
-            java.util.List<android.view.View> roots = windowTargets(activity);
+            java.util.List<android.view.View> roots = dialogDecors(activity);
             try {
                 StringBuilder builder = new StringBuilder("镜像抓帧 ").append(width).append('x').append(height).append(" 窗口=").append(roots.size());
                 for (android.view.View root : roots) {
@@ -662,9 +596,7 @@ public class Voice implements Process {
                         try {
                             if (result == android.view.PixelCopy.SUCCESS) paintOverlays(bitmap, origin, decor, roots);
                             else paintFallback(bitmap, origin, decor, roots);
-                            if (result != android.view.PixelCopy.SUCCESS) com.github.catvod.crawler.DebugLogStore.add("voice", "PixelCopy 失败 code=" + result);
-                        } catch (Throwable error) {
-                            com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层异常：" + error);
+                        } catch (Throwable ignored) {
                         } finally {
                             holder[0] = bitmap;
                             latch.countDown();
