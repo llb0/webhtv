@@ -209,6 +209,15 @@ public class VodActivity extends BaseActivity implements TypeAdapter.OnClickList
     @Override
     public void onItemClick(Class item) {
         invalidatePendingFocusRequests();
+        int position = mAdapter.indexOf(item);
+        // 与真实遥控器一致：第一次"点/按"只是选中这个分类，再点一次才切筛选面板。
+        // 真实遥控器第一次按是先由框架把焦点移到这个标签（聚焦即切分类），第二次按才触发 click；
+        // 触摸没有"先移焦点"这一步（触屏模式下标签不参与触摸取焦），单击就直接走 click、
+        // 一上来就把筛选展开了（用户报告"第一次单击成了展开筛选"）。这里补上这一步。
+        if (position >= 0 && position != mBinding.recycler.getSelectedPosition()) {
+            mBinding.recycler.setSelectedPosition(position);
+            return;
+        }
         updateFilter(item);
     }
 
