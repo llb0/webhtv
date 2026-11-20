@@ -224,12 +224,25 @@ public class Voice implements Process {
             event.recycle();
             return;
         }
-        if (postInput(target, event)) {
-            if (log) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 " + target.getClass().getSimpleName() + " via ViewRootImpl");
-            return;
+        // 对话框/弹出菜单是独立窗口：直接 dispatch 进它的 view 树，这条路不看事件来源，真能点到控件。
+        // ViewRootImpl 输入管道只作兜底（合成事件的 source 不对时会被它当无效输入丢掉）。
+        boolean handled = false;
+        try {
+            handled = target.dispatchTouchEvent(event);
+        } catch (Throwable error) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "触摸直接投递异常：" + error);
         }
-        boolean handled = target.dispatchTouchEvent(event);
-        if (log) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 " + target.getClass().getSimpleName() + " via dispatch handled=" + handled);
+        if (log) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 " + target.getClass().getSimpleName()
+                + " via dispatch handled=" + handled);
+        if (!handled) {
+            android.view.MotionEvent copy = android.view.MotionEvent.obtain(event);
+            if (postInput(target, copy)) {
+                if (log) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 " + target.getClass().getSimpleName() + " via ViewRootImpl(兜底)");
+                event.recycle();
+                return;
+            }
+            copy.recycle();
+        }
         event.recycle();
     }
 
@@ -528,6 +541,20 @@ public class Voice implements Process {
         return excluded != null && excluded == view;
     }
 
+    /**
+     * 造一个触摸事件：必须声明来源是触摸屏。
+     * <p>不设 source 时 obtain() 给的是 SOURCE_UNKNOWN，经 ViewRootImpl 输入管道会被当成
+     * 无效输入丢掉——表现就是"目标窗口挑对了、坐标也对，但点了没反应"。</p>
+     */
+    private static android.view.MotionEvent obtainTouch(long downTime, long eventTime, int action, float x, float y) {
+        android.view.MotionEvent event = android.view.MotionEvent.obtain(downTime, eventTime, action, x, y, 0);
+        try {
+            event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+        } catch (Throwable ignored) {
+        }
+        return event;
+    }
+
     /** 触摸板：把归一化坐标(0~1000)投成本地触摸事件，相当于用鼠标点界面。 */
     private static long touchDownTime;
     private Response touch(Map<String, String> params) {
@@ -579,7 +606,7 @@ public class Voice implements Process {
                     float fy = parseFloat(xy[1]);
                     float px = baseLoc[0] + fx * base.getWidth() / 1000f;
                     float py = baseLoc[1] + fy * base.getHeight() / 1000f;
-                    android.view.MotionEvent event = android.view.MotionEvent.obtain(touchDownTime, now + index * 8L, android.view.MotionEvent.ACTION_MOVE, px - location[0], py - location[1], 0);
+                    android.view.MotionEvent event = obtainTouch(touchDownTime, now + index * 8L, android.view.MotionEvent.ACTION_MOVE, px - location[0], py - location[1]);
                     deliverTouch(activity, target, event);
                     index++;
                 }
@@ -591,7 +618,7 @@ public class Voice implements Process {
             int type = action == 5 ? android.view.MotionEvent.ACTION_CANCEL : (action == 2 ? android.view.MotionEvent.ACTION_UP : (action == 0 ? android.view.MotionEvent.ACTION_DOWN : android.view.MotionEvent.ACTION_MOVE));
             boolean up = action == 2 || action == 5;
             // downTime 必须始终是按下那一刻，否则系统会把按下和抬起当成同一瞬间（列表就会"点一下再弹回"）
-            android.view.MotionEvent event = android.view.MotionEvent.obtain(touchDownTime, now, type, px - location[0], py - location[1], 0);
+            android.view.MotionEvent event = obtainTouch(touchDownTime, now, type, px - location[0], py - location[1]);
             deliverTouch(activity, target, event);
             if (up) touchDownTime = 0;
         });
