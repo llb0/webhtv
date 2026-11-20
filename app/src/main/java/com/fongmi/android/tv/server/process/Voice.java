@@ -522,11 +522,61 @@ public class Voice implements Process {
         return activity.getWindow().getDecorView();
     }
 
-    /** 参与**事件投递**的窗口：只认能确认层级的对话框（含移动端弹出菜单），不掺窗口表。 */
+    /** 参与**事件投递**的窗口：FragmentManager 里的对话框 + 裸 Dialog 窗口 + 移动端弹出菜单。 */
     private static java.util.List<android.view.View> deliveryRoots(Activity activity) {
         java.util.List<android.view.View> roots = dialogDecors(activity);
+        addAppDialogWindows(activity, roots);
         addPopupRoots(roots);
         return roots;
+    }
+
+    /**
+     * 把"裸 Dialog"的窗口补进来。
+     *
+     * <p>有的对话框是 {@code new Dialog(activity).show()}，**从不进任何 FragmentManager**，
+     * 所以 {@link #dialogDecors} 一个都枚举不到——电视端"选择站点"就是这种：镜像里显示得出来
+     * （截图走窗口表），但按键/触摸全落到下层 Activity，表现就是"点不动、方向键在动下层的列表"。</p>
+     *
+     * <p>这里只按 Window 类型挑 {@code TYPE_APPLICATION}（真正的对话框窗口），
+     * Activity 自己的窗口（TYPE_BASE_APPLICATION）、PopupWindow（TYPE_APPLICATION_PANEL/SUB_PANEL）、
+     * Toast 之类的都不算，也不会做任何尺寸/坐标过滤。</p>
+     */
+    private static void addAppDialogWindows(Activity activity, java.util.List<android.view.View> roots) {
+        android.view.View decor = activity == null ? null : activity.getWindow().getDecorView();
+        int added = 0;
+        try {
+            Class<?> clazz = Class.forName("android.view.WindowManagerGlobal");
+            Object global = clazz.getMethod("getInstance").invoke(null);
+            java.lang.reflect.Field field = clazz.getDeclaredField("mViews");
+            field.setAccessible(true);
+            Object value = field.get(global);
+            if (value instanceof java.util.List) {
+                for (Object item : (java.util.List<?>) value) {
+                    if (!(item instanceof android.view.View)) continue;
+                    android.view.View view = (android.view.View) item;
+                    if (view == decor || !view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) continue;
+                    if (isExcluded(view) || roots.contains(view)) continue;
+                    if (!isAppDialogWindow(view)) continue;
+                    roots.add(view);
+                    added++;
+                }
+            }
+        } catch (Throwable error) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "枚举对话框窗口失败：" + error);
+            return;
+        }
+        if (added > 0) com.github.catvod.crawler.DebugLogStore.add("voice", "对话框窗口 " + added + " 个");
+    }
+
+    /** Window 类型是 TYPE_APPLICATION 才算对话框窗口。 */
+    private static boolean isAppDialogWindow(android.view.View view) {
+        try {
+            android.view.ViewGroup.LayoutParams params = view.getLayoutParams();
+            if (!(params instanceof android.view.WindowManager.LayoutParams)) return false;
+            return ((android.view.WindowManager.LayoutParams) params).type == android.view.WindowManager.LayoutParams.TYPE_APPLICATION;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     /** 控制自己时，遥控器面板本身要排除掉，否则镜像里会出现无限套娃。 */
@@ -685,84 +735,124 @@ public class Voice implements Process {
         }
     }
 
+    /**
+     * 抓帧状态：一次只抓一帧，抓不动就把上一帧原样回给客户端（带 X-Frame-Stale 头）。
+     *
+     * <p>以前每来一个 shot 就新起一次 PixelCopy + 新建一张 1080p Bitmap（8MB）。
+     * 界面切换（返回/首页）时 PixelCopy 迟迟不回调，请求就一层层堆起来：主线程队列被占满、
+     * 内存一路涨、后面的帧全都超时——表现就是"画面等好几秒才动，最后彻底卡在一张图上不动"，
+     * 关掉遥控器重开也救不回来（堆的是电视这侧的任务）。所以这里做互斥 + 缓存上一帧。</p>
+     */
+    private static volatile boolean shotBusy;
+    private static volatile byte[] shotLastJpeg;
+    private static volatile int shotLastW, shotLastH, shotLastSeq;
+
     /** 抓一帧当前界面（JPEG），手机上把这张画面当触摸板底图用。 */
     private Response shot(Map<String, String> params) {
-        final boolean self = "1".equals(params.get("self"));
         Activity activity = App.activity();
         if (activity == null) return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "app-not-open");
-        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-        final android.graphics.Bitmap[] holder = new android.graphics.Bitmap[1];
-        App.post(() -> {
-            android.view.View decor = activity.getWindow().getDecorView();
-            int width = decor.getWidth();
-            int height = decor.getHeight();
-            if (width <= 0 || height <= 0) {
-                latch.countDown();
-                return;
-            }
-            int[] origin = new int[2];
-            decor.getLocationOnScreen(origin);
-            android.graphics.Bitmap bitmap;
-            try {
-                bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
-            } catch (Throwable error) {
-                latch.countDown();
-                return;
-            }
-            java.util.List<android.view.View> roots = displayRoots(activity);
-            try {
-                StringBuilder builder = new StringBuilder("镜像抓帧 ").append(width).append('x').append(height).append(" 窗口=").append(roots.size());
-                for (android.view.View root : roots) {
-                    if (root == null) continue;
-                    builder.append("｜").append(root.getClass().getSimpleName()).append(' ').append(root.getWidth()).append('x').append(root.getHeight());
-                }
-                com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
-            } catch (Throwable ignored) {
-            }
-            // WebView 是硬件渲染的，用 view.draw(canvas) 画出来会是空白、而且被缩到左上角，
-            // 所以主窗口走 PixelCopy（直接拿窗口合成后的像素），弹层再用 view.draw 补在上面。
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                try {
-                    android.view.PixelCopy.request(activity.getWindow(), bitmap, result -> {
-                        try {
-                            if (result == android.view.PixelCopy.SUCCESS) paintOverlays(bitmap, origin, decor, roots);
-                            else paintFallback(bitmap, origin, decor, roots);
-                        } catch (Throwable ignored) {
-                        } finally {
-                            holder[0] = bitmap;
-                            latch.countDown();
-                        }
-                    }, new android.os.Handler(android.os.Looper.getMainLooper()));
+        if (shotBusy) {
+            byte[] cached = shotLastJpeg;
+            if (cached != null) return Nano.jpeg(cached, shotLastW, shotLastH, shotLastSeq, true);
+            return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "frame-busy");
+        }
+        shotBusy = true;
+        try {
+            final int seq = shotLastSeq + 1;
+            final long started = android.os.SystemClock.uptimeMillis();
+            final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+            final android.graphics.Bitmap[] holder = new android.graphics.Bitmap[1];
+            App.post(() -> {
+                android.view.View decor = activity.getWindow().getDecorView();
+                int width = decor.getWidth();
+                int height = decor.getHeight();
+                if (width <= 0 || height <= 0) {
+                    latch.countDown();
                     return;
+                }
+                int[] origin = new int[2];
+                decor.getLocationOnScreen(origin);
+                android.graphics.Bitmap bitmap;
+                try {
+                    bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
+                } catch (Throwable error) {
+                    com.github.catvod.crawler.DebugLogStore.add("voice", "抓帧建图失败：" + error);
+                    latch.countDown();
+                    return;
+                }
+                java.util.List<android.view.View> roots = displayRoots(activity);
+                try {
+                    StringBuilder builder = new StringBuilder("镜像抓帧 seq=").append(seq).append(' ').append(width).append('x').append(height).append(" 窗口=").append(roots.size());
+                    for (android.view.View root : roots) {
+                        if (root == null) continue;
+                        builder.append('｜').append(root.getClass().getSimpleName()).append(' ').append(root.getWidth()).append('x').append(root.getHeight());
+                    }
+                    com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
                 } catch (Throwable ignored) {
                 }
-            }
+                // WebView 是硬件渲染的，用 view.draw(canvas) 画出来会是空白、而且被缩到左上角，
+                // 所以主窗口走 PixelCopy（直接拿窗口合成后的像素），弹层再用 view.draw 补在上面。
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                    try {
+                        android.view.PixelCopy.request(activity.getWindow(), bitmap, result -> {
+                            try {
+                                if (result == android.view.PixelCopy.SUCCESS) paintOverlays(bitmap, origin, decor, roots);
+                                else {
+                                    com.github.catvod.crawler.DebugLogStore.add("voice", "PixelCopy 失败 result=" + result + "，改用 view.draw");
+                                    paintFallback(bitmap, origin, decor, roots);
+                                }
+                            } catch (Throwable ignored) {
+                            } finally {
+                                holder[0] = bitmap;
+                                latch.countDown();
+                            }
+                        }, new android.os.Handler(android.os.Looper.getMainLooper()));
+                        return;
+                    } catch (Throwable error) {
+                        com.github.catvod.crawler.DebugLogStore.add("voice", "PixelCopy 异常，改用 view.draw：" + error);
+                    }
+                }
+                try {
+                    paintFallback(bitmap, origin, decor, roots);
+                } catch (Throwable ignored) {
+                }
+                holder[0] = bitmap;
+                latch.countDown();
+            });
             try {
-                paintFallback(bitmap, origin, decor, roots);
-            } catch (Throwable ignored) {
+                // 900ms 足够一帧（原来等 3s，界面切换时把请求全堵在这，越堵越慢）
+                latch.await(900, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (InterruptedException ignored) {
             }
-            holder[0] = bitmap;
-            latch.countDown();
-        });
-        try {
-            latch.await(3, java.util.concurrent.TimeUnit.SECONDS);
-        } catch (InterruptedException ignored) {
+            android.graphics.Bitmap frame = holder[0];
+            long cost = android.os.SystemClock.uptimeMillis() - started;
+            if (frame == null) {
+                com.github.catvod.crawler.DebugLogStore.add("voice", "抓帧未完成 " + cost + "ms，回上一帧");
+                byte[] cached = shotLastJpeg;
+                if (cached != null) return Nano.jpeg(cached, shotLastW, shotLastH, shotLastSeq, true);
+                return Nano.error(Response.Status.INTERNAL_ERROR, "no-frame");
+            }
+            int max = 720;
+            int width = frame.getWidth();
+            int height = frame.getHeight();
+            float scale = width > max ? max / (float) width : 1f;
+            int outWidth = Math.max(1, Math.round(width * scale));
+            int outHeight = Math.max(1, Math.round(height * scale));
+            android.graphics.Bitmap small = android.graphics.Bitmap.createScaledBitmap(frame, outWidth, outHeight, true);
+            java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+            small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 60, output);
+            if (small != frame) small.recycle();
+            frame.recycle();
+            byte[] bytes = output.toByteArray();
+            shotLastJpeg = bytes;
+            shotLastW = outWidth;
+            shotLastH = outHeight;
+            shotLastSeq = seq;
+            com.github.catvod.crawler.DebugLogStore.add("voice", "镜像出帧 seq=" + seq + " " + outWidth + "x" + outHeight + " " + bytes.length + "B 耗时=" + cost + "ms");
+            return Nano.jpeg(bytes, outWidth, outHeight, seq, false);
+        } finally {
+            shotBusy = false;
         }
-        android.graphics.Bitmap frame = holder[0];
-        if (frame == null) return Nano.error(Response.Status.INTERNAL_ERROR, "no-frame");
-        int max = 720;
-        int width = frame.getWidth();
-        int height = frame.getHeight();
-        float scale = width > max ? max / (float) width : 1f;
-        int outWidth = Math.max(1, Math.round(width * scale));
-        int outHeight = Math.max(1, Math.round(height * scale));
-        android.graphics.Bitmap small = android.graphics.Bitmap.createScaledBitmap(frame, outWidth, outHeight, true);
-        java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
-        small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 60, output);
-        if (small != frame) small.recycle();
-        frame.recycle();
-        byte[] bytes = output.toByteArray();
-        return Nano.jpeg(bytes, outWidth, outHeight);
     }
 
     /** 回包标识：端类型 + 当前屏幕方向，手机端据此排布触摸板（竖屏左右两半、横屏上下两半）。 */

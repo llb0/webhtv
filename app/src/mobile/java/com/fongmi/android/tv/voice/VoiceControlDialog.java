@@ -108,6 +108,10 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
     private int lastFrameH;
     /** 一帧还在路上就不要再排第二帧，否则断网/离线的设备会把单帧线程堵死。 */
     private volatile boolean frameBusy;
+    /** 上一帧的序号：电视端会把"这一帧没抓出来"的缓存帧原样回过来，序号不变就说明画面没更新。 */
+    private int lastFrameSeq = -1;
+    /** 连续"没有新画面"的次数：累计到一定值就把旧图清掉并提示，绝不让镜像一直冻在旧画面上。 */
+    private int frameStuck;
     /** 输入框内容按"指令"还是"输入"发送：0=指令（每次打开都是这个） 1=输入。仅本次打开有效，不持久化。 */
     private int inputMode = 0;
     private NsdDeviceDiscovery discovery;
@@ -754,6 +758,8 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
         targetOrientation = "landscape";
         targetType = "tv";
         frameBusy = false;
+        frameStuck = 0;
+        lastFrameSeq = -1;
         stopFrames();
         if (binding == null) return;
         binding.padShot.setImageBitmap(null);
@@ -782,26 +788,57 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
         // 上一帧还在路上就别再排：离线的设备每次要等超时，排多了画面半天出不来
         if (frameBusy) return;
         frameBusy = true;
+        final long started = android.os.SystemClock.uptimeMillis();
         runFrame(() -> {
             Frame frame = shot(target);
+            long cost = android.os.SystemClock.uptimeMillis() - started;
             handler.post(() -> {
                 frameBusy = false;
-                if (frame != null) showFrame(frame);
+                if (frame == null) markFrameMissing(cost, "取不到画面");
+                else showFrame(frame, cost);
             });
         });
     }
 
-    private void showFrame(Frame frame) {
+    private void showFrame(Frame frame, long cost) {
+        // 电视端抓帧是"一次只抓一帧、抓不出来就回上一帧"：序号没变 / 带 Stale 头都说明这不是新画面
+        boolean same = frame.seq > 0 && frame.seq == lastFrameSeq;
+        if (com.github.catvod.crawler.DebugLogStore.isEnabled())
+            com.github.catvod.crawler.DebugLogStore.add("voice", "画面 seq=" + frame.seq + (frame.stale ? "(缓存)" : "")
+                    + " " + frame.width + "x" + frame.height + " " + frame.data.length + "B " + cost + "ms");
+        if (frame.stale || same) {
+            markFrameMissing(cost, same ? "画面未更新" : "电视端回的是缓存帧");
+            return;
+        }
         android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(frame.data, 0, frame.data.length);
-        if (bitmap == null || binding == null) return;
+        if (bitmap == null || binding == null) {
+            markFrameMissing(cost, "画面解码失败");
+            return;
+        }
+        frameStuck = 0;
+        lastFrameSeq = frame.seq;
         binding.padShot.setImageBitmap(bitmap);
-        hideHint();   // 画面到了就把提示文字收掉，别再压在画面上
+        hideHint();   // 画到了就把提示文字收掉，别再压在画面上
         applyShotMatrix(bitmap);
         if (frame.width > 0 && frame.height > 0) {
             lastFrameW = frame.width;
             lastFrameH = frame.height;
             applyPadRatio(frame.width, frame.height);
         }
+    }
+
+    /**
+     * 画面没拿到 / 拿到的还是上一帧：连续几次就把旧画面清掉并提示，别让用户对着冻住的图干瞪眼。
+     * 以前这里什么都不做，旧的 Bitmap 会一直留在 ImageView 上，看着就像"遥控器卡死了"。
+     */
+    private void markFrameMissing(long cost, String reason) {
+        frameStuck++;
+        if (com.github.catvod.crawler.DebugLogStore.isEnabled())
+            com.github.catvod.crawler.DebugLogStore.add("voice", "画面缺失 " + frameStuck + " 次（" + reason + "，" + cost + "ms）");
+        if (frameStuck < 6 || binding == null) return;
+        binding.padShot.setImageBitmap(null);
+        binding.padHint.setText("画面未更新，正在重试…");
+        binding.padHint.setVisibility(android.view.View.VISIBLE);
     }
 
     /** 面板高度按远程画面的宽高比走，画面不拉伸，横向/纵向自动跟着变。 */
@@ -868,13 +905,17 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
         try {
             String url = target + "/voice?cmd=shot" + selfParam(target) + (TextUtils.isEmpty(token(target)) ? "" : "&token=" + token(target));
             connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.setUseCaches(false);
             connection.setConnectTimeout(1200);
-            connection.setReadTimeout(3000);
+            // 电视端抓帧最多等 900ms 就回上一帧，读超时压到 2s：一帧卡住不该拖住后面好几帧
+            connection.setReadTimeout(2000);
             if (connection.getResponseCode() != 200) return null;
             int width = parseInt(connection.getHeaderField("X-Frame-W"));
             int height = parseInt(connection.getHeaderField("X-Frame-H"));
+            int seq = parseInt(connection.getHeaderField("X-Frame-Seq"));
+            boolean stale = "1".equals(connection.getHeaderField("X-Frame-Stale"));
             byte[] data = readBytes(connection.getInputStream());
-            return data.length == 0 ? null : new Frame(data, width, height);
+            return data.length == 0 ? null : new Frame(data, width, height, seq, stale);
         } catch (Exception e) {
             return null;
         } finally {
@@ -898,7 +939,7 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
         return output.toByteArray();
     }
 
-    private record Frame(byte[] data, int width, int height) {
+    private record Frame(byte[] data, int width, int height, int seq, boolean stale) {
     }
 
     /** 把攒下来的移动点一次性发过去；服务端会按 8ms 间隔逐点重放。 */
