@@ -423,6 +423,9 @@ public class Voice implements Process {
      * （以前按"必须完整落在 Activity 窗口内"过滤，把正常弹层整个滤掉，才是点了没反应的根因）。
      */
     private static void addPopupRoots(java.util.List<android.view.View> roots) {
+        // 只有移动端需要它（工具栏溢出菜单是 PopupWindow）。leanback 上这层不能开：
+        // 电视端任何 PopupDecorView 一旦被当成投递目标，对话框的触摸和按键就全被它接走了。
+        if (!com.fongmi.android.tv.utils.Util.isMobile()) return;
         int added = 0;
         try {
             Class<?> clazz = Class.forName("android.view.WindowManagerGlobal");
