@@ -350,7 +350,10 @@ public class Voice implements Process {
     private static boolean postInput(android.view.View view, android.view.InputEvent event) {
         android.view.View top = view;
         // 窗口没有焦点时投进去会被判为无效输入，这时退回普通 dispatch
-        if (top == null || !top.hasWindowFocus()) return false;
+        if (top == null || !top.hasWindowFocus()) {
+            if (event instanceof android.view.KeyEvent) com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递失败：窗口没有焦点");
+            return false;
+        }
         try {
             Object rootImpl = viewRoot(top);
             if (rootImpl == null) {
@@ -359,6 +362,10 @@ public class Voice implements Process {
             }
             java.lang.reflect.Method dispatch = rootImpl.getClass().getMethod("dispatchInputEvent", android.view.InputEvent.class);
             dispatch.invoke(rootImpl, event);
+            if (event instanceof android.view.KeyEvent) {
+                android.view.KeyEvent key = (android.view.KeyEvent) event;
+                com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递 ViewRootImpl " + top.getClass().getSimpleName() + " " + keyName(key));
+            }
             return true;
         } catch (Throwable error) {
             com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递失败：" + error.getClass().getSimpleName());
@@ -402,8 +409,20 @@ public class Voice implements Process {
             }
             com.github.catvod.crawler.DebugLogStore.add("voice", "按键没投进弹层窗口，改投 Activity");
         }
-        if (activity.dispatchKeyEvent(event)) return true;
-        return target != null && target != decor && target.dispatchKeyEvent(event);
+        // 没有弹层（也就是首页/Vod/历史/收藏这些页面本身）：按键必须走 Activity 窗口自己的
+        // ViewRootImpl 输入管道——真遥控器走的就是这条路。方向键的"焦点移动"是框架在输入管道里
+        // 做 focusSearch 找下一个焦点控件完成的，activity.dispatchKeyEvent 只到 View 层级，
+        // 到不了那一步：控件自己实现方向键（比如列表）还能动，其余场景完全没反应。
+        // beta 版按键能用，正是因为它是 postInput(topView())（ViewRootImpl）而不是 dispatchKeyEvent。
+        boolean posted = postInput(target != null ? target : decor, event);
+        if (posted) return true;
+        if (activity.dispatchKeyEvent(event)) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "按键 Activity(dispatch) " + keyName(event));
+            return true;
+        }
+        boolean handled = target != null && target != decor && target.dispatchKeyEvent(event);
+        com.github.catvod.crawler.DebugLogStore.add("voice", "按键未消费 " + keyName(event) + " handled=" + handled);
+        return handled;
     }
 
     /** 日志用：按键名。 */
