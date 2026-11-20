@@ -20,6 +20,7 @@ import com.fongmi.android.tv.server.process.CatMessage;
 import com.fongmi.android.tv.server.process.RemoteTrustSetup;
 import com.fongmi.android.tv.server.process.SpiderApi;
 import com.fongmi.android.tv.server.process.VodApi;
+import com.fongmi.android.tv.server.process.Voice;
 import com.fongmi.android.tv.server.process.WebResourceGateway;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Asset;
@@ -62,6 +63,7 @@ public class Nano extends NanoHTTPD {
         process.add(new RemoteTrustSetup());
         process.add(new SpiderApi());
         process.add(new VodApi());
+        process.add(new Voice());
         process.add(new WebResourceGateway());
     }
 
@@ -75,6 +77,25 @@ public class Nano extends NanoHTTPD {
 
     public static Response error(String text) {
         return error(Response.Status.INTERNAL_ERROR, text);
+    }
+
+
+    public static Response jpeg(byte[] bytes, int width, int height) {
+        return jpeg(bytes, width, height, 0, false);
+    }
+
+    /**
+     * @param seq   帧序号：客户端据此判断"这次拿到的是不是新画面"
+     * @param stale true 表示电视端这次没抓出新的，回的是上一帧缓存
+     */
+    public static Response jpeg(byte[] bytes, int width, int height, int seq, boolean stale) {
+        Response response = newFixedLengthResponse(Response.Status.OK, "image/jpeg", new java.io.ByteArrayInputStream(bytes), bytes.length);
+        response.addHeader("X-Frame-W", String.valueOf(width));
+        response.addHeader("X-Frame-H", String.valueOf(height));
+        response.addHeader("X-Frame-Seq", String.valueOf(seq));
+        if (stale) response.addHeader("X-Frame-Stale", "1");
+        response.addHeader("Cache-Control", "no-store");
+        return response;
     }
 
     public static Response error(Response.Status status, String text) {
