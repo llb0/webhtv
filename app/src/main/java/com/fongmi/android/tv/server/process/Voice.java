@@ -452,14 +452,14 @@ public class Voice implements Process {
     }
 
     /**
-     * 参与截图和投递的全部窗口，按叠放顺序（越靠后越在上层）。
+     * **只用于截图**的窗口表，按叠放顺序（越靠后越在上层）。
      *
      * <p>主路是反射 {@code WindowManagerGlobal.mViews}：它能拿到所有窗口，包括那些
      * 不走当前 Activity 的 FragmentManager、也不是 PopupWindow 的对话框窗口——
      * 电视端"选择站点"就是这种，只靠 FragmentManager 会一个都枚举不到（日志里窗口=0）。
      * 这里**不做任何尺寸/坐标过滤**，过滤会把正常弹层整个剔掉。</p>
      */
-    private static java.util.List<android.view.View> windowTargets(Activity activity) {
+    private static java.util.List<android.view.View> displayRoots(Activity activity) {
         java.util.ArrayList<android.view.View> roots = new java.util.ArrayList<>();
         if (activity == null) return roots;
         android.view.View decor = activity.getWindow().getDecorView();
@@ -501,25 +501,19 @@ public class Voice implements Process {
         return roots;
     }
 
-    /**
-     * 触摸/按键投给谁：有对话框就投对话框，没有就投 Activity 自己的窗口。
-     * 这是唯一口径，不再按坐标挑窗口。
-     */
+    /** 投递目标：按叠放顺序取最上层的那个对话框/弹出菜单，没有就投 Activity。 */
     private static android.view.View targetView(Activity activity) {
         if (activity == null) return null;
-        java.util.List<android.view.View> targets = windowTargets(activity);
-        // 系统的按键/触摸本来就是发给"持有输入焦点的那个窗口"的，照这个口径挑，
-        // 就不会出现"某个残留弹窗排在末尾、把对话框的点击全吃掉"。
-        android.view.View focused = null;
-        for (android.view.View view : targets) {
-            if (view == null) continue;
-            if (view.hasWindowFocus()) focused = view;
-        }
-        if (focused != null) return focused;
-        for (android.view.View view : targets) {
-            if (view != null && view != activity.getWindow().getDecorView()) return view;
-        }
+        java.util.List<android.view.View> targets = deliveryRoots(activity);
+        if (!targets.isEmpty()) return targets.get(targets.size() - 1);
         return activity.getWindow().getDecorView();
+    }
+
+    /** 参与**事件投递**的窗口：只认能确认层级的对话框（含移动端弹出菜单），不掺窗口表。 */
+    private static java.util.List<android.view.View> deliveryRoots(Activity activity) {
+        java.util.List<android.view.View> roots = dialogDecors(activity);
+        addPopupRoots(roots);
+        return roots;
     }
 
     /** 控制自己时，遥控器面板本身要排除掉，否则镜像里会出现无限套娃。 */
@@ -688,7 +682,7 @@ public class Voice implements Process {
                 latch.countDown();
                 return;
             }
-            java.util.List<android.view.View> roots = windowTargets(activity);
+            java.util.List<android.view.View> roots = displayRoots(activity);
             try {
                 StringBuilder builder = new StringBuilder("镜像抓帧 ").append(width).append('x').append(height).append(" 窗口=").append(roots.size());
                 for (android.view.View root : roots) {
