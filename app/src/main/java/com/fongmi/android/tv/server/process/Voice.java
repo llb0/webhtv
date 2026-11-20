@@ -211,14 +211,14 @@ public class Voice implements Process {
      * <p>② 是对话框窗口 → 塞进它自己的 ViewRootImpl 输入管道（真手指走的就是这条路），
      * 反射失败再退回 decor.dispatchTouchEvent。不做"要不要转方向键""命中哪个窗口"之类判断。</p>
      */
-    private static void deliverTouch(Activity activity, boolean self, android.view.View target, android.view.MotionEvent event) {
+    private static void deliverTouch(Activity activity, android.view.View target, android.view.MotionEvent event) {
         if (target == null) {
             event.recycle();
             return;
         }
         int kind = event.getActionMasked();
         boolean log = kind == android.view.MotionEvent.ACTION_DOWN || kind == android.view.MotionEvent.ACTION_UP;
-        if (self || target == activity.getWindow().getDecorView()) {
+        if (target == activity.getWindow().getDecorView()) {
             boolean handled = activity.dispatchTouchEvent(event);
             if (log) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 Activity handled=" + handled);
             event.recycle();
@@ -367,16 +367,16 @@ public class Voice implements Process {
     private static boolean dispatchKey(android.view.KeyEvent event, boolean self) {
         Activity activity = App.activity();
         if (activity == null) return false;
-        if (self) return activity.dispatchKeyEvent(event);
-        if (postInput(event)) return true;
+        android.view.View target = targetView(activity);
+        // 盖着独立窗口（对话框、折叠菜单）时按键要先给它，否则方向键/确认键都在操作下层页面
+        if (target != null && target != activity.getWindow().getDecorView() && postInput(target, event)) return true;
         androidx.fragment.app.DialogFragment fragment = topDialog(activity);
         if (fragment != null) {
             android.app.Dialog dialog = fragment.getDialog();
             if (dialog != null && dialog.dispatchKeyEvent(event)) return true;
         }
         if (activity.dispatchKeyEvent(event)) return true;
-        android.view.View top = targetView(activity);
-        return top != null && top.dispatchKeyEvent(event);
+        return target != null && target.dispatchKeyEvent(event);
     }
 
     private static String firstNonEmpty(String... values) {
@@ -504,7 +504,9 @@ public class Voice implements Process {
             if (action == 0) touchDownTime = now;
             if (touchDownTime == 0) touchDownTime = now;
             // 目标窗口：控制自己就投 Activity 自己；否则有对话框就投对话框，没有就投 Activity。
-            android.view.View target = self ? base : targetView(activity);
+            // 目标一律走窗口表：控制本机时也一样，遥控器面板由 excludeWindow 排除，
+            // 这样折叠菜单这种弹出窗口才收得到触摸。
+            android.view.View target = targetView(activity);
             if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0) {
                 com.github.catvod.crawler.DebugLogStore.add("voice", "触摸丢弃：目标窗口尺寸为 0");
                 return;
@@ -528,7 +530,7 @@ public class Voice implements Process {
                     float px = baseLoc[0] + fx * base.getWidth() / 1000f;
                     float py = baseLoc[1] + fy * base.getHeight() / 1000f;
                     android.view.MotionEvent event = android.view.MotionEvent.obtain(touchDownTime, now + index * 8L, android.view.MotionEvent.ACTION_MOVE, px - location[0], py - location[1], 0);
-                    deliverTouch(activity, self, target, event);
+                    deliverTouch(activity, target, event);
                     index++;
                 }
                 return;
@@ -540,7 +542,7 @@ public class Voice implements Process {
             boolean up = action == 2 || action == 5;
             // downTime 必须始终是按下那一刻，否则系统会把按下和抬起当成同一瞬间（列表就会"点一下再弹回"）
             android.view.MotionEvent event = android.view.MotionEvent.obtain(touchDownTime, now, type, px - location[0], py - location[1], 0);
-            deliverTouch(activity, self, target, event);
+            deliverTouch(activity, target, event);
             if (up) touchDownTime = 0;
         });
         return Nano.ok("touch:" + action);
