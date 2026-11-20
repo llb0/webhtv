@@ -418,13 +418,51 @@ public class Voice implements Process {
     }
 
     /**
+     * 工具栏溢出菜单这类 PopupWindow 不是 Dialog，FragmentManager 枚举不到，只能从
+     * WindowManagerGlobal.mViews 里挑出来。**只认 PopupDecorView**，不做尺寸/坐标过滤
+     * （以前按"必须完整落在 Activity 窗口内"过滤，把正常弹层整个滤掉，才是点了没反应的根因）。
+     */
+    private static void addPopupRoots(java.util.List<android.view.View> roots) {
+        int added = 0;
+        try {
+            Class<?> clazz = Class.forName("android.view.WindowManagerGlobal");
+            Object global = clazz.getMethod("getInstance").invoke(null);
+            java.lang.reflect.Field field = clazz.getDeclaredField("mViews");
+            field.setAccessible(true);
+            Object value = field.get(global);
+            if (value instanceof java.util.List) {
+                for (Object item : (java.util.List<?>) value) {
+                    if (!(item instanceof android.view.View)) continue;
+                    android.view.View view = (android.view.View) item;
+                    if (!view.getClass().getName().contains("PopupDecor")) continue;
+                    if (!view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) continue;
+                    if (isExcluded(view) || roots.contains(view)) continue;
+                    roots.add(view);
+                    added++;
+                }
+            }
+        } catch (Throwable error) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "枚举弹出菜单失败：" + error);
+            return;
+        }
+        if (added > 0) com.github.catvod.crawler.DebugLogStore.add("voice", "弹出菜单 " + added + " 个");
+    }
+
+    /** 参与截图和投递的全部窗口：对话框 + 弹出菜单，按叠放顺序。 */
+    private static java.util.List<android.view.View> windowTargets(Activity activity) {
+        java.util.List<android.view.View> roots = dialogDecors(activity);
+        addPopupRoots(roots);
+        return roots;
+    }
+
+    /**
      * 触摸/按键投给谁：有对话框就投对话框，没有就投 Activity 自己的窗口。
      * 这是唯一口径，不再按坐标挑窗口。
      */
     private static android.view.View targetView(Activity activity) {
         if (activity == null) return null;
-        java.util.List<android.view.View> dialogs = dialogDecors(activity);
-        if (!dialogs.isEmpty()) return dialogs.get(dialogs.size() - 1);
+        java.util.List<android.view.View> targets = windowTargets(activity);
+        if (!targets.isEmpty()) return targets.get(targets.size() - 1);
         return activity.getWindow().getDecorView();
     }
 
@@ -578,7 +616,7 @@ public class Voice implements Process {
                 latch.countDown();
                 return;
             }
-            java.util.List<android.view.View> roots = dialogDecors(activity);
+            java.util.List<android.view.View> roots = windowTargets(activity);
             try {
                 StringBuilder builder = new StringBuilder("镜像抓帧 ").append(width).append('x').append(height).append(" 窗口=").append(roots.size());
                 for (android.view.View root : roots) {
