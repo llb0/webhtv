@@ -451,10 +451,53 @@ public class Voice implements Process {
         if (added > 0) com.github.catvod.crawler.DebugLogStore.add("voice", "弹出菜单 " + added + " 个");
     }
 
-    /** 参与截图和投递的全部窗口：对话框 + 弹出菜单，按叠放顺序。 */
+    /**
+     * 参与截图和投递的全部窗口，按叠放顺序（越靠后越在上层）。
+     *
+     * <p>主路是反射 {@code WindowManagerGlobal.mViews}：它能拿到所有窗口，包括那些
+     * 不走当前 Activity 的 FragmentManager、也不是 PopupWindow 的对话框窗口——
+     * 电视端"选择站点"就是这种，只靠 FragmentManager 会一个都枚举不到（日志里窗口=0）。
+     * 这里**不做任何尺寸/坐标过滤**，过滤会把正常弹层整个剔掉。</p>
+     */
     private static java.util.List<android.view.View> windowTargets(Activity activity) {
-        java.util.List<android.view.View> roots = dialogDecors(activity);
+        java.util.ArrayList<android.view.View> roots = new java.util.ArrayList<>();
+        if (activity == null) return roots;
+        android.view.View decor = activity.getWindow().getDecorView();
+        try {
+            Class<?> clazz = Class.forName("android.view.WindowManagerGlobal");
+            Object global = clazz.getMethod("getInstance").invoke(null);
+            java.lang.reflect.Field field = clazz.getDeclaredField("mViews");
+            field.setAccessible(true);
+            Object value = field.get(global);
+            if (value instanceof java.util.List) {
+                for (Object item : (java.util.List<?>) value) {
+                    if (!(item instanceof android.view.View)) continue;
+                    android.view.View view = (android.view.View) item;
+                    if (!view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) continue;
+                    if (isExcluded(view) || roots.contains(view)) continue;
+                    roots.add(view);
+                }
+            }
+        } catch (Throwable error) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "反射窗口表失败：" + error);
+        }
+        // 反射被拦时兜底：DialogFragment 的窗口 + 移动端的弹出菜单
+        if (roots.isEmpty()) roots.addAll(dialogDecors(activity));
         addPopupRoots(roots);
+        if (!roots.contains(decor)) roots.add(0, decor);
+        try {
+            StringBuilder builder = new StringBuilder("窗口表 ").append(roots.size()).append(" 个");
+            for (android.view.View root : roots) {
+                int[] location = new int[2];
+                root.getLocationOnScreen(location);
+                builder.append("｜").append(root.getClass().getSimpleName())
+                        .append(' ').append(root.getWidth()).append('x').append(root.getHeight())
+                        .append('@').append(location[0]).append(',').append(location[1])
+                        .append(root.hasWindowFocus() ? "[焦点]" : "");
+            }
+            com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
+        } catch (Throwable ignored) {
+        }
         return roots;
     }
 
@@ -465,7 +508,17 @@ public class Voice implements Process {
     private static android.view.View targetView(Activity activity) {
         if (activity == null) return null;
         java.util.List<android.view.View> targets = windowTargets(activity);
-        if (!targets.isEmpty()) return targets.get(targets.size() - 1);
+        // 系统的按键/触摸本来就是发给"持有输入焦点的那个窗口"的，照这个口径挑，
+        // 就不会出现"某个残留弹窗排在末尾、把对话框的点击全吃掉"。
+        android.view.View focused = null;
+        for (android.view.View view : targets) {
+            if (view == null) continue;
+            if (view.hasWindowFocus()) focused = view;
+        }
+        if (focused != null) return focused;
+        for (android.view.View view : targets) {
+            if (view != null && view != activity.getWindow().getDecorView()) return view;
+        }
         return activity.getWindow().getDecorView();
     }
 
@@ -568,7 +621,14 @@ public class Voice implements Process {
             canvas.save();
             canvas.translate(location[0] - origin[0], location[1] - origin[1]);
             canvas.clipRect(0, 0, root.getWidth(), root.getHeight());
-            root.draw(canvas);
+            try {
+                root.draw(canvas);
+                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口 " + root.getClass().getSimpleName()
+                        + " 尺寸=" + root.getWidth() + "x" + root.getHeight()
+                        + " 位置=" + location[0] + "," + location[1]);
+            } catch (Throwable error) {
+                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
+            }
             canvas.restore();
         }
     }
@@ -592,7 +652,14 @@ public class Voice implements Process {
             canvas.save();
             canvas.translate(location[0] - origin[0], location[1] - origin[1]);
             canvas.clipRect(0, 0, root.getWidth(), root.getHeight());
-            root.draw(canvas);
+            try {
+                root.draw(canvas);
+                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口 " + root.getClass().getSimpleName()
+                        + " 尺寸=" + root.getWidth() + "x" + root.getHeight()
+                        + " 位置=" + location[0] + "," + location[1]);
+            } catch (Throwable error) {
+                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
+            }
             canvas.restore();
         }
     }
