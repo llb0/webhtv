@@ -390,73 +390,60 @@ public class Voice implements Process {
      * <p>只用 FragmentManager 枚举，不反射 WindowManagerGlobal.mViews —— 反射那条路要自己判
      * 窗口尺寸/坐标是否对齐，判错了弹层会被整个过滤掉，触摸就落到下层 Activity 了。</p>
      */
-    /**
-     * 一个要叠进镜像的窗口。对话框能拿到 Window 句柄（可以 PixelCopy 抓真像素）；
-     * 弹出菜单（PopupWindow）拿不到 Window，只能退化 view.draw。
-     */
-    private static final class Target {
-        final android.view.Window window;
-        final android.view.View decor;
-
-        Target(android.view.Window window, android.view.View decor) {
-            this.window = window;
-            this.decor = decor;
-        }
-    }
-
-    private static java.util.List<Target> windowTargets(Activity activity) {
-        java.util.ArrayList<Target> targets = new java.util.ArrayList<>();
+    private static java.util.List<android.view.View> dialogDecors(Activity activity) {
+        java.util.ArrayList<android.view.View> roots = new java.util.ArrayList<>();
         try {
             if (activity instanceof androidx.fragment.app.FragmentActivity support) {
-                collectSupportDialogs(support.getSupportFragmentManager(), targets, 0);
+                collectSupportDialogs(support.getSupportFragmentManager(), roots, 0);
             }
-            collectPlatformDialogs(activity.getFragmentManager(), targets, 0);
+            collectPlatformDialogs(activity.getFragmentManager(), roots, 0);
         } catch (Throwable error) {
             com.github.catvod.crawler.DebugLogStore.add("voice", "枚举对话框失败：" + error);
         }
-        addPopupTargets(targets);
-        return targets;
+        return roots;
     }
 
     /**
-     * 递归往下找 DialogFragment（站选择、搜索页里的站弹窗都是 {@code show(this)} 挂在
-     * Fragment 自己的 childFragmentManager 上，只看 Activity 那一层会一个都找不到）。
+     * 递归往下找 DialogFragment。
+     *
+     * <p>站选择、搜索页里的站弹窗都是 {@code show(this)} 挂在 Fragment 自己的
+     * childFragmentManager 上，只看 Activity 那一层会一个都枚举不到（日志表现就是"窗口=0"）。</p>
      */
-    private static void collectSupportDialogs(androidx.fragment.app.FragmentManager manager, java.util.List<Target> targets, int depth) {
+    private static void collectSupportDialogs(androidx.fragment.app.FragmentManager manager, java.util.List<android.view.View> roots, int depth) {
         if (manager == null || depth > 4) return;
         for (androidx.fragment.app.Fragment fragment : manager.getFragments()) {
             if (fragment instanceof androidx.fragment.app.DialogFragment dialogFragment) {
-                addTarget(dialogFragment.getDialog(), targets);
+                addDialogDecor(dialogFragment.getDialog(), roots);
             }
-            collectSupportDialogs(fragment.getChildFragmentManager(), targets, depth + 1);
+            collectSupportDialogs(fragment.getChildFragmentManager(), roots, depth + 1);
         }
     }
 
-    private static void collectPlatformDialogs(android.app.FragmentManager manager, java.util.List<Target> targets, int depth) {
+    private static void collectPlatformDialogs(android.app.FragmentManager manager, java.util.List<android.view.View> roots, int depth) {
         if (manager == null || depth > 4) return;
         for (android.app.Fragment fragment : manager.getFragments()) {
             if (fragment instanceof android.app.DialogFragment) {
-                addTarget(((android.app.DialogFragment) fragment).getDialog(), targets);
+                addDialogDecor(((android.app.DialogFragment) fragment).getDialog(), roots);
             }
-            collectPlatformDialogs(fragment.getChildFragmentManager(), targets, depth + 1);
+            collectPlatformDialogs(fragment.getChildFragmentManager(), roots, depth + 1);
         }
     }
 
-    private static void addTarget(android.app.Dialog dialog, java.util.List<Target> targets) {
+    private static void addDialogDecor(android.app.Dialog dialog, java.util.List<android.view.View> roots) {
         if (dialog == null || !dialog.isShowing() || dialog.getWindow() == null) return;
-        android.view.Window window = dialog.getWindow();
-        android.view.View view = window.getDecorView();
+        android.view.View view = dialog.getWindow().getDecorView();
         if (isExcluded(view)) return;
-        if (view.getWidth() <= 0 || view.getHeight() <= 0) return;
-        for (Target target : targets) if (target.decor == view) return;
-        targets.add(new Target(window, view));
+        if (view.getWidth() > 0 && view.getHeight() > 0 && !roots.contains(view)) roots.add(view);
     }
 
     /**
      * 弹出式菜单（工具栏溢出菜单那种 PopupWindow）不是 Dialog，FragmentManager 枚举不到，
-     * 只能从 WindowManagerGlobal.mViews 里挑。这里**只认 PopupDecorView**、不做尺寸/坐标过滤。
+     * 只能从 WindowManagerGlobal.mViews 里挑出来。
+     *
+     * <p>这里**只认 PopupDecorView**，不做尺寸/坐标过滤 —— 以前那版按"必须完整落在 Activity
+     * 窗口内"过滤，把正常弹层整个滤掉，才是"点了没反应"的根因。</p>
      */
-    private static void addPopupTargets(java.util.List<Target> targets) {
+    private static void addPopupRoots(java.util.List<android.view.View> roots) {
         int added = 0;
         try {
             Class<?> clazz = Class.forName("android.view.WindowManagerGlobal");
@@ -470,11 +457,8 @@ public class Voice implements Process {
                     android.view.View view = (android.view.View) item;
                     if (!view.getClass().getName().contains("PopupDecor")) continue;
                     if (!view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) continue;
-                    if (isExcluded(view)) continue;
-                    boolean exists = false;
-                    for (Target target : targets) if (target.decor == view) exists = true;
-                    if (exists) continue;
-                    targets.add(new Target(null, view));
+                    if (isExcluded(view) || roots.contains(view)) continue;
+                    roots.add(view);
                     added++;
                 }
             }
@@ -485,14 +469,21 @@ public class Voice implements Process {
         if (added > 0) com.github.catvod.crawler.DebugLogStore.add("voice", "弹出菜单 " + added + " 个");
     }
 
+    /** 参与截图和投递的全部窗口：对话框（含嵌套）+ 弹出菜单，按叠放顺序。 */
+    private static java.util.List<android.view.View> windowTargets(Activity activity) {
+        java.util.List<android.view.View> roots = dialogDecors(activity);
+        addPopupRoots(roots);
+        return roots;
+    }
+
     /**
-     * 触摸/按键投给谁：有对话框/弹出菜单就投最上层那个，没有就投 Activity 自己的窗口。
-     * 这是唯一口径，不按坐标挑窗口。
+     * 触摸/按键投给谁：有对话框就投对话框，没有就投 Activity 自己的窗口。
+     * 这是唯一口径，不再按坐标挑窗口。
      */
     private static android.view.View targetView(Activity activity) {
         if (activity == null) return null;
-        java.util.List<Target> targets = windowTargets(activity);
-        if (!targets.isEmpty()) return targets.get(targets.size() - 1).decor;
+        java.util.List<android.view.View> targets = windowTargets(activity);
+        if (!targets.isEmpty()) return targets.get(targets.size() - 1);
         return activity.getWindow().getDecorView();
     }
 
@@ -576,115 +567,56 @@ public class Voice implements Process {
         return Nano.ok("touch:" + action);
     }
 
-    /** 把某一层淡暗（对话框弹出时系统会给底下的内容压暗，镜像要还原这个效果）。 */
-    private static void dimLayer(android.graphics.Bitmap bitmap, boolean[] dimmed) {
-        if (dimmed[0]) return;
-        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
-        canvas.drawColor(0x66000000);
-        dimmed[0] = true;
-    }
-
-    /** 把抓到的窗口位图贴到镜像帧上。 */
-    private static void composeLayer(android.graphics.Bitmap bitmap, int[] origin, android.graphics.Bitmap layer, int[] location, boolean[] dimmed) {
-        dimLayer(bitmap, dimmed);
-        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
-        android.graphics.Paint paint = new android.graphics.Paint();
-        canvas.drawBitmap(layer, null, new android.graphics.Rect(location[0] - origin[0], location[1] - origin[1],
-                location[0] - origin[0] + layer.getWidth(), location[1] - origin[1] + layer.getHeight()), paint);
-    }
-
-    /** 退化路径：直接把这个窗口 view.draw 上去（弹出菜单拿不到 Window，只能这么画）。 */
-    private static void drawTarget(android.graphics.Bitmap bitmap, int[] origin, android.view.View view, int[] location, boolean[] dimmed) {
-        if (view == null || !view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) return;
-        dimLayer(bitmap, dimmed);
-        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
-        canvas.save();
-        canvas.translate(location[0] - origin[0], location[1] - origin[1]);
-        canvas.clipRect(0, 0, view.getWidth(), view.getHeight());
-        try {
-            view.draw(canvas);
-            com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层(绘制) " + view.getClass().getSimpleName()
-                    + " 尺寸=" + view.getWidth() + "x" + view.getHeight() + " 位置=" + location[0] + "," + location[1]);
-        } catch (Throwable error) {
-            com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层失败 " + view.getClass().getSimpleName() + "：" + error);
-        }
-        canvas.restore();
-    }
-
     /**
-     * 逐个把弹层窗口叠到镜像帧上：能拿到 Window 的用 PixelCopy 抓它自己的真像素
-     * （对话框里的列表/图片/硬件渲染内容都能抓对），拿不到的才 view.draw。
+     * PixelCopy 已经把主窗口像素画满，这里只把弹层窗口（对话框、PopupWindow）叠上去。
      */
-    private static void captureTargets(android.graphics.Bitmap bitmap, int[] origin, java.util.List<Target> targets, int index, boolean[] dimmed, Runnable done) {
-        if (index >= targets.size()) {
-            done.run();
-            return;
-        }
-        Target target = targets.get(index);
-        android.view.View view = target.decor;
-        if (view == null || !view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) {
-            captureTargets(bitmap, origin, targets, index + 1, dimmed, done);
-            return;
-        }
-        int[] location = new int[2];
-        view.getLocationOnScreen(location);
-        Runnable next = () -> captureTargets(bitmap, origin, targets, index + 1, dimmed, done);
-        if (target.window == null || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
-            drawTarget(bitmap, origin, view, location, dimmed);
-            next.run();
-            return;
-        }
-        android.graphics.Bitmap layer;
-        try {
-            layer = android.graphics.Bitmap.createBitmap(view.getWidth(), view.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
-        } catch (Throwable error) {
-            drawTarget(bitmap, origin, view, location, dimmed);
-            next.run();
-            return;
-        }
-        try {
-            android.view.PixelCopy.request(target.window, layer, result -> {
-                try {
-                    if (result == android.view.PixelCopy.SUCCESS) {
-                        composeLayer(bitmap, origin, layer, location, dimmed);
-                        com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层(PixelCopy) " + view.getClass().getSimpleName()
-                                + " 尺寸=" + view.getWidth() + "x" + view.getHeight() + " 位置=" + location[0] + "," + location[1]);
-                    } else {
-                        com.github.catvod.crawler.DebugLogStore.add("voice", "弹层 PixelCopy 失败 code=" + result + "，退 view.draw");
-                        drawTarget(bitmap, origin, view, location, dimmed);
-                    }
-                } catch (Throwable error) {
-                    com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层异常：" + error);
-                } finally {
-                    layer.recycle();
-                    next.run();
-                }
-            }, new android.os.Handler(android.os.Looper.getMainLooper()));
-            return;
-        } catch (Throwable error) {
-            com.github.catvod.crawler.DebugLogStore.add("voice", "弹层 PixelCopy 异常：" + error);
-            layer.recycle();
-            drawTarget(bitmap, origin, view, location, dimmed);
-            next.run();
+    private static void paintOverlays(android.graphics.Bitmap bitmap, int[] origin, android.view.View decor, java.util.List<android.view.View> roots) {
+        android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+        boolean dimmed = false;
+        for (android.view.View root : roots) {
+            if (root == null || root == decor || !root.isShown() || root.getWidth() <= 0 || root.getHeight() <= 0) continue;
+            int[] location = new int[2];
+            root.getLocationOnScreen(location);
+            if (!dimmed) {
+                canvas.drawColor(0x66000000);
+                dimmed = true;
+            }
+            canvas.save();
+            canvas.translate(location[0] - origin[0], location[1] - origin[1]);
+            canvas.clipRect(0, 0, root.getWidth(), root.getHeight());
+            try {
+                root.draw(canvas);
+                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层 " + root.getClass().getSimpleName()
+                        + " 尺寸=" + root.getWidth() + "x" + root.getHeight()
+                        + " 位置=" + location[0] + "," + location[1] + " shown=" + root.isShown());
+            } catch (Throwable error) {
+                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层失败 " + root.getClass().getSimpleName() + "：" + error);
+            }
+            canvas.restore();
         }
     }
 
-    /** 兜底（PixelCopy 整体不可用）：主窗口 + 弹层都用 view.draw。 */
-    private static void paintFallback(android.graphics.Bitmap bitmap, int[] origin, android.view.View decor, java.util.List<Target> targets) {
+    /** 兜底：没有 PixelCopy 时 view.draw（主窗口 + 对话框）。 */
+    private static void paintFallback(android.graphics.Bitmap bitmap, int[] origin, android.view.View decor, java.util.List<android.view.View> roots) {
         android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
         if (decor != null && decor.getWidth() > 0 && decor.getHeight() > 0) {
             canvas.save();
+            canvas.translate(0, 0);
             canvas.clipRect(0, 0, bitmap.getWidth(), bitmap.getHeight());
             decor.draw(canvas);
             canvas.restore();
             com.github.catvod.crawler.DebugLogStore.add("voice", "镜像兜底：主窗口 view.draw");
         }
-        boolean[] dimmed = new boolean[1];
-        for (Target target : targets) {
-            if (target.decor == decor) continue;
+        for (android.view.View root : roots) {
+            if (root == null || !root.isShown() || root.getWidth() <= 0 || root.getHeight() <= 0) continue;
             int[] location = new int[2];
-            target.decor.getLocationOnScreen(location);
-            drawTarget(bitmap, origin, target.decor, location, dimmed);
+            root.getLocationOnScreen(location);
+            canvas.drawColor(0x66000000);
+            canvas.save();
+            canvas.translate(location[0] - origin[0], location[1] - origin[1]);
+            canvas.clipRect(0, 0, root.getWidth(), root.getHeight());
+            root.draw(canvas);
+            canvas.restore();
         }
     }
 
@@ -712,54 +644,45 @@ public class Voice implements Process {
                 latch.countDown();
                 return;
             }
-            java.util.List<Target> targets = windowTargets(activity);
+            java.util.List<android.view.View> roots = windowTargets(activity);
             try {
-                StringBuilder builder = new StringBuilder("镜像抓帧 ").append(width).append('x').append(height).append(" 弹层=").append(targets.size());
-                for (Target target : targets) {
-                    if (target.decor == null) continue;
-                    builder.append("｜").append(target.decor.getClass().getSimpleName()).append(' ')
-                            .append(target.decor.getWidth()).append('x').append(target.decor.getHeight())
-                            .append(target.window == null ? "(draw)" : "(pixelcopy)");
+                StringBuilder builder = new StringBuilder("镜像抓帧 ").append(width).append('x').append(height).append(" 窗口=").append(roots.size());
+                for (android.view.View root : roots) {
+                    if (root == null) continue;
+                    builder.append("｜").append(root.getClass().getSimpleName()).append(' ').append(root.getWidth()).append('x').append(root.getHeight());
                 }
                 com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
             } catch (Throwable ignored) {
             }
-            // 主窗口走 PixelCopy（WebView 是硬件渲染的，view.draw 画不出内容），
-            // 然后把每个弹层窗口逐个叠上去：对话框也用 PixelCopy 抓它自己的真像素。
+            // WebView 是硬件渲染的，用 view.draw(canvas) 画出来会是空白、而且被缩到左上角，
+            // 所以主窗口走 PixelCopy（直接拿窗口合成后的像素），弹层再用 view.draw 补在上面。
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                 try {
                     android.view.PixelCopy.request(activity.getWindow(), bitmap, result -> {
-                        if (result != android.view.PixelCopy.SUCCESS) {
-                            com.github.catvod.crawler.DebugLogStore.add("voice", "主窗口 PixelCopy 失败 code=" + result + "，退 view.draw");
-                            try {
-                                paintFallback(bitmap, origin, decor, targets);
-                            } catch (Throwable error) {
-                                com.github.catvod.crawler.DebugLogStore.add("voice", "兜底绘制异常：" + error);
-                            }
+                        try {
+                            if (result == android.view.PixelCopy.SUCCESS) paintOverlays(bitmap, origin, decor, roots);
+                            else paintFallback(bitmap, origin, decor, roots);
+                            if (result != android.view.PixelCopy.SUCCESS) com.github.catvod.crawler.DebugLogStore.add("voice", "PixelCopy 失败 code=" + result);
+                        } catch (Throwable error) {
+                            com.github.catvod.crawler.DebugLogStore.add("voice", "叠加弹层异常：" + error);
+                        } finally {
                             holder[0] = bitmap;
                             latch.countDown();
-                            return;
                         }
-                        captureTargets(bitmap, origin, targets, 0, new boolean[1], () -> {
-                            holder[0] = bitmap;
-                            latch.countDown();
-                        });
                     }, new android.os.Handler(android.os.Looper.getMainLooper()));
                     return;
-                } catch (Throwable error) {
-                    com.github.catvod.crawler.DebugLogStore.add("voice", "主窗口 PixelCopy 异常：" + error);
+                } catch (Throwable ignored) {
                 }
             }
             try {
-                paintFallback(bitmap, origin, decor, targets);
-            } catch (Throwable error) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "兜底绘制异常：" + error);
+                paintFallback(bitmap, origin, decor, roots);
+            } catch (Throwable ignored) {
             }
             holder[0] = bitmap;
             latch.countDown();
         });
         try {
-            latch.await(4, java.util.concurrent.TimeUnit.SECONDS);
+            latch.await(3, java.util.concurrent.TimeUnit.SECONDS);
         } catch (InterruptedException ignored) {
         }
         android.graphics.Bitmap frame = holder[0];
