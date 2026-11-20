@@ -272,10 +272,12 @@ public class Voice implements Process {
         // 只 dispatch KEYCODE_BACK 在 leanback 上会被视频页/Dialog 吃掉，表现就是"返回键没反应"。
         // 上面盖着独立窗口（Dialog、下拉菜单、站点选择框这类）时，返回要投给那个窗口自己处理，
         // 直接走 Activity 的 OnBackPressedDispatcher 会把 Activity 结束掉，看起来就是"按返回退出程序"
-        if (!self && targetView(activity) != activity.getWindow().getDecorView()) {
+        android.view.View above = targetView(activity);
+        if (!self && above != activity.getWindow().getDecorView()) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "返回投给弹层窗口 " + above.getClass().getSimpleName());
             dispatchKey(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK), self);
             dispatchKey(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK), self);
-            return;
+            return;   // 上面还有弹层：绝不走 OnBackPressedDispatcher，否则整个 Activity 被结束 = "按返回退出程序"
         }
         // 没有弹层时按手势返回处理：手机上 onBackPressed 才是等价物，光投 KEYCODE_BACK 很多页面不处理
         if (dispatchBack(activity)) return;
@@ -381,15 +383,34 @@ public class Voice implements Process {
         Activity activity = App.activity();
         if (activity == null) return false;
         android.view.View target = targetView(activity);
-        // 盖着独立窗口（对话框、折叠菜单）时按键要先给它，否则方向键/确认键都在操作下层页面
-        if (target != null && target != activity.getWindow().getDecorView() && postInput(target, event)) return true;
-        androidx.fragment.app.DialogFragment fragment = topDialog(activity);
-        if (fragment != null) {
-            android.app.Dialog dialog = fragment.getDialog();
-            if (dialog != null && dialog.dispatchKeyEvent(event)) return true;
+        android.view.View decor = activity.getWindow().getDecorView();
+        // 盖着独立窗口（对话框、折叠菜单、电视端的"选择站点"）时，按键必须先给那个窗口，
+        // 而且**只给它**：真遥控器的按键就是交给"有焦点的那个窗口"的。
+        // 以前这里先试 activity.dispatchKeyEvent，下层页面只要说"我处理了"就把键吃掉了，
+        // 表现就是"对话框盖在上面，方向键却在动下面的列表"。
+        if (target != null && target != decor) {
+            boolean posted = postInput(target, event);
+            if (posted || target.dispatchKeyEvent(event)) {
+                com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递 " + target.getClass().getSimpleName() + " " + keyName(event));
+                return true;
+            }
+            // 窗口还没拿到焦点时 postInput 会被拒，这里再走一次 Dialog 自己的 dispatch
+            androidx.fragment.app.DialogFragment fragment = topDialog(activity);
+            if (fragment != null) {
+                android.app.Dialog dialog = fragment.getDialog();
+                if (dialog != null && dialog.dispatchKeyEvent(event)) return true;
+            }
+            com.github.catvod.crawler.DebugLogStore.add("voice", "按键没投进弹层窗口，改投 Activity");
         }
         if (activity.dispatchKeyEvent(event)) return true;
-        return target != null && target.dispatchKeyEvent(event);
+        return target != null && target != decor && target.dispatchKeyEvent(event);
+    }
+
+    /** 日志用：按键名。 */
+    private static String keyName(android.view.KeyEvent event) {
+        int code = event.getKeyCode();
+        String name = android.view.KeyEvent.keyCodeToString(code);
+        return (event.getAction() == android.view.KeyEvent.ACTION_DOWN ? "down " : "up ") + name;
     }
 
     private static String firstNonEmpty(String... values) {
