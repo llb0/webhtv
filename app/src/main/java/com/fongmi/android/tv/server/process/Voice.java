@@ -696,76 +696,6 @@ public class Voice implements Process {
         return null;
     }
 
-    private static final String SCROLLER_CLASS_NAME = "androidx.swiperefreshlayout.widget.SwipeRefreshLayout";
-    private static Class<?> scrollerClass;
-    private static final java.util.List<android.view.View> suspendedScrollers = new java.util.ArrayList<>();
-
-    private static boolean isScroller(android.view.View view) {
-        if (view == null) return false;
-        try {
-            if (scrollerClass == null) scrollerClass = Class.forName(SCROLLER_CLASS_NAME);
-            return scrollerClass.isInstance(view);
-        } catch (Throwable error) {
-            return false;
-        }
-    }
-
-    /**
-     * 按住时把包在列表外层的下拉刷新暂时关掉。
-     *
-     * <p>首页/Vod 列表的根布局就是 SwipeRefreshLayout，纵向拖动会先被它 onInterceptTouchEvent 拦走：
-     * 列表一格都不滚，只是把内容整体上下位移，松手没到刷新距离再归零 —— 这就是
-     * "滑一下松手弹回原位""滑动时焦点不动、只是上下错位"的真正原因。真遥控器不存在这个场景，
-     * 所以只在镜像注入的手势里临时关掉，松手立刻恢复，手指触摸时下拉刷新照旧可用。</p>
-     */
-    private static void suspendScrollers(android.view.View from) {
-        restoreScrollers();
-        android.view.View current = from;
-        while (current != null) {
-            android.view.View parent = current.getParent() instanceof android.view.View view ? view : null;
-            if (parent == null) break;
-            if (isScroller(parent) && parent.isEnabled()) {
-                parent.setEnabled(false);
-                suspendedScrollers.add(parent);
-            }
-            current = parent;
-        }
-    }
-
-    private static void restoreScrollers() {
-        for (android.view.View view : suspendedScrollers) {
-            try {
-                view.setEnabled(true);
-            } catch (Throwable ignored) {
-            }
-        }
-        suspendedScrollers.clear();
-    }
-
-    private static android.view.View probeChild(android.view.ViewGroup group, int left, int top) {
-        for (int i = 0; i < group.getChildCount(); i++) {
-            android.view.View child = group.getChildAt(i);
-            if (child == null || child.getWidth() <= 0 || child.getHeight() <= 0) continue;
-            if (left >= child.getLeft() && left < child.getRight() && top >= child.getTop() && top < child.getBottom()) return child;
-        }
-        return group.getChildCount() > 0 ? group.getChildAt(0) : null;
-    }
-
-    /**
-     * 真实滚动量：拿按下时那个子项现在的坐标跟按下时比。
-     *
-     * <p>不直接用 computeVerticalScrollOffset：leanback 的 GridLayoutManager 自己接管排布，
-     * 这个值在实机上一直是 0（日志里 dx=0 dy=0 拖了 400 多像素都没变），拿它判断"滚没滚"必然误判。
-     * 子项坐标是被 offsetChildrenVertical 直接改的，量它最可靠。子项被回收了就退回用偏移量。</p>
-     */
-    private static int[] gridDelta(GridMemo memo) {
-        android.view.View grid = memo.grid;
-        if (memo.probe != null && memo.probe.getParent() == grid) {
-            return new int[]{memo.probe.getLeft() - memo.probeLeft, memo.probe.getTop() - memo.probeTop};
-        }
-        return new int[]{gridScroll(grid, true) - memo.scrollX, gridScroll(grid, false) - memo.scrollY};
-    }
-
     private static int gridScroll(android.view.View grid, boolean horizontal) {
         // computeHorizontalScrollOffset / computeVerticalScrollOffset 在 View 上是 protected，
         // 只有 RecyclerView 把它们覆写成了 public，所以必须按 RecyclerView 类型调
@@ -808,7 +738,6 @@ public class Voice implements Process {
     /** 按下时记基准：每一层网格当时滚到哪儿、焦点子项在网格里的偏移、按下点在网格里的坐标。 */
     private static void rememberGrid(android.view.View windowRoot, float screenX, float screenY, int[] windowLoc) {
         gridMemos.clear();
-        restoreScrollers();
         if (windowRoot == null || windowLoc == null) return;
         java.util.List<android.view.View> grids = new java.util.ArrayList<>();
         collectGrids(windowRoot, screenX - windowLoc[0], screenY - windowLoc[1], grids);
@@ -839,8 +768,6 @@ public class Voice implements Process {
             if (names.length() > 0) names.append(',');
             names.append(grid.getClass().getSimpleName());
         }
-        // 必须在 DOWN 投递之前关：SwipeRefreshLayout 是在收到 MOVE 时才决定拦不拦截的
-        suspendScrollers(grids.get(0));
         log("网格命中 " + names);
     }
 
@@ -848,7 +775,6 @@ public class Voice implements Process {
     private static void finishGrid(boolean cancel) {
         java.util.List<GridMemo> memos = new java.util.ArrayList<>(gridMemos);
         gridMemos.clear();
-        restoreScrollers();
         if (cancel) return;
         for (GridMemo memo : memos) followGrid(memo);
     }
@@ -949,10 +875,7 @@ public class Voice implements Process {
         final boolean self = "1".equals(params.get("self"));
         // a=3 是"鼠标右键"：约定功能为返回
         if (action == 3) {
-            App.post(() -> {
-                restoreScrollers();
-                back();
-            });
+            App.post(() -> back());
             return Nano.ok("touch:3");
         }
         if (nx < 0 || ny < 0) return Nano.error(Response.Status.BAD_REQUEST, "missing xy");
