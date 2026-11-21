@@ -685,8 +685,11 @@ public class Voice implements Process {
     }
 
     private static int gridScroll(android.view.View grid, boolean horizontal) {
+        // computeHorizontalScrollOffset / computeVerticalScrollOffset 在 View 上是 protected，
+        // 只有 RecyclerView 把它们覆写成了 public，所以必须按 RecyclerView 类型调
+        if (!(grid instanceof androidx.recyclerview.widget.RecyclerView recycler)) return 0;
         try {
-            return horizontal ? grid.computeHorizontalScrollOffset() : grid.computeVerticalScrollOffset();
+            return horizontal ? recycler.computeHorizontalScrollOffset() : recycler.computeVerticalScrollOffset();
         } catch (Throwable ignored) {
             return 0;
         }
