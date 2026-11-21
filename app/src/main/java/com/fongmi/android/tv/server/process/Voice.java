@@ -530,8 +530,33 @@ public class Voice implements Process {
         // 反射被拦时兜底：DialogFragment 的窗口 + 移动端的弹出菜单
         if (roots.isEmpty()) roots.addAll(dialogDecors(activity));
         addPopupRoots(roots);
+        // 只画属于当前 Activity 的窗口。退出某个页面时，它的窗口会继续留在窗口表里一段时间
+        // （实测返回首页那次滞留了约 10 秒），画上去就是一张整屏旧页面盖在新页面上——电视早就切好了，
+        // 镜像却一直"卡"着旧画面，直到那个窗口被销毁才恢复。
+        java.util.Iterator<android.view.View> iterator = roots.iterator();
+        while (iterator.hasNext()) {
+            android.view.View root = iterator.next();
+            if (root == decor) continue;
+            Activity owner = ownerActivity(root.getContext());
+            if (owner == null || owner == activity) continue;
+            logThrottled("残留窗口", "跳过其它页面的残留窗口：" + owner.getClass().getSimpleName()
+                    + " " + root.getWidth() + "x" + root.getHeight());
+            iterator.remove();
+        }
         if (!roots.contains(decor)) roots.add(0, decor);
         return roots;
+    }
+
+    /**
+     * 这个窗口属于哪个 Activity。对话框也是用 Activity 当 Context 创建的，所以弹层照样能取到；
+     * 取不到（Application Context 之类）返回 null，按"不拦"处理。
+     */
+    private static Activity ownerActivity(android.content.Context context) {
+        for (int i = 0; i < 8 && context instanceof android.content.ContextWrapper; i++) {
+            if (context instanceof Activity) return (Activity) context;
+            context = ((android.content.ContextWrapper) context).getBaseContext();
+        }
+        return context instanceof Activity ? (Activity) context : null;
     }
 
     /** 投递目标：按叠放顺序取最上层的那个对话框/弹出菜单，没有就投 Activity。 */
