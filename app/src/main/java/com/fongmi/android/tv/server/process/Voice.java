@@ -696,6 +696,30 @@ public class Voice implements Process {
         return null;
     }
 
+    private static android.view.View probeChild(android.view.ViewGroup group, int left, int top) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            android.view.View child = group.getChildAt(i);
+            if (child == null || child.getWidth() <= 0 || child.getHeight() <= 0) continue;
+            if (left >= child.getLeft() && left < child.getRight() && top >= child.getTop() && top < child.getBottom()) return child;
+        }
+        return group.getChildCount() > 0 ? group.getChildAt(0) : null;
+    }
+
+    /**
+     * 真实滚动量：拿按下时那个子项现在的坐标跟按下时比。
+     *
+     * <p>不直接用 computeVerticalScrollOffset：leanback 的 GridLayoutManager 自己接管排布，
+     * 这个值在实机上一直是 0（日志里 dx=0 dy=0 拖了 400 多像素都没变），拿它判断"滚没滚"必然误判。
+     * 子项坐标是被 offsetChildrenVertical 直接改的，量它最可靠。子项被回收了就退回用偏移量。</p>
+     */
+    private static int[] gridDelta(GridMemo memo) {
+        android.view.View grid = memo.grid;
+        if (memo.probe != null && memo.probe.getParent() == grid) {
+            return new int[]{memo.probe.getLeft() - memo.probeLeft, memo.probe.getTop() - memo.probeTop};
+        }
+        return new int[]{gridScroll(grid, true) - memo.scrollX, gridScroll(grid, false) - memo.scrollY};
+    }
+
     private static int gridScroll(android.view.View grid, boolean horizontal) {
         // computeHorizontalScrollOffset / computeVerticalScrollOffset 在 View 上是 protected，
         // 只有 RecyclerView 把它们覆写成了 public，所以必须按 RecyclerView 类型调
@@ -790,9 +814,9 @@ public class Voice implements Process {
         android.view.View grid = memo.grid;
         if (grid == null || !(grid instanceof android.view.ViewGroup group) || group.getChildCount() == 0) return;
         String name = grid.getClass().getSimpleName();
-        int[] delta = gridDelta(memo);
-        int dx = delta[0];
-        int dy = delta[1];
+        int[] moved = gridDelta(memo);
+        int dx = moved[0];
+        int dy = moved[1];
         boolean scrolled = dx != 0 || dy != 0;
         // 方向必须按网格自己的类型判，不能拿 |dx|>=|dy| 猜：两边都是 0 的时候那个判法会把纵向网格
         // 当成横向，拿 X 坐标去跟每行的 getLeft()（全是 0）比，结果永远选中第一行。
@@ -815,9 +839,9 @@ public class Voice implements Process {
             int start = horizontal ? child.getLeft() : child.getTop();
             int size = horizontal ? child.getWidth() : child.getHeight();
             if (start + size <= 0 || start >= span) continue;   // 完全滑出可视区的不算
-            int delta = Math.abs(start - anchor);
-            if (delta < bestDelta) {
-                bestDelta = delta;
+            int offset = Math.abs(start - anchor);
+            if (offset < bestDelta) {
+                bestDelta = offset;
                 best = child;
             }
         }
