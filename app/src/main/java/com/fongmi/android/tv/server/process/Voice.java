@@ -645,6 +645,129 @@ public class Voice implements Process {
         return event;
     }
 
+    // ---------------------------------------------------------------- 触摸滚动后的选中项跟随
+    //
+    // leanback 的网格（BaseGridView / VerticalGridView / HorizontalGridView）以"选中项"为布局锚点：
+    // 触摸滚动只改了像素偏移，选中项还在原处；下一次布局（松手、点击、焦点变化都会触发）就把列表
+    // 拉回到选中项该在的位置 —— 这就是"首页/Vod 列表松手弹回原位""点一下又弹回去"的根源。
+    // 选站那种普通 RecyclerView 没有这个模型，所以它滑得动、也不弹。
+    //
+    // 真遥控器不存在这个问题（它只按键）。所以这段只做在镜像注入这条路上，不改动 App 与系统行为。
+
+    private static final String GRID_CLASS_NAME = "androidx.leanback.widget.BaseGridView";
+    private static Class<?> gridClass;
+    private static android.view.View touchGrid;
+    private static int gridDownX, gridDownY, gridScrollX, gridScrollY, gridAnchorX, gridAnchorY;
+
+    private static boolean isGrid(android.view.View view) {
+        if (view == null) return false;
+        try {
+            if (gridClass == null) gridClass = Class.forName(GRID_CLASS_NAME);
+            return gridClass.isInstance(view);
+        } catch (Throwable error) {
+            return false;
+        }
+    }
+
+    private static int gridScroll(android.view.View grid, boolean horizontal) {
+        try {
+            return horizontal ? grid.computeHorizontalScrollOffset() : grid.computeVerticalScrollOffset();
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    /** 按坐标找最内层的网格（点在子项上时返回的是包着这些子项的那个网格）。 */
+    private static android.view.View findGrid(android.view.View view, float x, float y) {
+        if (view == null) return null;
+        if (view instanceof android.view.ViewGroup group) {
+            for (int i = group.getChildCount() - 1; i >= 0; i--) {
+                android.view.View child = group.getChildAt(i);
+                if (child == null || child.getVisibility() != android.view.View.VISIBLE) continue;
+                float cx = x - child.getLeft() + group.getScrollX();
+                float cy = y - child.getTop() + group.getScrollY();
+                if (cx < 0 || cy < 0 || cx > child.getWidth() || cy > child.getHeight()) continue;
+                android.view.View found = findGrid(child, cx, cy);
+                if (found != null) return found;
+            }
+        }
+        return isGrid(view) ? view : null;
+    }
+
+    /** 按下时记基准：网格当时滚到哪儿、焦点子项在网格里的偏移、按下点在网格里的坐标。 */
+    private static void rememberGrid(android.view.View windowRoot, float screenX, float screenY, int[] windowLoc) {
+        touchGrid = null;
+        gridDownX = gridDownY = gridScrollX = gridScrollY = gridAnchorX = gridAnchorY = -1;
+        if (windowRoot == null || windowLoc == null) return;
+        android.view.View grid = findGrid(windowRoot, screenX - windowLoc[0], screenY - windowLoc[1]);
+        if (grid == null) return;
+        touchGrid = grid;
+        int[] location = new int[2];
+        grid.getLocationOnScreen(location);
+        gridDownX = Math.round(screenX - location[0]);
+        gridDownY = Math.round(screenY - location[1]);
+        gridScrollX = gridScroll(grid, true);
+        gridScrollY = gridScroll(grid, false);
+        if (grid instanceof android.view.ViewGroup group) {
+            android.view.View focused = group.getFocusedChild();
+            if (focused != null) {
+                gridAnchorX = focused.getLeft();
+                gridAnchorY = focused.getTop();
+            }
+        }
+    }
+
+    /**
+     * 手势结束后把网格的选中项跟到"手指实际停下/点到"的那一项。
+     *
+     * <p>滚动过：选"现在正好落在按下时焦点项那个偏移"的子项 —— 还原对齐时画面不动，也就不会弹。
+     * <br>没滚动（单纯点一下）：选"按下点所在的那一项" —— 让选中项和用户点的那张卡片一致，
+     * 后续布局就不会把列表拉回旧位置。</p>
+     */
+    private static void finishGrid(boolean cancel) {
+        android.view.View grid = touchGrid;
+        touchGrid = null;
+        if (grid == null || cancel || !(grid instanceof android.view.ViewGroup group)) return;
+        int dx = gridScroll(grid, true) - gridScrollX;
+        int dy = gridScroll(grid, false) - gridScrollY;
+        boolean horizontal = Math.abs(dx) >= Math.abs(dy);
+        boolean scrolled = dx != 0 || dy != 0;
+        int anchor = scrolled ? (horizontal ? gridAnchorX : gridAnchorY) : (horizontal ? gridDownX : gridDownY);
+        if (anchor < 0) anchor = horizontal ? grid.getWidth() / 2 : grid.getHeight() / 2;
+        int span = horizontal ? grid.getWidth() : grid.getHeight();
+        android.view.View best = null;
+        int bestDelta = Integer.MAX_VALUE;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            android.view.View child = group.getChildAt(i);
+            if (child == null || child.getWidth() <= 0 || child.getHeight() <= 0) continue;
+            int start = horizontal ? child.getLeft() : child.getTop();
+            int size = horizontal ? child.getWidth() : child.getHeight();
+            if (start + size <= 0 || start >= span) continue;   // 完全滑出可视区的不算
+            int delta = Math.abs(start - anchor);
+            if (delta < bestDelta) {
+                bestDelta = delta;
+                best = child;
+            }
+        }
+        if (best == null) return;
+        int position = -1;
+        try {
+            position = ((androidx.recyclerview.widget.RecyclerView) grid).getChildAdapterPosition(best);
+        } catch (Throwable ignored) {
+        }
+        if (position < 0) return;
+        try {
+            grid.getClass().getMethod("setSelectedPosition", int.class).invoke(grid, position);
+        } catch (Throwable error) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "网格跟随选中失败：" + error.getClass().getSimpleName());
+            return;
+        }
+        // 触屏模式下这些控件通常不参与触摸取焦，拿不到焦点也没关系：选中项已经对上，布局不会弹回
+        if (!best.isFocused()) best.requestFocus();
+        com.github.catvod.crawler.DebugLogStore.add("voice", "网格跟随选中 position=" + position
+                + (scrolled ? " 滚动后" : " 点击后") + " dx=" + dx + " dy=" + dy);
+    }
+
     /** 触摸板：把归一化坐标(0~1000)投成本地触摸事件，相当于用鼠标点界面。 */
     private static long touchDownTime;
     private Response touch(Map<String, String> params) {
@@ -680,6 +803,9 @@ public class Voice implements Process {
             }
             int[] location = new int[2];
             target.getLocationOnScreen(location);
+            float screenX = baseLoc[0] + nx * base.getWidth() / 1000f;
+            float screenY = baseLoc[1] + ny * base.getHeight() / 1000f;
+            if (action == 0) rememberGrid(target, screenX, screenY, location);
             if (action == 0) {
                 com.github.catvod.crawler.DebugLogStore.add("voice", "触摸按下 x=" + Math.round(nx) + " y=" + Math.round(ny)
                         + " 目标=" + target.getClass().getSimpleName() + " 目标尺寸=" + target.getWidth() + "x" + target.getHeight()
@@ -710,6 +836,9 @@ public class Voice implements Process {
             // downTime 必须始终是按下那一刻，否则系统会把按下和抬起当成同一瞬间（列表就会"点一下再弹回"）
             android.view.MotionEvent event = obtainTouch(touchDownTime, now, type, px - location[0], py - location[1]);
             deliverTouch(activity, target, event);
+            // 手势结束：leanback 网格是按"选中项"排布的，触摸只挪了像素没挪选中项，
+            // 不改的话下一次布局会把列表拉回原处（松手弹回、点一下也弹回）。这里把选中项跟到现实位置。
+            if (up) finishGrid(action == 5);
             if (up) touchDownTime = 0;
         });
         return Nano.ok("touch:" + action);
