@@ -17,7 +17,6 @@ import com.fongmi.android.tv.voice.VoiceCommand;
 import com.fongmi.android.tv.voice.VoiceCommandParser;
 import com.fongmi.android.tv.voice.VoiceNav;
 import com.fongmi.android.tv.voice.VoicePlay;
-import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
