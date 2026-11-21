@@ -74,14 +74,12 @@ public final class AboutDialog {
             public void onActive(String item) {
                 Setting.putGithubProxy(GithubProxy.setActive(item));
                 refreshGithubProxy(binding);
-                focusProxyRow(binding, 0);
             }
 
             @Override
             public void onRemove(String item) {
                 Setting.putGithubProxy(GithubProxy.removeSource(item));
                 refreshGithubProxy(binding);
-                focusProxyRow(binding, 0);
             }
         });
         binding.list.setAdapter(adapter);
@@ -215,33 +213,6 @@ public final class AboutDialog {
             android.view.ViewParent parent = view.getParent();
             view = parent instanceof View ? (View) parent : null;
         }
-    }
-
-    /**
-     * 选中源之后焦点跟到当前那一行。
-     *
-     * <p>{@link GithubProxy#setActive(String)} 会把选中的源提到第一位，列表整个重排；而焦点挂的是"某一格的子视图"，
-     * 格子没动、里面的内容换了，看着就是焦点没跟着条目走。这里按当前选中行的 adapter position 重新落焦点。</p>
-     *
-     * <p>重排后行视图要等一次布局才存在，找不到就下一帧再试，最多 4 次。</p>
-     */
-    private static void focusProxyRow(DialogGithubProxyBinding binding, int attempt) {
-        GithubProxyAdapter adapter = (GithubProxyAdapter) binding.list.getAdapter();
-        if (adapter == null || adapter.getItemCount() == 0) return;
-        int position = Math.max(0, Math.min(adapter.getSelected(), adapter.getItemCount() - 1));
-        binding.list.scrollToPosition(position);
-        binding.list.postDelayed(() -> {
-            for (int i = 0; i < binding.list.getChildCount(); i++) {
-                View child = binding.list.getChildAt(i);
-                if (child == null || binding.list.getChildAdapterPosition(child) != position) continue;
-                View text = child.findViewById(R.id.text);
-                // 手机端行内的 text 是不可聚焦的（走触摸），电视端才把焦点落在行上
-                if (text != null && text.isFocusable() && text.requestFocus()) return;
-                binding.list.requestFocus();
-                return;
-            }
-            if (attempt < 3) focusProxyRow(binding, attempt + 1);
-        }, 16);
     }
 
     /** 整屏焦点环：源列表各项 → 开关 → 模式 → 输入框 → 添加 → 重置 → 探测 → 确定。 */
