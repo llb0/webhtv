@@ -30,6 +30,7 @@ public final class TouchOptimizationHelper {
     private static final Map<View, Boolean> ORIGINAL_TOUCH_MODES = new WeakHashMap<>();
     private static final Map<View, GridState> GRID_STATES = new WeakHashMap<>();
     private static final Set<RecyclerView> RECYCLERS_WITH_LISTENER = Collections.newSetFromMap(new WeakHashMap<>());
+    private static boolean attachFailed;
 
     private TouchOptimizationHelper() {
     }
@@ -128,8 +129,18 @@ public final class TouchOptimizationHelper {
                         if (newState == RecyclerView.SCROLL_STATE_IDLE && !state.touchActive) state.touchSettling = false;
                     }
                 });
-            } catch (ReflectiveOperationException | RuntimeException ignored) {
+            } catch (ReflectiveOperationException | RuntimeException error) {
                 GRID_STATES.remove(grid);
+                // 这里以前是静默失败：监听挂不上就摘掉状态，后面所有跟随逻辑都成了哑的，日志里一个字都看不到。
+                // 一旦挂不上就说明这台设备上这套反射不可用，必须能看见。
+                if (!attachFailed) {
+                    attachFailed = true;
+                    try {
+                        com.github.catvod.crawler.DebugLogStore.add("voice", "网格触摸监听挂载失败："
+                                + error.getClass().getSimpleName() + (error.getMessage() == null ? "" : (" " + error.getMessage())));
+                    } catch (Throwable ignored) {
+                    }
+                }
             }
         }
     }
