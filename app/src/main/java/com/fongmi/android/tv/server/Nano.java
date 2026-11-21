@@ -137,6 +137,9 @@ public class Nano extends NanoHTTPD {
         // /voice 是遥控与镜像通道：抓帧 3 次/秒、触摸移动十几批/秒，逐条记账会在几分钟内写满日志。
         // 这条通道自己的关键日志（按键投递失败、出帧慢、抓帧未完成等）由 Voice 内部按需记。
         if (url.startsWith("/voice")) return false;
+        // 浏览器/播放器会自己反复请求 favicon、图标和根路径，这些没有任何信息量，只会挤掉有用日志
+        if (url.startsWith("/favicon")) return false;
+        if ("/".equals(url)) return false;
         return !url.startsWith("/debug/");
     }
 

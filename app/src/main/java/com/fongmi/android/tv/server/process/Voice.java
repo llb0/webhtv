@@ -208,7 +208,7 @@ public class Voice implements Process {
         boolean log = kind == android.view.MotionEvent.ACTION_DOWN || kind == android.view.MotionEvent.ACTION_UP;
         if (target == activity.getWindow().getDecorView()) {
             boolean handled = activity.dispatchTouchEvent(event);
-            if (log) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 Activity handled=" + handled);
+            if (log && !handled) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 Activity 未消费");
             event.recycle();
             return;
         }
@@ -220,8 +220,7 @@ public class Voice implements Process {
         } catch (Throwable error) {
             com.github.catvod.crawler.DebugLogStore.add("voice", "触摸直接投递异常：" + error);
         }
-        if (log) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 " + target.getClass().getSimpleName()
-                + " via dispatch handled=" + handled);
+        if (log && !handled) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸直接投递未消费 " + target.getClass().getSimpleName());
         if (!handled) {
             android.view.MotionEvent copy = android.view.MotionEvent.obtain(event);
             if (postInput(target, copy)) {
@@ -350,10 +349,7 @@ public class Voice implements Process {
             }
             java.lang.reflect.Method dispatch = rootImpl.getClass().getMethod("dispatchInputEvent", android.view.InputEvent.class);
             dispatch.invoke(rootImpl, event);
-            if (event instanceof android.view.KeyEvent) {
-                android.view.KeyEvent key = (android.view.KeyEvent) event;
-                com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递 ViewRootImpl " + top.getClass().getSimpleName() + " " + keyName(key));
-            }
+            // 成功投递不在这里记账：调用方 dispatchKey 每个按键只记一行，否则一次按键要出两三行
             return true;
         } catch (Throwable error) {
             com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递失败：" + error.getClass().getSimpleName());
@@ -386,7 +382,7 @@ public class Voice implements Process {
         if (target != null && target != decor) {
             boolean posted = postInput(target, event);
             if (posted || target.dispatchKeyEvent(event)) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递 " + target.getClass().getSimpleName() + " " + keyName(event));
+                logKey(target, event);
                 return true;
             }
             // 窗口还没拿到焦点时 postInput 会被拒，这里再走一次 Dialog 自己的 dispatch
@@ -402,15 +398,25 @@ public class Voice implements Process {
         // 做 focusSearch 找下一个焦点控件完成的，activity.dispatchKeyEvent 只到 View 层级，
         // 到不了那一步：控件自己实现方向键（比如列表）还能动，其余场景完全没反应。
         // beta 版按键能用，正是因为它是 postInput(topView())（ViewRootImpl）而不是 dispatchKeyEvent。
-        boolean posted = postInput(target != null ? target : decor, event);
-        if (posted) return true;
+        android.view.View root = target != null ? target : decor;
+        boolean posted = postInput(root, event);
+        if (posted) {
+            logKey(root, event);
+            return true;
+        }
         if (activity.dispatchKeyEvent(event)) {
-            com.github.catvod.crawler.DebugLogStore.add("voice", "按键 Activity(dispatch) " + keyName(event));
+            logKey(activity.getWindow().getDecorView(), event);
             return true;
         }
         boolean handled = target != null && target != decor && target.dispatchKeyEvent(event);
         com.github.catvod.crawler.DebugLogStore.add("voice", "按键未消费 " + keyName(event) + " handled=" + handled);
         return handled;
+    }
+
+    /** 一个按键只记一行，且只记按下：按下与抬起都记会让日志量翻倍。 */
+    private static void logKey(android.view.View target, android.view.KeyEvent event) {
+        if (event.getAction() != android.view.KeyEvent.ACTION_DOWN) return;
+        log("按键 " + keyName(event) + " → " + (target == null ? "?" : target.getClass().getSimpleName()));
     }
 
     /** 日志用：按键名。 */
@@ -889,7 +895,7 @@ public class Voice implements Process {
             // 这样折叠菜单这种弹出窗口才收得到触摸。
             android.view.View target = targetView(activity);
             if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "触摸丢弃：目标窗口尺寸为 0");
+                logThrottled("触摸丢弃：目标窗口尺寸为 0");
                 return;
             }
             int[] location = new int[2];
@@ -955,7 +961,7 @@ public class Voice implements Process {
             try {
                 root.draw(canvas);
             } catch (Throwable error) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
+                logThrottled("叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
             }
             canvas.restore();
         }
@@ -970,7 +976,7 @@ public class Voice implements Process {
             canvas.clipRect(0, 0, bitmap.getWidth(), bitmap.getHeight());
             decor.draw(canvas);
             canvas.restore();
-            com.github.catvod.crawler.DebugLogStore.add("voice", "镜像兜底：主窗口 view.draw");
+            logThrottled("镜像兜底：主窗口 view.draw");
         }
         for (android.view.View root : roots) {
             if (root == null || !root.isShown() || root.getWidth() <= 0 || root.getHeight() <= 0) continue;
@@ -983,7 +989,7 @@ public class Voice implements Process {
             try {
                 root.draw(canvas);
             } catch (Throwable error) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
+                logThrottled("叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
             }
             canvas.restore();
         }
@@ -1030,7 +1036,7 @@ public class Voice implements Process {
                 try {
                     bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
                 } catch (Throwable error) {
-                    com.github.catvod.crawler.DebugLogStore.add("voice", "抓帧建图失败：" + error);
+                    logThrottled("抓帧建图失败：" + error);
                     latch.countDown();
                     return;
                 }
@@ -1043,7 +1049,7 @@ public class Voice implements Process {
                             try {
                                 if (result == android.view.PixelCopy.SUCCESS) paintOverlays(bitmap, origin, decor, roots);
                                 else {
-                                    com.github.catvod.crawler.DebugLogStore.add("voice", "PixelCopy 失败 result=" + result + "，改用 view.draw");
+                                    logThrottled("PixelCopy 失败 result=" + result + "，改用 view.draw");
                                     paintFallback(bitmap, origin, decor, roots);
                                 }
                             } catch (Throwable ignored) {
@@ -1054,7 +1060,7 @@ public class Voice implements Process {
                         }, new android.os.Handler(android.os.Looper.getMainLooper()));
                         return;
                     } catch (Throwable error) {
-                        com.github.catvod.crawler.DebugLogStore.add("voice", "PixelCopy 异常，改用 view.draw：" + error);
+                        logThrottled("PixelCopy 异常，改用 view.draw：" + error);
                     }
                 }
                 try {
