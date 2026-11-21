@@ -684,6 +684,60 @@ public class Voice implements Process {
         }
     }
 
+    /** 网格自身的滚动方向：HorizontalGridView 横向，VerticalGridView 纵向，其它（如纯 BaseGridView）返回 null 交给偏移量判断。 */
+    private static Boolean gridHorizontal(android.view.View grid) {
+        String name = grid.getClass().getName();
+        if (name.contains("HorizontalGridView")) return Boolean.TRUE;
+        if (name.contains("VerticalGridView")) return Boolean.FALSE;
+        return null;
+    }
+
+    private static final String SCROLLER_CLASS_NAME = "androidx.swiperefreshlayout.widget.SwipeRefreshLayout";
+    private static Class<?> scrollerClass;
+    private static final java.util.List<android.view.View> suspendedScrollers = new java.util.ArrayList<>();
+
+    private static boolean isScroller(android.view.View view) {
+        if (view == null) return false;
+        try {
+            if (scrollerClass == null) scrollerClass = Class.forName(SCROLLER_CLASS_NAME);
+            return scrollerClass.isInstance(view);
+        } catch (Throwable error) {
+            return false;
+        }
+    }
+
+    /**
+     * 按住时把包在列表外层的下拉刷新暂时关掉。
+     *
+     * <p>首页/Vod 列表的根布局就是 SwipeRefreshLayout，纵向拖动会先被它 onInterceptTouchEvent 拦走：
+     * 列表一格都不滚，只是把内容整体上下位移，松手没到刷新距离再归零 —— 这就是
+     * "滑一下松手弹回原位""滑动时焦点不动、只是上下错位"的真正原因。真遥控器不存在这个场景，
+     * 所以只在镜像注入的手势里临时关掉，松手立刻恢复，手指触摸时下拉刷新照旧可用。</p>
+     */
+    private static void suspendScrollers(android.view.View from) {
+        restoreScrollers();
+        android.view.View current = from;
+        while (current != null) {
+            android.view.View parent = current.getParent() instanceof android.view.View view ? view : null;
+            if (parent == null) break;
+            if (isScroller(parent) && parent.isEnabled()) {
+                parent.setEnabled(false);
+                suspendedScrollers.add(parent);
+            }
+            current = parent;
+        }
+    }
+
+    private static void restoreScrollers() {
+        for (android.view.View view : suspendedScrollers) {
+            try {
+                view.setEnabled(true);
+            } catch (Throwable ignored) {
+            }
+        }
+        suspendedScrollers.clear();
+    }
+
     private static int gridScroll(android.view.View grid, boolean horizontal) {
         // computeHorizontalScrollOffset / computeVerticalScrollOffset 在 View 上是 protected，
         // 只有 RecyclerView 把它们覆写成了 public，所以必须按 RecyclerView 类型调
@@ -726,6 +780,7 @@ public class Voice implements Process {
     /** 按下时记基准：每一层网格当时滚到哪儿、焦点子项在网格里的偏移、按下点在网格里的坐标。 */
     private static void rememberGrid(android.view.View windowRoot, float screenX, float screenY, int[] windowLoc) {
         gridMemos.clear();
+        restoreScrollers();
         if (windowRoot == null || windowLoc == null) return;
         java.util.List<android.view.View> grids = new java.util.ArrayList<>();
         collectGrids(windowRoot, screenX - windowLoc[0], screenY - windowLoc[1], grids);
@@ -751,6 +806,8 @@ public class Voice implements Process {
             if (names.length() > 0) names.append(',');
             names.append(grid.getClass().getSimpleName());
         }
+        // 必须在 DOWN 投递之前关：SwipeRefreshLayout 是在收到 MOVE 时才决定拦不拦截的
+        suspendScrollers(grids.get(0));
         log("网格命中 " + names);
     }
 
@@ -758,6 +815,7 @@ public class Voice implements Process {
     private static void finishGrid(boolean cancel) {
         java.util.List<GridMemo> memos = new java.util.ArrayList<>(gridMemos);
         gridMemos.clear();
+        restoreScrollers();
         if (cancel) return;
         for (GridMemo memo : memos) followGrid(memo);
     }
@@ -766,8 +824,8 @@ public class Voice implements Process {
      * 单层网格的跟随。
      *
      * <p>滚动过：选"现在正好落在按下时焦点项那个偏移"的子项 —— 还原对齐时画面不动，也就不会弹。
-     * <br>没滚动（单纯点一下）：选"按下点所在的那一项" —— 让选中项和用户点的那张卡片一致，
-     * 后续布局就不会把列表拉回旧位置。</p>
+     * <br>没滚动（单纯点一下）：不动选中项 —— 改变选中项会让网格按对齐策略平移，点一下画面跳一下，
+     * 而点击本身系统已经按坐标投给手指底下那个 View 了，不需要我们再帮忙。</p>
      */
     private static void followGrid(GridMemo memo) {
         android.view.View grid = memo.grid;
@@ -775,9 +833,18 @@ public class Voice implements Process {
         String name = grid.getClass().getSimpleName();
         int dx = gridScroll(grid, true) - memo.scrollX;
         int dy = gridScroll(grid, false) - memo.scrollY;
-        boolean horizontal = Math.abs(dx) >= Math.abs(dy);
         boolean scrolled = dx != 0 || dy != 0;
-        int anchor = scrolled ? (horizontal ? memo.anchorLeft : memo.anchorTop) : (horizontal ? memo.downLeft : memo.downTop);
+        // 方向必须按网格自己的类型判，不能拿 |dx|>=|dy| 猜：两边都是 0 的时候那个判法会把纵向网格
+        // 当成横向，拿 X 坐标去跟每行的 getLeft()（全是 0）比，结果永远选中第一行。
+        Boolean axis = gridHorizontal(grid);
+        boolean horizontal = axis != null ? axis : Math.abs(dx) >= Math.abs(dy);
+        // 没滚动（只是点了一下）：不动选中项。动了反而会让网格按对齐策略把整页/整行平移过去，
+        // 看起来就是"点一下画面跳一下"，而点击本身系统已经按坐标投给手指底下那个 View 了。
+        if (!scrolled) {
+            log("网格跟随跳过：未滚动 " + name);
+            return;
+        }
+        int anchor = horizontal ? memo.anchorLeft : memo.anchorTop;
         if (anchor < 0) anchor = horizontal ? grid.getWidth() / 2 : grid.getHeight() / 2;
         int span = horizontal ? grid.getWidth() : grid.getHeight();
         android.view.View best = null;
@@ -813,7 +880,7 @@ public class Voice implements Process {
         }
         // 触屏模式下这些控件通常不参与触摸取焦，拿不到焦点也没关系：选中项已经对上，布局不会弹回
         if (!best.isFocused()) best.requestFocus();
-        log("网格跟随选中 " + name + " position=" + position + (scrolled ? " 滚动后" : " 点击后")
+        log("网格跟随选中 " + name + " position=" + position
                 + " dx=" + dx + " dy=" + dy + (horizontal ? " 横向" : " 纵向"));
     }
 
@@ -846,7 +913,10 @@ public class Voice implements Process {
         final boolean self = "1".equals(params.get("self"));
         // a=3 是"鼠标右键"：约定功能为返回
         if (action == 3) {
-            App.post(() -> back());
+            App.post(() -> {
+                restoreScrollers();
+                back();
+            });
             return Nano.ok("touch:3");
         }
         if (nx < 0 || ny < 0) return Nano.error(Response.Status.BAD_REQUEST, "missing xy");
