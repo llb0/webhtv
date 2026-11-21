@@ -652,12 +652,27 @@ public class Voice implements Process {
     // 拉回到选中项该在的位置 —— 这就是"首页/Vod 列表松手弹回原位""点一下又弹回去"的根源。
     // 选站那种普通 RecyclerView 没有这个模型，所以它滑得动、也不弹。
     //
-    // 真遥控器不存在这个问题（它只按键）。所以这段只做在镜像注入这条路上，不改动 App 与系统行为。
+    // 首页是两层网格套着的：外层纵向（整页上下）、每行内层横向。手指落在一张卡片上时，
+    // 命中的最内层是横向网格，它纵向永远不滚；上下滑动的其实是外层。所以按下时把整条祖先链
+    // 都记下来，松手后逐层各自判断"这一层滚没滚"，滚了的对锚点、没滚的对按下的那一点。
+    //
+    // 真遥控器不存在这个问题（它只按键）。所以这段只做在镜像注入这条路上，不改 App 与系统行为。
 
     private static final String GRID_CLASS_NAME = "androidx.leanback.widget.BaseGridView";
     private static Class<?> gridClass;
-    private static android.view.View touchGrid;
-    private static int gridDownX, gridDownY, gridScrollX, gridScrollY, gridAnchorX, gridAnchorY;
+    private static final java.util.List<GridMemo> gridMemos = new java.util.ArrayList<>();
+
+    /** 按下时某一层网格的基准：滚到哪儿、焦点子项在哪儿、按下点在哪儿。 */
+    private static final class GridMemo {
+
+        private android.view.View grid;
+        private int scrollX;
+        private int scrollY;
+        private int anchorLeft = -1;
+        private int anchorTop = -1;
+        private int downLeft;
+        private int downTop;
+    }
 
     private static boolean isGrid(android.view.View view) {
         if (view == null) return false;
@@ -677,9 +692,15 @@ public class Voice implements Process {
         }
     }
 
-    /** 按坐标找最内层的网格（点在子项上时返回的是包着这些子项的那个网格）。 */
-    private static android.view.View findGrid(android.view.View view, float x, float y) {
-        if (view == null) return null;
+    /**
+     * 从窗口根按坐标往下找，把经过的每一层网格按"由内到外"记进 out。
+     *
+     * @return 这个子树里有没有网格被命中
+     */
+    private static boolean collectGrids(android.view.View view, float x, float y, java.util.List<android.view.View> out) {
+        if (view == null) return false;
+        boolean inside = x >= 0 && y >= 0 && x <= view.getWidth() && y <= view.getHeight();
+        boolean hit = false;
         if (view instanceof android.view.ViewGroup group) {
             for (int i = group.getChildCount() - 1; i >= 0; i--) {
                 android.view.View child = group.getChildAt(i);
@@ -687,52 +708,73 @@ public class Voice implements Process {
                 float cx = x - child.getLeft() + group.getScrollX();
                 float cy = y - child.getTop() + group.getScrollY();
                 if (cx < 0 || cy < 0 || cx > child.getWidth() || cy > child.getHeight()) continue;
-                android.view.View found = findGrid(child, cx, cy);
-                if (found != null) return found;
+                if (collectGrids(child, cx, cy, out)) {
+                    hit = true;
+                    break;
+                }
             }
         }
-        return isGrid(view) ? view : null;
+        if (!inside) return hit;
+        if (!isGrid(view)) return hit;
+        out.add(view);
+        return true;
     }
 
-    /** 按下时记基准：网格当时滚到哪儿、焦点子项在网格里的偏移、按下点在网格里的坐标。 */
+    /** 按下时记基准：每一层网格当时滚到哪儿、焦点子项在网格里的偏移、按下点在网格里的坐标。 */
     private static void rememberGrid(android.view.View windowRoot, float screenX, float screenY, int[] windowLoc) {
-        touchGrid = null;
-        gridDownX = gridDownY = gridScrollX = gridScrollY = gridAnchorX = gridAnchorY = -1;
+        gridMemos.clear();
         if (windowRoot == null || windowLoc == null) return;
-        android.view.View grid = findGrid(windowRoot, screenX - windowLoc[0], screenY - windowLoc[1]);
-        if (grid == null) return;
-        touchGrid = grid;
-        int[] location = new int[2];
-        grid.getLocationOnScreen(location);
-        gridDownX = Math.round(screenX - location[0]);
-        gridDownY = Math.round(screenY - location[1]);
-        gridScrollX = gridScroll(grid, true);
-        gridScrollY = gridScroll(grid, false);
-        if (grid instanceof android.view.ViewGroup group) {
-            android.view.View focused = group.getFocusedChild();
-            if (focused != null) {
-                gridAnchorX = focused.getLeft();
-                gridAnchorY = focused.getTop();
+        java.util.List<android.view.View> grids = new java.util.ArrayList<>();
+        collectGrids(windowRoot, screenX - windowLoc[0], screenY - windowLoc[1], grids);
+        if (grids.isEmpty()) return;
+        StringBuilder names = new StringBuilder();
+        for (android.view.View grid : grids) {
+            GridMemo memo = new GridMemo();
+            memo.grid = grid;
+            memo.scrollX = gridScroll(grid, true);
+            memo.scrollY = gridScroll(grid, false);
+            int[] location = new int[2];
+            grid.getLocationOnScreen(location);
+            memo.downLeft = Math.round(screenX - location[0]);
+            memo.downTop = Math.round(screenY - location[1]);
+            if (grid instanceof android.view.ViewGroup group) {
+                android.view.View focused = group.getFocusedChild();
+                if (focused != null) {
+                    memo.anchorLeft = focused.getLeft();
+                    memo.anchorTop = focused.getTop();
+                }
             }
+            gridMemos.add(memo);
+            if (names.length() > 0) names.append(',');
+            names.append(grid.getClass().getSimpleName());
         }
+        log("网格命中 " + names);
+    }
+
+    /** 手势结束：逐层把选中项跟到"手指实际停下/点到"的那一项。 */
+    private static void finishGrid(boolean cancel) {
+        java.util.List<GridMemo> memos = new java.util.ArrayList<>(gridMemos);
+        gridMemos.clear();
+        if (cancel) return;
+        for (GridMemo memo : memos) followGrid(memo);
     }
 
     /**
-     * 手势结束后把网格的选中项跟到"手指实际停下/点到"的那一项。
+     * 单层网格的跟随。
      *
      * <p>滚动过：选"现在正好落在按下时焦点项那个偏移"的子项 —— 还原对齐时画面不动，也就不会弹。
      * <br>没滚动（单纯点一下）：选"按下点所在的那一项" —— 让选中项和用户点的那张卡片一致，
      * 后续布局就不会把列表拉回旧位置。</p>
      */
-    private static void finishGrid(boolean cancel) {
-        android.view.View grid = touchGrid;
-        touchGrid = null;
-        if (grid == null || cancel || !(grid instanceof android.view.ViewGroup group)) return;
-        int dx = gridScroll(grid, true) - gridScrollX;
-        int dy = gridScroll(grid, false) - gridScrollY;
+    private static void followGrid(GridMemo memo) {
+        android.view.View grid = memo.grid;
+        if (grid == null || !(grid instanceof android.view.ViewGroup group) || group.getChildCount() == 0) return;
+        String name = grid.getClass().getSimpleName();
+        int dx = gridScroll(grid, true) - memo.scrollX;
+        int dy = gridScroll(grid, false) - memo.scrollY;
         boolean horizontal = Math.abs(dx) >= Math.abs(dy);
         boolean scrolled = dx != 0 || dy != 0;
-        int anchor = scrolled ? (horizontal ? gridAnchorX : gridAnchorY) : (horizontal ? gridDownX : gridDownY);
+        int anchor = scrolled ? (horizontal ? memo.anchorLeft : memo.anchorTop) : (horizontal ? memo.downLeft : memo.downTop);
         if (anchor < 0) anchor = horizontal ? grid.getWidth() / 2 : grid.getHeight() / 2;
         int span = horizontal ? grid.getWidth() : grid.getHeight();
         android.view.View best = null;
@@ -749,23 +791,45 @@ public class Voice implements Process {
                 best = child;
             }
         }
-        if (best == null) return;
+        if (best == null) {
+            log("网格跟随跳过：没有可见子项 " + name);
+            return;
+        }
         int position = -1;
         try {
             position = ((androidx.recyclerview.widget.RecyclerView) grid).getChildAdapterPosition(best);
         } catch (Throwable ignored) {
         }
-        if (position < 0) return;
-        try {
-            grid.getClass().getMethod("setSelectedPosition", int.class).invoke(grid, position);
-        } catch (Throwable error) {
-            com.github.catvod.crawler.DebugLogStore.add("voice", "网格跟随选中失败：" + error.getClass().getSimpleName());
+        if (position < 0) {
+            log("网格跟随跳过：位置无效 " + name);
+            return;
+        }
+        if (!selectPosition(grid, position)) {
+            log("网格跟随失败：没有 setSelectedPosition " + name);
             return;
         }
         // 触屏模式下这些控件通常不参与触摸取焦，拿不到焦点也没关系：选中项已经对上，布局不会弹回
         if (!best.isFocused()) best.requestFocus();
-        com.github.catvod.crawler.DebugLogStore.add("voice", "网格跟随选中 position=" + position
-                + (scrolled ? " 滚动后" : " 点击后") + " dx=" + dx + " dy=" + dy);
+        log("网格跟随选中 " + name + " position=" + position + (scrolled ? " 滚动后" : " 点击后")
+                + " dx=" + dx + " dy=" + dy + (horizontal ? " 横向" : " 纵向"));
+    }
+
+    private static boolean selectPosition(android.view.View grid, int position) {
+        for (String name : new String[]{"setSelectedPosition", "setSelectedPositionSmooth"}) {
+            try {
+                grid.getClass().getMethod(name, int.class).invoke(grid, position);
+                return true;
+            } catch (Throwable ignored) {
+            }
+        }
+        return false;
+    }
+
+    private static void log(String text) {
+        try {
+            com.github.catvod.crawler.DebugLogStore.add("voice", text);
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 触摸板：把归一化坐标(0~1000)投成本地触摸事件，相当于用鼠标点界面。 */
