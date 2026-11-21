@@ -49,7 +49,6 @@ public class Voice implements Process {
         Map<String, String> params = session.getParms();
         String cmd = params.get("cmd");
         if (TextUtils.isEmpty(cmd)) return Nano.ok(identity());
-        SpiderDebug.log("voice", "cmd=%s q=%s", cmd, params.get("q"));
         return switch (cmd) {
             case "ping" -> Nano.ok(identity());
             case "pair" -> pair();
@@ -66,16 +65,6 @@ public class Voice implements Process {
     }
 
     private Response dispatch(String cmd, Map<String, String> params) {
-        try {
-            StringBuilder builder = new StringBuilder("收到指令 ").append(cmd);
-            for (Map.Entry<String, String> entry : params.entrySet()) {
-                String key = entry.getKey();
-                if ("token".equals(key)) continue;
-                builder.append(' ').append(key).append('=').append(entry.getValue());
-            }
-            com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
-        } catch (Throwable ignored) {
-        }
         return switch (cmd) {
             case "say" -> say(params.get("q"));
             case "search" -> search(params.get("q"));
@@ -501,7 +490,6 @@ public class Voice implements Process {
             com.github.catvod.crawler.DebugLogStore.add("voice", "枚举弹出菜单失败：" + error);
             return;
         }
-        if (added > 0) com.github.catvod.crawler.DebugLogStore.add("voice", "弹出菜单 " + added + " 个");
     }
 
     /**
@@ -538,19 +526,6 @@ public class Voice implements Process {
         if (roots.isEmpty()) roots.addAll(dialogDecors(activity));
         addPopupRoots(roots);
         if (!roots.contains(decor)) roots.add(0, decor);
-        try {
-            StringBuilder builder = new StringBuilder("窗口表 ").append(roots.size()).append(" 个");
-            for (android.view.View root : roots) {
-                int[] location = new int[2];
-                root.getLocationOnScreen(location);
-                builder.append("｜").append(root.getClass().getSimpleName())
-                        .append(' ').append(root.getWidth()).append('x').append(root.getHeight())
-                        .append('@').append(location[0]).append(',').append(location[1])
-                        .append(root.hasWindowFocus() ? "[焦点]" : "");
-            }
-            com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
-        } catch (Throwable ignored) {
-        }
         return roots;
     }
 
@@ -605,7 +580,6 @@ public class Voice implements Process {
             com.github.catvod.crawler.DebugLogStore.add("voice", "枚举对话框窗口失败：" + error);
             return;
         }
-        if (added > 0) com.github.catvod.crawler.DebugLogStore.add("voice", "对话框窗口 " + added + " 个");
     }
 
     /** Window 类型是 TYPE_APPLICATION 才算对话框窗口。 */
@@ -766,7 +740,6 @@ public class Voice implements Process {
         java.util.List<android.view.View> grids = new java.util.ArrayList<>();
         collectGrids(windowRoot, screenX - windowLoc[0], screenY - windowLoc[1], grids);
         if (grids.isEmpty()) return;
-        StringBuilder names = new StringBuilder();
         for (android.view.View grid : grids) {
             GridMemo memo = new GridMemo();
             memo.grid = grid;
@@ -789,10 +762,7 @@ public class Voice implements Process {
                 }
             }
             gridMemos.add(memo);
-            if (names.length() > 0) names.append(',');
-            names.append(grid.getClass().getSimpleName());
         }
-        log("网格命中 " + names);
     }
 
     /** 手势结束：逐层把选中项跟到"手指实际停下/点到"的那一项。 */
@@ -824,10 +794,7 @@ public class Voice implements Process {
         boolean horizontal = axis != null ? axis : Math.abs(dx) >= Math.abs(dy);
         // 没滚动（只是点了一下）：不动选中项。动了反而会让网格按对齐策略把整页/整行平移过去，
         // 看起来就是"点一下画面跳一下"，而点击本身系统已经按坐标投给手指底下那个 View 了。
-        if (!scrolled) {
-            log("网格跟随跳过：未滚动 " + name);
-            return;
-        }
+        if (!scrolled) return;   // 只是点了一下：不动选中项，也不记账
         int anchor = horizontal ? memo.anchorLeft : memo.anchorTop;
         if (anchor < 0) anchor = horizontal ? grid.getWidth() / 2 : grid.getHeight() / 2;
         int span = horizontal ? grid.getWidth() : grid.getHeight();
@@ -845,29 +812,21 @@ public class Voice implements Process {
                 best = child;
             }
         }
-        if (best == null) {
-            log("网格跟随跳过：没有可见子项 " + name);
-            return;
-        }
+        if (best == null) return;
         int position = -1;
         try {
             position = ((androidx.recyclerview.widget.RecyclerView) grid).getChildAdapterPosition(best);
         } catch (Throwable ignored) {
         }
-        if (position < 0) {
-            log("网格跟随跳过：位置无效 " + name);
-            return;
-        }
+        if (position < 0) return;
         if (!selectPosition(grid, position)) {
             log("网格跟随失败：没有 setSelectedPosition " + name);
             return;
         }
         // 触屏模式下这些控件通常不参与触摸取焦，拿不到焦点也没关系：选中项已经对上，布局不会弹回
         if (!best.isFocused()) best.requestFocus();
-        log("网格跟随选中 " + name + " position=" + position + " dx=" + dx + " dy=" + dy
-                + (horizontal ? " 横向" : " 纵向")
-                + "（偏移量=" + (gridScroll(grid, true) - memo.scrollX) + "," + (gridScroll(grid, false) - memo.scrollY)
-                + " 探针=" + (memo.probe != null && memo.probe.getParent() == grid ? "有效" : "失效") + "）");
+        log("触摸抬起 " + name + " position=" + position + " dx=" + dx + " dy=" + dy
+                + (memo.probe != null && memo.probe.getParent() == grid ? "" : "（探针失效，用偏移量）"));
     }
 
     private static boolean selectPosition(android.view.View grid, int position) {
@@ -983,9 +942,6 @@ public class Voice implements Process {
             canvas.clipRect(0, 0, root.getWidth(), root.getHeight());
             try {
                 root.draw(canvas);
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口 " + root.getClass().getSimpleName()
-                        + " 尺寸=" + root.getWidth() + "x" + root.getHeight()
-                        + " 位置=" + location[0] + "," + location[1]);
             } catch (Throwable error) {
                 com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
             }
@@ -1014,9 +970,6 @@ public class Voice implements Process {
             canvas.clipRect(0, 0, root.getWidth(), root.getHeight());
             try {
                 root.draw(canvas);
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口 " + root.getClass().getSimpleName()
-                        + " 尺寸=" + root.getWidth() + "x" + root.getHeight()
-                        + " 位置=" + location[0] + "," + location[1]);
             } catch (Throwable error) {
                 com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
             }
@@ -1070,15 +1023,6 @@ public class Voice implements Process {
                     return;
                 }
                 java.util.List<android.view.View> roots = displayRoots(activity);
-                try {
-                    StringBuilder builder = new StringBuilder("镜像抓帧 seq=").append(seq).append(' ').append(width).append('x').append(height).append(" 窗口=").append(roots.size());
-                    for (android.view.View root : roots) {
-                        if (root == null) continue;
-                        builder.append('｜').append(root.getClass().getSimpleName()).append(' ').append(root.getWidth()).append('x').append(root.getHeight());
-                    }
-                    com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
-                } catch (Throwable ignored) {
-                }
                 // WebView 是硬件渲染的，用 view.draw(canvas) 画出来会是空白、而且被缩到左上角，
                 // 所以主窗口走 PixelCopy（直接拿窗口合成后的像素），弹层再用 view.draw 补在上面。
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
@@ -1137,7 +1081,8 @@ public class Voice implements Process {
             shotLastW = outWidth;
             shotLastH = outHeight;
             shotLastSeq = seq;
-            com.github.catvod.crawler.DebugLogStore.add("voice", "镜像出帧 seq=" + seq + " " + outWidth + "x" + outHeight + " " + bytes.length + "B 耗时=" + cost + "ms");
+            // 正常帧不再记账（3 帧/秒的流水会瞬间写满日志），只留慢帧
+            if (cost >= 200) com.github.catvod.crawler.DebugLogStore.add("voice", "出帧慢 seq=" + seq + " 耗时=" + cost + "ms");
             return Nano.jpeg(bytes, outWidth, outHeight, seq, false);
         } finally {
             shotBusy = false;

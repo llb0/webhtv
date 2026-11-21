@@ -157,8 +157,89 @@ public final class AboutDialog {
             });
         });
         githubDialog.show();
+        if (Util.isLeanback()) githubDialog.setOnKeyListener((d, keyCode, event) -> onProxyKey(binding, githubDialog, keyCode, event));
         LightDialog.apply(githubDialog);
         configureGithubProxyWindow(activity, githubDialog, binding);
+    }
+
+    /**
+     * 加速源界面的电视端按键：菜单键执行延迟探测，上下方向键在两端环形跳转。
+     *
+     * <p>环形分两层，符合这个界面的实际结构：</p>
+     * <p>① 源列表内部自成一环 —— 第一项再按上跳到列表最后一项，最后一项按下回到第一项；</p>
+     * <p>② 列表外的控件自成一环 —— 开关 → 模式 → 输入框 → 添加 → 重置 → 探测 → 确定，
+     * 首尾相接。列表与控件环之间不互相串，避免按一次上就从列表顶跳到底部按钮那种突兀。</p>
+     */
+    private static boolean onProxyKey(DialogGithubProxyBinding binding, AlertDialog dialog, int keyCode, KeyEvent event) {
+        if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            probeLatency(binding);
+            return true;
+        }
+        if (keyCode != KeyEvent.KEYCODE_DPAD_UP && keyCode != KeyEvent.KEYCODE_DPAD_DOWN) return false;
+        Window window = dialog.getWindow();
+        View focused = window == null ? null : window.getDecorView().findFocus();
+        if (focused == null) return false;
+        boolean up = keyCode == KeyEvent.KEYCODE_DPAD_UP;
+        // ① 先看是不是在源列表里
+        List<View> items = proxyItems(binding);
+        int itemIndex = items.indexOf(focused);
+        if (itemIndex >= 0) {
+            if (up && itemIndex == 0) return items.get(items.size() - 1).requestFocus();
+            if (!up && itemIndex == items.size() - 1) return items.get(0).requestFocus();
+            return false;   // 中间的项交给系统正常移动
+        }
+        // ② 列表外的控件环
+        List<View> ring = proxyControls(binding, dialog);
+        if (ring.isEmpty()) return false;
+        int index = ring.indexOf(focused);
+        if (index < 0) return false;
+        if (up && index == 0) return ring.get(ring.size() - 1).requestFocus();
+        if (!up && index == ring.size() - 1) return ring.get(0).requestFocus();
+        return false;
+    }
+
+    /** 源列表里参与焦点的项（可见子项的主按钮）。 */
+    private static List<View> proxyItems(DialogGithubProxyBinding binding) {
+        List<View> items = new java.util.ArrayList<>();
+        for (int i = 0; i < binding.list.getChildCount(); i++) {
+            View child = binding.list.getChildAt(i);
+            if (child == null) continue;
+            View text = child.findViewById(R.id.text);
+            if (text != null && text.isShown() && text.isFocusable()) items.add(text);
+        }
+        return items;
+    }
+
+    /** 列表之外的控件环：开关 → 模式 → 输入框 → 添加 → 重置 → 探测 → 确定。 */
+    private static List<View> proxyControls(DialogGithubProxyBinding binding, AlertDialog dialog) {
+        List<View> ring = new java.util.ArrayList<>();
+        addRing(ring, binding.enabled);
+        addRing(ring, modeButton(binding));
+        addRing(ring, binding.input);
+        addRing(ring, binding.add);
+        addRing(ring, binding.reset);
+        addRing(ring, binding.probe);
+        addRing(ring, dialog.getButton(AlertDialog.BUTTON_POSITIVE));
+        return ring;
+    }
+
+    private static void addRing(List<View> ring, View view) {
+        if (view == null || !view.isShown() || !view.isFocusable() || ring.contains(view)) return;
+        ring.add(view);
+    }
+
+    /** 模式切换组以"当前选中那一个"作为环上的一个点。 */
+    private static View modeButton(DialogGithubProxyBinding binding) {
+        int checked = binding.modeGroup.getCheckedButtonId();
+        View first = null;
+        for (int i = 0; i < binding.modeGroup.getChildCount(); i++) {
+            View child = binding.modeGroup.getChildAt(i);
+            if (child == null || !child.isShown() || !child.isFocusable()) continue;
+            if (child.getId() == checked) return child;
+            if (first == null) first = child;
+        }
+        return first;
     }
 
     private static void probeLatency(DialogGithubProxyBinding binding) {
