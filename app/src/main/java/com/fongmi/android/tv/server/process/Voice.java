@@ -856,12 +856,21 @@ public class Voice implements Process {
      * 抓帧链路（3 次/秒）专用的限流日志：同类问题只留一条，最少隔 30 秒才再记一次。
      * 卡帧、慢帧会连续几十上百次触发，逐条记就是刷屏；限流后既能看出"有没有问题"，日志量也是常数级。
      */
-    private static long shotLogTime;
+    private static final java.util.Map<String, Long> shotLogTimes = new java.util.HashMap<>();
 
-    private static void logThrottled(String text) {
+    /**
+     * 抓帧链路（3 次/秒）专用的限流日志。
+     *
+     * <p>按"问题种类"各自计时：卡帧、慢帧、PixelCopy 失败、叠加绘制失败……各自 30 秒最多一条，
+     * 互不挤占。以前共用一个计时器，一条慢帧会把随后 30 秒内的卡帧全吞掉，正好把要查的东西藏起来。</p>
+     */
+    private static void logThrottled(String key, String text) {
         long now = android.os.SystemClock.uptimeMillis();
-        if (now - shotLogTime < 30000) return;
-        shotLogTime = now;
+        synchronized (shotLogTimes) {
+            Long last = shotLogTimes.get(key);
+            if (last != null && now - last < 30000) return;
+            shotLogTimes.put(key, now);
+        }
         log(text);
     }
 
@@ -895,7 +904,7 @@ public class Voice implements Process {
             // 这样折叠菜单这种弹出窗口才收得到触摸。
             android.view.View target = targetView(activity);
             if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0) {
-                logThrottled("触摸丢弃：目标窗口尺寸为 0");
+                logThrottled("触摸丢弃", "触摸丢弃：目标窗口尺寸为 0");
                 return;
             }
             int[] location = new int[2];
@@ -961,7 +970,7 @@ public class Voice implements Process {
             try {
                 root.draw(canvas);
             } catch (Throwable error) {
-                logThrottled("叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
+                logThrottled("叠加窗口失败", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
             }
             canvas.restore();
         }
@@ -976,7 +985,7 @@ public class Voice implements Process {
             canvas.clipRect(0, 0, bitmap.getWidth(), bitmap.getHeight());
             decor.draw(canvas);
             canvas.restore();
-            logThrottled("镜像兜底：主窗口 view.draw");
+            logThrottled("镜像兜底", "镜像兜底：主窗口 view.draw");
         }
         for (android.view.View root : roots) {
             if (root == null || !root.isShown() || root.getWidth() <= 0 || root.getHeight() <= 0) continue;
@@ -989,7 +998,7 @@ public class Voice implements Process {
             try {
                 root.draw(canvas);
             } catch (Throwable error) {
-                logThrottled("叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
+                logThrottled("叠加窗口失败", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
             }
             canvas.restore();
         }
@@ -1006,17 +1015,44 @@ public class Voice implements Process {
     private static volatile boolean shotBusy;
     private static volatile byte[] shotLastJpeg;
     private static volatile int shotLastW, shotLastH, shotLastSeq;
+    /**
+     * 抓帧"在途"标记：真正结束的标志是主线程上那张图绘制完（PixelCopy 回调 + 叠加弹层绘制），
+     * 而不是 shot() 这个请求线程等满 900ms 就撤。以前只认 900ms，超时后主线程上的绘制还在跑，
+     * 手机每 350ms 又来一帧，主线程上就堆起一串整屏绘制——返回首页那一下（WebView 重新落层、
+     * view.draw 特别慢）能堆到十几帧，镜像就一直回上一帧，看着像卡了十来秒。远程按键不受影响，
+     * 因为输入事件照常在帧与帧之间被处理。
+     */
+    private static volatile boolean capturePending;
+    private static volatile long captureSince;
+    private static final long CAPTURE_STALE_MS = 5000;
+
+    /** 回上一帧缓存（带 X-Frame-Stale=1），没有缓存就报 frame-busy。 */
+    private Response cachedFrame() {
+        byte[] cached = shotLastJpeg;
+        if (cached != null) return Nano.jpeg(cached, shotLastW, shotLastH, shotLastSeq, true);
+        return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "frame-busy");
+    }
+
+    /** 抓帧真正收尾：清"在途"标记并放行等待方。所有结束路径都必须走这里。 */
+    private static void finishCapture(java.util.concurrent.CountDownLatch latch) {
+        capturePending = false;
+        latch.countDown();
+    }
 
     /** 抓一帧当前界面（JPEG），手机上把这张画面当触摸板底图用。 */
     private Response shot(Map<String, String> params) {
         Activity activity = App.activity();
         if (activity == null) return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "app-not-open");
-        if (shotBusy) {
-            byte[] cached = shotLastJpeg;
-            if (cached != null) return Nano.jpeg(cached, shotLastW, shotLastH, shotLastSeq, true);
-            return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "frame-busy");
+        long now = android.os.SystemClock.uptimeMillis();
+        // 上一帧还在抓 / 主线程还在画它：直接回上一帧，别再压任务。5 秒是兜底，
+        // 万一那次绘制因为异常没收尾，也不至于把镜像永久卡死。
+        if (shotBusy || (capturePending && now - captureSince < CAPTURE_STALE_MS)) {
+            logThrottled("抓帧占用", "抓帧占用中，回上一帧");
+            return cachedFrame();
         }
         shotBusy = true;
+        capturePending = true;
+        captureSince = now;
         try {
             final int seq = shotLastSeq + 1;
             final long started = android.os.SystemClock.uptimeMillis();
@@ -1027,7 +1063,7 @@ public class Voice implements Process {
                 int width = decor.getWidth();
                 int height = decor.getHeight();
                 if (width <= 0 || height <= 0) {
-                    latch.countDown();
+                    finishCapture(latch);
                     return;
                 }
                 int[] origin = new int[2];
@@ -1036,8 +1072,8 @@ public class Voice implements Process {
                 try {
                     bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
                 } catch (Throwable error) {
-                    logThrottled("抓帧建图失败：" + error);
-                    latch.countDown();
+                    logThrottled("抓帧建图失败", "抓帧建图失败：" + error);
+                    finishCapture(latch);
                     return;
                 }
                 java.util.List<android.view.View> roots = displayRoots(activity);
@@ -1049,18 +1085,18 @@ public class Voice implements Process {
                             try {
                                 if (result == android.view.PixelCopy.SUCCESS) paintOverlays(bitmap, origin, decor, roots);
                                 else {
-                                    logThrottled("PixelCopy 失败 result=" + result + "，改用 view.draw");
+                                    logThrottled("PixelCopy 失败", "PixelCopy 失败 result=" + result + "，改用 view.draw");
                                     paintFallback(bitmap, origin, decor, roots);
                                 }
                             } catch (Throwable ignored) {
                             } finally {
                                 holder[0] = bitmap;
-                                latch.countDown();
+                                finishCapture(latch);
                             }
                         }, new android.os.Handler(android.os.Looper.getMainLooper()));
                         return;
                     } catch (Throwable error) {
-                        logThrottled("PixelCopy 异常，改用 view.draw：" + error);
+                        logThrottled("PixelCopy 异常", "PixelCopy 异常，改用 view.draw：" + error);
                     }
                 }
                 try {
@@ -1068,7 +1104,7 @@ public class Voice implements Process {
                 } catch (Throwable ignored) {
                 }
                 holder[0] = bitmap;
-                latch.countDown();
+                finishCapture(latch);
             });
             try {
                 // 900ms 足够一帧（原来等 3s，界面切换时把请求全堵在这，越堵越慢）
@@ -1078,7 +1114,7 @@ public class Voice implements Process {
             android.graphics.Bitmap frame = holder[0];
             long cost = android.os.SystemClock.uptimeMillis() - started;
             if (frame == null) {
-                logThrottled("抓帧未完成 " + cost + "ms，回上一帧");
+                logThrottled("抓帧未完成", "抓帧未完成 " + cost + "ms，回上一帧");
                 byte[] cached = shotLastJpeg;
                 if (cached != null) return Nano.jpeg(cached, shotLastW, shotLastH, shotLastSeq, true);
                 return Nano.error(Response.Status.INTERNAL_ERROR, "no-frame");
@@ -1100,7 +1136,7 @@ public class Voice implements Process {
             shotLastH = outHeight;
             shotLastSeq = seq;
             // 正常帧不再记账（3 帧/秒的流水会瞬间写满日志），只留慢帧
-            if (cost >= 200) logThrottled("出帧慢 seq=" + seq + " 耗时=" + cost + "ms");
+            if (cost >= 200) logThrottled("出帧慢", "出帧慢 seq=" + seq + " 耗时=" + cost + "ms");
             return Nano.jpeg(bytes, outWidth, outHeight, seq, false);
         } finally {
             shotBusy = false;
