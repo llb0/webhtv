@@ -803,9 +803,6 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
     private void showFrame(Frame frame, long cost) {
         // 电视端抓帧是"一次只抓一帧、抓不出来就回上一帧"：序号没变 / 带 Stale 头都说明这不是新画面
         boolean same = frame.seq > 0 && frame.seq == lastFrameSeq;
-        if (com.github.catvod.crawler.DebugLogStore.isEnabled())
-            com.github.catvod.crawler.DebugLogStore.add("voice", "画面 seq=" + frame.seq + (frame.stale ? "(缓存)" : "")
-                    + " " + frame.width + "x" + frame.height + " " + frame.data.length + "B " + cost + "ms");
         if (frame.stale || same) {
             markFrameMissing(cost, same ? "画面未更新" : "电视端回的是缓存帧");
             return;
@@ -832,9 +829,9 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
      * 以前这里什么都不做，旧的 Bitmap 会一直留在 ImageView 上，看着就像"遥控器卡死了"。
      */
     private void markFrameMissing(long cost, String reason) {
+        // 这里不写日志：抓帧 3 次/秒，任何"每帧一条"的记账都会瞬间几千行，把日志刷成流水。
+        // 用户能看见的信息已经由界面提示承担（连续 6 次没新画面就清掉旧图并提示"正在重试"）。
         frameStuck++;
-        if (com.github.catvod.crawler.DebugLogStore.isEnabled())
-            com.github.catvod.crawler.DebugLogStore.add("voice", "画面缺失 " + frameStuck + " 次（" + reason + "，" + cost + "ms）");
         if (frameStuck < 6 || binding == null) return;
         binding.padShot.setImageBitmap(null);
         binding.padHint.setText("画面未更新，正在重试…");

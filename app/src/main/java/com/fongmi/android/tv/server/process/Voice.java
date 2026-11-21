@@ -846,6 +846,19 @@ public class Voice implements Process {
         }
     }
 
+    /**
+     * 抓帧链路（3 次/秒）专用的限流日志：同类问题只留一条，最少隔 30 秒才再记一次。
+     * 卡帧、慢帧会连续几十上百次触发，逐条记就是刷屏；限流后既能看出"有没有问题"，日志量也是常数级。
+     */
+    private static long shotLogTime;
+
+    private static void logThrottled(String text) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - shotLogTime < 30000) return;
+        shotLogTime = now;
+        log(text);
+    }
+
     /** 触摸板：把归一化坐标(0~1000)投成本地触摸事件，相当于用鼠标点界面。 */
     private static long touchDownTime;
     private Response touch(Map<String, String> params) {
@@ -1059,7 +1072,7 @@ public class Voice implements Process {
             android.graphics.Bitmap frame = holder[0];
             long cost = android.os.SystemClock.uptimeMillis() - started;
             if (frame == null) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "抓帧未完成 " + cost + "ms，回上一帧");
+                logThrottled("抓帧未完成 " + cost + "ms，回上一帧");
                 byte[] cached = shotLastJpeg;
                 if (cached != null) return Nano.jpeg(cached, shotLastW, shotLastH, shotLastSeq, true);
                 return Nano.error(Response.Status.INTERNAL_ERROR, "no-frame");
@@ -1081,7 +1094,7 @@ public class Voice implements Process {
             shotLastH = outHeight;
             shotLastSeq = seq;
             // 正常帧不再记账（3 帧/秒的流水会瞬间写满日志），只留慢帧
-            if (cost >= 200) com.github.catvod.crawler.DebugLogStore.add("voice", "出帧慢 seq=" + seq + " 耗时=" + cost + "ms");
+            if (cost >= 200) logThrottled("出帧慢 seq=" + seq + " 耗时=" + cost + "ms");
             return Nano.jpeg(bytes, outWidth, outHeight, seq, false);
         } finally {
             shotBusy = false;
