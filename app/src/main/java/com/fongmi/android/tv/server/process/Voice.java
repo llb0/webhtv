@@ -531,6 +531,10 @@ public class Voice implements Process {
                     if (!(item instanceof android.view.View)) continue;
                     android.view.View view = (android.view.View) item;
                     if (!view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) continue;
+                    // isShown() 只说明"已 attach 且 VISIBLE"，不代表系统真的把它合成上去了：
+                    // 已经 stop 掉的页面窗口就还满足它，但它不参与合成。这种情况下面按归属再筛一次，
+                    // 这里先把透明/已分离的直接剔掉，少画一层是一层。
+                    if (!view.isAttachedToWindow() || view.getAlpha() <= 0f) continue;
                     if (isExcluded(view) || roots.contains(view)) continue;
                     extras.put(view, describeWindow(windowParams, at));
                     roots.add(view);
