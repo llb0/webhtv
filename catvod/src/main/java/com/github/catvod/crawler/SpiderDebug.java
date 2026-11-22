@@ -60,25 +60,20 @@ public class SpiderDebug {
     }
 
     /**
-     * 一条消息按行拆成多条记录再入日志。
+     * 一条消息 = 一条记录，换行原样保留在消息里。
      *
-     * <p>源站（XBPQ 这类 jar）经常把整段 HTML/JSON 一次打出来：以前整段当成一条记录，
-     * 换行在存储层会被转义成字面的 {@code \n}，于是"好几行日志"变成一条没有换行的超长行，
-     * 撞上 1.2 万字符上限后更是整段被截断成一条怪物。按行拆开后每条都是独立记录：
-     * 行数、时间戳、分类都正常，也不会互相拖累到被截断。</p>
+     * <p>不能按行拆：源站（XBPQ 这类 jar）会把整页 HTML/CSS/JSON 一次打出来，里面有几百个换行，
+     * 其中还有只写了一个 {@code }} 的 CSS 行，按行拆会刷出几百条"接口插件日志"。
+     * 只有消息里夹着另一条带时间戳的日志时（别人把多行日志拼进一个 message）才在那一行断开。</p>
      */
     private static void emit(String tag, String prefix, String message, boolean critical) {
         if (message == null || message.isEmpty()) return;
-        int start = 0;
-        String head = prefix;
-        while (start <= message.length()) {
-            int newline = message.indexOf('\n', start);
-            String line = newline < 0 ? message.substring(start) : message.substring(start, newline);
-            if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
-            if (!line.isEmpty()) DebugLogStore.add(tag, head + line, critical);
-            head = ""; // 级别前缀只挂在第一行，续行就是原文
-            if (newline < 0) break;
-            start = newline + 1;
+        String body = message.replace("\r\n", "\n").replace('\r', '\n');
+        String[] chunks = body.split("\n(?=\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})");
+        for (int i = 0; i < chunks.length; i++) {
+            String chunk = chunks[i];
+            if (chunk.isEmpty()) continue;
+            DebugLogStore.add(tag, i == 0 ? prefix + chunk : chunk, critical); // 级别前缀只挂第一段
         }
     }
 
