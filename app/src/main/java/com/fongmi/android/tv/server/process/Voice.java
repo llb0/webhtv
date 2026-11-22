@@ -533,18 +533,46 @@ public class Voice implements Process {
         // 只画属于当前 Activity 的窗口。退出某个页面时，它的窗口会继续留在窗口表里一段时间
         // （实测返回首页那次滞留了约 10 秒），画上去就是一张整屏旧页面盖在新页面上——电视早就切好了，
         // 镜像却一直"卡"着旧画面，直到那个窗口被销毁才恢复。
+        java.util.List<String> skipped = new java.util.ArrayList<>();
         java.util.Iterator<android.view.View> iterator = roots.iterator();
         while (iterator.hasNext()) {
             android.view.View root = iterator.next();
             if (root == decor) continue;
             Activity owner = ownerActivity(root.getContext());
             if (owner == null || owner == activity) continue;
-            logThrottled("残留窗口", "跳过其它页面的残留窗口：" + owner.getClass().getSimpleName()
-                    + " " + root.getWidth() + "x" + root.getHeight());
+            skipped.add(owner.getClass().getSimpleName() + " " + root.getWidth() + "x" + root.getHeight());
             iterator.remove();
         }
         if (!roots.contains(decor)) roots.add(0, decor);
+        logRootsChange(activity, decor, roots, skipped);
         return roots;
+    }
+
+    /** 上一次的窗口表指纹，只在窗口集合/归属变化时记一行，正常 3 帧/秒的抓帧不写日志。 */
+    private static String rootSignature;
+
+    /**
+     * 窗口表变化才记一行：哪张窗口在、尺寸位置、属于哪个 Activity、跳过了谁。
+     * 镜像"卡住"这类问题只看这一个字段就能判断是基准页没换、还是被别的窗口盖住。
+     */
+    private static void logRootsChange(Activity activity, android.view.View decor, java.util.List<android.view.View> roots, java.util.List<String> skipped) {
+        StringBuilder readable = new StringBuilder();
+        StringBuilder signature = new StringBuilder(activity.getClass().getSimpleName());
+        for (android.view.View root : roots) {
+            Activity owner = root == decor ? activity : ownerActivity(root.getContext());
+            String name = owner == null ? "?" : owner.getClass().getSimpleName();
+            readable.append(readable.length() == 0 ? "" : "｜").append(root.getClass().getSimpleName())
+                    .append(' ').append(root.getWidth()).append('x').append(root.getHeight()).append('|').append(name);
+            signature.append('#').append(root.getClass().getSimpleName()).append(root.getWidth()).append('x')
+                    .append(root.getHeight()).append('|').append(name);
+        }
+        if (!skipped.isEmpty()) {
+            readable.append("｜跳过 ").append(TextUtils.join("、", skipped));
+            signature.append('#').append(skipped.size());
+        }
+        if (signature.toString().equals(rootSignature)) return;
+        rootSignature = signature.toString();
+        com.github.catvod.crawler.DebugLogStore.add("voice", "镜像窗口 " + roots.size() + " 个｜" + readable);
     }
 
     /**
@@ -1041,6 +1069,15 @@ public class Voice implements Process {
     private static volatile byte[] shotLastJpeg;
     private static volatile int shotLastW, shotLastH, shotLastSeq;
     /**
+     * 相邻帧的画面指纹与"连续一致"计数：只在连续一致/恢复变化时各记一行，不按帧写日志。
+     * 分叠加前（PixelCopy 出的基准画面）和叠加后（叠了弹层/残留窗口的成图）两份——
+     * 成图一直不变而基准画面在变，就说明是新画面被叠加层整屏盖住了；两份都不变，才是基准窗口自己没刷新。
+     */
+    private static volatile long shotBaseSig, shotFinalSig;
+    private static long prevBaseSig, prevFinalSig;
+    private static int shotSameFrames;
+    private static long shotSameSince;
+    /**
      * 抓帧"在途"标记：真正结束的标志是主线程上那张图绘制完（PixelCopy 回调 + 叠加弹层绘制），
      * 而不是 shot() 这个请求线程等满 900ms 就撤。以前只认 900ms，超时后主线程上的绘制还在跑，
      * 手机每 350ms 又来一帧，主线程上就堆起一串整屏绘制——返回首页那一下（WebView 重新落层、
@@ -1108,10 +1145,16 @@ public class Voice implements Process {
                     try {
                         android.view.PixelCopy.request(activity.getWindow(), bitmap, result -> {
                             try {
-                                if (result == android.view.PixelCopy.SUCCESS) paintOverlays(bitmap, origin, decor, roots);
-                                else {
+                                if (result == android.view.PixelCopy.SUCCESS) {
+                                    long base = bitmapSig(bitmap);
+                                    paintOverlays(bitmap, origin, decor, roots);
+                                    shotBaseSig = base;
+                                    shotFinalSig = bitmapSig(bitmap);
+                                } else {
                                     logThrottled("PixelCopy 失败", "PixelCopy 失败 result=" + result + "，改用 view.draw");
                                     paintFallback(bitmap, origin, decor, roots);
+                                    shotBaseSig = 0L;
+                                    shotFinalSig = bitmapSig(bitmap);
                                 }
                             } catch (Throwable ignored) {
                             } finally {
@@ -1128,6 +1171,8 @@ public class Voice implements Process {
                     paintFallback(bitmap, origin, decor, roots);
                 } catch (Throwable ignored) {
                 }
+                shotBaseSig = 0L;
+                shotFinalSig = bitmapSig(bitmap);
                 holder[0] = bitmap;
                 finishCapture(latch);
             });
@@ -1156,6 +1201,7 @@ public class Voice implements Process {
             if (small != frame) small.recycle();
             frame.recycle();
             byte[] bytes = output.toByteArray();
+            trackFrameContent(shotFinalSig, shotBaseSig, seq);
             shotLastJpeg = bytes;
             shotLastW = outWidth;
             shotLastH = outHeight;
@@ -1166,6 +1212,50 @@ public class Voice implements Process {
         } finally {
             shotBusy = false;
         }
+    }
+
+    /** 画面指纹：8x8 网格抽 64 个像素，够便宜，也足以判断两帧是不是同一张图。 */
+    private static long bitmapSig(android.graphics.Bitmap bitmap) {
+        if (bitmap == null || bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0) return 0L;
+        long sig = ((long) bitmap.getWidth() << 32) | bitmap.getHeight();
+        int stepX = Math.max(1, bitmap.getWidth() / 8);
+        int stepY = Math.max(1, bitmap.getHeight() / 8);
+        try {
+            for (int y = 0; y < bitmap.getHeight(); y += stepY) {
+                for (int x = 0; x < bitmap.getWidth(); x += stepX) sig = sig * 1000003L + bitmap.getPixel(x, y);
+            }
+        } catch (Throwable error) {
+            return 0L;
+        }
+        return sig;
+    }
+
+    /**
+     * 连续输出同一张图时记两行（开始一致、恢复变化），不按帧记账。
+     * 开始一致那一行会带上"叠加前画面有没有在变"：变了就是被叠加层盖住，没变就是基准窗口自己没刷新。
+     */
+    private static void trackFrameContent(long finalSig, long baseSig, int seq) {
+        long now = android.os.SystemClock.uptimeMillis();
+        boolean same = shotSameFrames > 0 && finalSig != 0L && finalSig == prevFinalSig;
+        if (same) {
+            shotSameFrames++;
+            if (shotSameFrames == 3) {
+                com.github.catvod.crawler.DebugLogStore.add("voice", "镜像内容开始一致（连续 3 帧同图）seq=" + seq
+                        + "，叠加前画面" + (baseSig != 0L && prevBaseSig != 0L && baseSig != prevBaseSig
+                        ? "在变（是被叠加层盖住的）" : "也没变（基准窗口本身没刷新）")
+                        + "，窗口=" + rootSignature);
+                shotSameSince = now;
+            }
+            prevBaseSig = baseSig;
+            return;
+        }
+        if (shotSameFrames >= 3) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "镜像内容恢复变化：连续 " + shotSameFrames + " 帧同图，历时 "
+                    + (now - shotSameSince) + "ms，seq=" + seq);
+        }
+        shotSameFrames = 0;
+        prevFinalSig = finalSig;
+        prevBaseSig = baseSig;
     }
 
     /** 回包标识：端类型 + 当前屏幕方向，手机端据此排布触摸板（竖屏左右两半、横屏上下两半）。 */

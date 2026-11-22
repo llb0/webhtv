@@ -812,7 +812,10 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
             markFrameMissing(cost, "画面解码失败");
             return;
         }
-        frameStuck = 0;
+        if (frameStuck > 0) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "画面恢复更新：停滞 " + frameStuck + " 帧，seq=" + frame.seq + " 耗时=" + cost + "ms");
+            frameStuck = 0;
+        }
         lastFrameSeq = frame.seq;
         binding.padShot.setImageBitmap(bitmap);
         hideHint();   // 画到了就把提示文字收掉，别再压在画面上
@@ -829,10 +832,14 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
      * 以前这里什么都不做，旧的 Bitmap 会一直留在 ImageView 上，看着就像"遥控器卡死了"。
      */
     private void markFrameMissing(long cost, String reason) {
-        // 这里不写日志：抓帧 3 次/秒，任何"每帧一条"的记账都会瞬间几千行，把日志刷成流水。
-        // 用户能看见的信息已经由界面提示承担（连续 6 次没新画面就清掉旧图并提示"正在重试"）。
+        // 不按帧写日志（抓帧 3 次/秒会把日志刷成流水），只在"开始卡住"和"卡到清图"各记一行。
+        // 这两行是判断"画面为什么不动"的关键：是电视端回了缓存帧，还是序号没变。
         frameStuck++;
+        if (frameStuck == 1) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "画面不再更新：" + reason + "（seq=" + lastFrameSeq + "，耗时=" + cost + "ms）");
+        }
         if (frameStuck < 6 || binding == null) return;
+        com.github.catvod.crawler.DebugLogStore.add("voice", "画面停滞 " + frameStuck + " 帧：" + reason);
         binding.padShot.setImageBitmap(null);
         binding.padHint.setText("画面未更新，正在重试…");
         binding.padHint.setVisibility(android.view.View.VISIBLE);
