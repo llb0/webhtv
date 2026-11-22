@@ -234,11 +234,16 @@ public class PlayerControlFocusIntegrationTest {
         assertTrue("waking the control bar must go through the dedicated target resolver", wake.contains("showControl(upKeyFocusTarget())"));
 
         String targetBody = enclosingMethodBody(leanback, target);
-        assertTrue("the intro/outro shortcut may only run when no user focus is remembered",
-                targetBody.indexOf("if (!hasRememberedFocus())") >= 0
-                        && targetBody.indexOf("if (!hasRememberedFocus())") < targetBody.indexOf("canSetOpening"));
-        assertTrue("outside the intro/outro range the wake must land on the middle visible action button",
+        assertTrue("上键不该读记忆焦点：落点只看当前播放位置",
+                !targetBody.contains("hasRememberedFocus") && !targetBody.contains("mFocus2"));
+        assertTrue("片头/片尾可见且时间落在区间时，按原有次序落片头/片尾",
+                targetBody.indexOf("isEndingShortcutDue(position, duration)") < targetBody.indexOf("canSetOpening")
+                        && targetBody.indexOf("canSetOpening") < targetBody.indexOf("canSetEnding"));
+        assertTrue("不在片头/片尾区间时上键必须落到这排的中位按钮",
                 targetBody.indexOf("middleActionButton()") > targetBody.indexOf("canSetEnding"));
+
+        String down = enclosingMethodBody(leanback, leanback.indexOf("public void onKeyDown()", onKeyUp));
+        assertTrue("下键/菜单键仍走记忆焦点，不受上键改动影响", down.contains("showControl(getFocus2())"));
 
         String middleBody = enclosingMethodBody(leanback, middle);
         assertTrue("the middle button must be picked from visible focusable children only",
@@ -264,9 +269,9 @@ public class PlayerControlFocusIntegrationTest {
         String targetBody = enclosingMethodBody(leanback, target);
         String predicate = enclosingMethodBody(leanback, due);
 
-        assertTrue("片尾快捷入口仍在片头片尾门禁之后，未被删掉",
+        assertTrue("片尾快捷入口仍是最先判定的分支，未被删掉",
                 targetBody.contains("isEndingShortcutDue(position, duration)")
-                        && targetBody.indexOf("if (!hasRememberedFocus())") < targetBody.indexOf("isEndingShortcutDue"));
+                        && targetBody.indexOf("isEndingShortcutDue") < targetBody.indexOf("canSetOpening"));
         assertTrue("片尾可设窗口仍以 canSetEnding 为准",
                 predicate.contains("player().canSetEnding(position, duration)"));
         assertTrue("只有后半程才抢焦点，短片开场仍给片头",

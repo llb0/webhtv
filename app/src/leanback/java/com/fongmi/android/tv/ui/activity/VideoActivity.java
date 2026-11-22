@@ -9838,24 +9838,22 @@ private boolean runtimeSourceOnly;
         showControl(upKeyFocusTarget());
     }
 
-    /** 上键唤出控制栏时该把焦点放哪。 */
+    /**
+     * 上键唤出控制栏时的落点，只看当前播放位置，不看记忆焦点。
+     *
+     * <p>片头/片尾按钮可见且当前时间正好落在对应区间时，就落到那个按钮上（这是它们的
+     * 快捷入口，跟「上次点过什么」无关）；片尾还有「已过中点」的限定，短剧/短片开场阶段
+     * 仍给片头。除此以外一律落到这一排可见按钮的中位那个。
+     * 下键/菜单键（{@link #onKeyDown()} / onToggle）仍走 {@link #getFocus2()} 的记忆逻辑。
+     */
     private View upKeyFocusTarget() {
         long position = player().getPosition();
         long duration = player().getDuration();
         View opening = mBinding.control.action.opening;
         View ending = mBinding.control.action.ending;
-        // 片头/片尾区间内的落点保持原有逻辑（含「用户记忆过其它按钮时不再抢焦点」这个门禁）：
-        // 片尾还有「已过中点」的限定，短剧/短片开场阶段仍给片头。
-        if (!hasRememberedFocus()) {
-            if (isVisible(ending) && isEndingShortcutDue(position, duration)) return ending;
-            if (isVisible(opening) && player().canSetOpening(position, duration)) return opening;
-            if (isVisible(ending) && player().canSetEnding(position, duration)) return ending;
-        }
-        // 焦点本来就停在可见的片头/片尾上，继续留着，方便继续调。
-        View remembered = mFocus2;
-        if (remembered != null && isVisible(remembered) && (remembered == opening || remembered == ending)) {
-            return remembered;
-        }
+        if (isVisible(ending) && isEndingShortcutDue(position, duration)) return ending;
+        if (isVisible(opening) && player().canSetOpening(position, duration)) return opening;
+        if (isVisible(ending) && player().canSetEnding(position, duration)) return ending;
         return middleActionButton();
     }
 
@@ -9870,6 +9868,9 @@ private boolean runtimeSourceOnly;
      *
      * <p>限定「已过中点」才抢焦点：短剧/短片整段都落在两侧可设窗口内，开场阶段按上键
      * 仍应给片头。该条件对长内容恒成立（片尾窗口必定在后半程），不改变原本能命中的场景。
+     *
+     * <p>该判据只按播放位置算，与记忆焦点无关；上键路径也不再套 {@link #hasRememberedFocus()}
+     * 门禁（见 {@link #upKeyFocusTarget()}）。
      */
     private boolean isEndingShortcutDue(long position, long duration) {
         return position > 0 && duration > 0 && position >= duration / 2 && player().canSetEnding(position, duration);
