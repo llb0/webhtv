@@ -6255,8 +6255,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         // 判定去耦：以视频方向（player().isPortrait()，即 App 期望的全屏方向）为主判据，
         // 不再依赖系统 Configuration 何时真正旋转完成——否则慢机型会在 300ms 自动唤出时踩空、
         // 锁定方向的机型会永久看不到控制台。ResUtil.isLand 作为额外兜底（竖屏视频被强制横屏时）。
-        boolean isLandscapeFullscreen = isFullscreen() && (!player().isPortrait() || ResUtil.isLand(this));
-        mBinding.control.action.getRoot().setVisibility(isLandscapeFullscreen || isFusionPlayerActionsDocked() ? View.VISIBLE : View.GONE);
+        // 竖屏全屏也要给出与横屏同一排控制按钮（EXO/解码/比例/音轨/字幕/倍速/片头片尾…），
+        // 只留进度条会让人以为功能没了。这一排本身是 HorizontalScrollView，窄屏可以横向滑动，
+        // 不需要另做一套竖屏布局；小窗/内嵌（非全屏）仍保持原来的隐藏行为。
+        mBinding.control.action.getRoot().setVisibility(isFullscreen() || isFusionPlayerActionsDocked() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
         // 顶部投屏图标只根据全屏和播放状态显示。
