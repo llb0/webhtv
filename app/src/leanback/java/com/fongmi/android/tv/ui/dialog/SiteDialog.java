@@ -473,71 +473,177 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     @Override
     public boolean onItemKeyUp(int position) {
         if (position >= getCount()) return false;
-        if (binding == null || binding.groupList.getChildCount() == 0) return false;
-        requestGroupFocus();
-        return true;
+        return requestGroupFocus();
     }
 
-    @Override
-    public boolean onItemKeyHorizontal(int position, boolean left) {
+    /**
+     * 整页当作一张表的环形跳转：只在「页面外缘」把焦点回绕到另一端，其余一律返回 false
+     * 交给原有焦点搜索，容器之间的移动（网格↔分组栏、网格↔右排管理按钮）保持原样。
+     *
+     * <p>回绕对应关系：分组栏按上＝网格最后一行；网格最后一行按下＝分组栏；
+     * 分组栏首尾标签左右互绕；网格某行行首按左、行尾按右互绕（管理模式下让位给右排按钮）；
+     * 右排按钮列上端按上＝网格最后一行、下端按下＝分组栏、按右＝该行最左那个格子。
+     * 菜单键仍回分组第一个「全部」，逻辑未动。
+     */
+    private boolean handlePageRing(int keyCode, KeyEvent event) {
+        if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
         if (binding == null || adapter == null || groupReordering) return false;
-        // 仅在该方向没有其它可聚焦目标时才翻组：action 模式下右侧有按钮列，右键让位给它
-        if (!left && binding.action.getVisibility() == View.VISIBLE) return false;
-        if (!isRowEdge(position, left)) return false;
-        if (binding.groupList.getChildCount() == 0) return true;
-        moveGroupFocus(left ? -1 : 1);
+        View focus = binding.getRoot().findFocus();
+        if (focus == null) return false;
+        if (isGroupChip(focus)) return handleGroupRing(focus, keyCode);
+        if (isInActionColumn(focus)) return handleActionRing(focus, keyCode);
+        if (isInGrid(focus)) return handleGridRing(focus, keyCode);
+        return false;
+    }
+
+    private boolean isGroupChip(View view) {
+        return view != null && view.getParent() == binding.groupList;
+    }
+
+    private boolean isInActionColumn(View view) {
+        return isDescendant(binding.action, view);
+    }
+
+    private boolean isInGrid(View view) {
+        return isDescendant(binding.recycler, view);
+    }
+
+    private boolean isDescendant(ViewGroup root, View view) {
+        View current = view;
+        while (current != null) {
+            if (current == root) return true;
+            if (!(current.getParent() instanceof View)) return false;
+            current = (View) current.getParent();
+        }
+        return false;
+    }
+
+    private boolean handleGroupRing(View focus, int keyCode) {
+        int count = binding.groupList.getChildCount();
+        int index = binding.groupList.indexOfChild(focus);
+        if (index < 0 || count <= 0) return false;
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return focusSitePosition(adapter.getItemCount() - 1);
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && index == 0) return focusGroupAt(count - 1);
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && index == count - 1) return focusGroupAt(0);
+        return false;
+    }
+
+    private boolean handleGridRing(View focus, int keyCode) {
+        int position = gridPositionOf(focus);
+        if (position < 0) return false;
+        int count = getCount();
+        int total = adapter.getItemCount();
+        int rowStart = position - position % count;
+        int rowEnd = Math.min(rowStart + count, total) - 1;
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && position / count >= (total - 1) / count) return requestGroupFocus();
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && position == rowStart) {
+            if (hasActionColumn()) return focusActionColumnNear(focus);
+            return focusSitePosition(rowEnd);
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && position == rowEnd) {
+            // 管理模式右侧有按钮列，右键让位给它（原有跨容器移动）
+            if (hasActionColumn()) return false;
+            return focusSitePosition(rowStart);
+        }
+        return false;
+    }
+
+    private boolean handleActionRing(View focus, int keyCode) {
+        List<View> items = visibleActionItems();
+        if (items.isEmpty()) return false;
+        int index = items.indexOf(focus);
+        if (index < 0) return false;
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP && index == 0) return focusSitePosition(adapter.getItemCount() - 1);
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && index == items.size() - 1) return requestGroupFocus();
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) return focusGridRowStartNear(focus);
+        return false;
+    }
+
+    private List<View> visibleActionItems() {
+        List<View> items = new ArrayList<>();
+        if (binding == null || binding.action.getVisibility() != View.VISIBLE) return items;
+        for (int i = 0; i < binding.action.getChildCount(); i++) {
+            View child = binding.action.getChildAt(i);
+            if (child.getVisibility() == View.VISIBLE && child.isFocusable()) items.add(child);
+        }
+        return items;
+    }
+
+    private boolean hasActionColumn() {
+        return !visibleActionItems().isEmpty();
+    }
+
+    private int gridPositionOf(View focus) {
+        View item = focus;
+        while (item != null && item.getParent() != binding.recycler) {
+            if (!(item.getParent() instanceof View)) return -1;
+            item = (View) item.getParent();
+        }
+        return item == null ? -1 : binding.recycler.getChildAdapterPosition(item);
+    }
+
+    /** 页右缘：落到右排按钮里与参照格子竖向最接近的那个。 */
+    private boolean focusActionColumnNear(View reference) {
+        View best = nearestOf(visibleActionItems(), reference);
+        return best != null && best.requestFocus();
+    }
+
+    /** 页左缘：回到网格里与参照按钮竖向最接近那一行的行首。 */
+    private boolean focusGridRowStartNear(View reference) {
+        List<View> cells = new ArrayList<>();
+        for (int i = 0; i < binding.recycler.getChildCount(); i++) {
+            View child = binding.recycler.getChildAt(i);
+            int position = binding.recycler.getChildAdapterPosition(child);
+            if (position >= 0 && position % getCount() == 0) cells.add(child);
+        }
+        View best = nearestOf(cells, reference);
+        if (best != null && best.requestFocus()) return true;
+        return focusSitePosition(0);
+    }
+
+    private View nearestOf(List<View> candidates, View reference) {
+        if (candidates.isEmpty()) return null;
+        int[] location = new int[2];
+        reference.getLocationInWindow(location);
+        int centerY = location[1] + reference.getHeight() / 2;
+        View best = null;
+        int distance = Integer.MAX_VALUE;
+        for (View candidate : candidates) {
+            candidate.getLocationInWindow(location);
+            int candidateCenter = location[1] + candidate.getHeight() / 2;
+            int delta = Math.abs(candidateCenter - centerY);
+            if (delta < distance) {
+                best = candidate;
+                distance = delta;
+            }
+        }
+        return best;
+    }
+
+    private boolean focusGroupAt(int index) {
+        if (binding == null || binding.groupList.getChildCount() == 0) return false;
+        View view = binding.groupList.getChildAt(Math.max(0, Math.min(index, binding.groupList.getChildCount() - 1)));
+        return view != null && view.requestFocus();
+    }
+
+    private boolean focusSitePosition(int position) {
+        if (binding == null || adapter == null) return false;
+        int total = adapter.getItemCount();
+        if (total <= 0) return false;
+        int target = Math.max(0, Math.min(position, total - 1));
+        DialogSiteBinding current = binding;
+        current.recycler.scrollToPosition(target);
+        if (focusSiteView(current, target)) return true;
+        current.recycler.postDelayed(() -> focusSiteView(current, target), 100);
         return true;
     }
 
-    private boolean isRowEdge(int position, boolean left) {
-        int count = getCount();
-        if (left) return position % count == 0;
-        return position % count == count - 1 || position == adapter.getItemCount() - 1;
+    private boolean focusSiteView(DialogSiteBinding current, int position) {
+        if (binding != current) return false;
+        RecyclerView.ViewHolder holder = current.recycler.findViewHolderForAdapterPosition(position);
+        return holder != null && holder.itemView.requestFocus();
     }
 
-    private void moveGroupFocus(int direction) {
-        int current = indexOfGroup(selectedGroup);
-        if (current < 0) return;
-        int target = current + direction;
-        if (target < 0 || target >= binding.groupList.getChildCount()) return;
-        View view = binding.groupList.getChildAt(target);
-        if (view == null) return;
-        groupSwitching = true;
-        selectGroup((String) view.getTag(), view);
-        focusFirstSite();
-    }
-
-    private int indexOfGroup(String group) {
-        for (int i = 0; i < binding.groupList.getChildCount(); i++) {
-            if (TextUtils.equals(group, (String) binding.groupList.getChildAt(i).getTag())) return i;
-        }
-        return -1;
-    }
-
-    private void focusFirstSite() {
-        DialogSiteBinding current = binding;
-        if (current == null) {
-            groupSwitching = false;
-            return;
-        }
-        current.recycler.post(() -> {
-            if (binding != current || adapter == null || adapter.getItemCount() == 0) {
-                groupSwitching = false;
-                if (binding == current) requestGroupFocus();
-                return;
-            }
-            current.recycler.post(() -> {
-                if (binding != current) {
-                    groupSwitching = false;
-                    return;
-                }
-                RecyclerView.ViewHolder holder = current.recycler.findViewHolderForLayoutPosition(0);
-                boolean focused = holder != null && holder.itemView.requestFocus();
-                if (!focused) requestGroupFocus();
-                groupSwitching = false;
-            });
-        });
-    }
 
     private void loadConfig(FragmentActivity activity, Config config) {
         if (config.getUrl().equals(VodConfig.getUrl())) return;
@@ -670,7 +776,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         binding.groupList.addView(getGroupView("", getDialogActivity().getString(R.string.site_group_all)));
         for (String group : groups) binding.groupList.addView(getGroupView(group, group));
         updateGroupView();
-        binding.groupList.post(this::requestGroupFocus);
+        binding.groupList.post(() -> requestGroupFocus());
     }
 
     private androidx.appcompat.widget.AppCompatTextView getGroupView(String group, String text) {
@@ -757,6 +863,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     }
 
     private boolean onDialogKey(int keyCode, KeyEvent event) {
+        if (handlePageRing(keyCode, event)) return true;
         if (KeyUtil.isMenuKey(event)) {
             View all = findGroupView("");
             if (all == null) return false;
@@ -779,11 +886,11 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
         reorderStartedAt = 0;
     }
 
-    private void requestGroupFocus() {
-        if (binding == null || binding.groupList.getChildCount() == 0) return;
+    private boolean requestGroupFocus() {
+        if (binding == null || binding.groupList.getChildCount() == 0) return false;
         View target = findGroupView(selectedGroup);
         if (target == null) target = binding.groupList.getChildAt(0);
-        target.requestFocus();
+        return target.requestFocus();
     }
 
     private void onGroupClick(String group, View view) {

@@ -202,17 +202,21 @@ public class PlayerControlFocusIntegrationTest {
     }
 
     @Test
-    public void leanbackControlWakeKeepsUserChosenFocusOutsideTheIntroRange() throws Exception {
+    public void leanbackControlWakeLandsOnMiddleButtonOutsideTheIntroOutroRange() throws Exception {
         Path leanbackPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String leanback = new String(Files.readAllBytes(leanbackPath), StandardCharsets.UTF_8);
 
         int remembered = leanback.indexOf("private boolean hasRememberedFocus()");
         int getFocus2 = leanback.indexOf("private View getFocus2()", remembered);
         int onKeyUp = leanback.indexOf("public void onKeyUp()", getFocus2);
+        int target = leanback.indexOf("private View upKeyFocusTarget()", onKeyUp);
+        int middle = leanback.indexOf("private View middleActionButton()", target);
 
         assertTrue("leanback must keep one shared predicate for a usable remembered control focus", remembered >= 0);
         assertTrue("the remembered-focus predicate must precede the default focus resolver", getFocus2 > remembered);
         assertTrue("the DPAD-UP wake path must be discoverable after the focus resolver", onKeyUp > getFocus2);
+        assertTrue("the wake target resolver must follow the wake path", target > onKeyUp);
+        assertTrue("the middle-button fallback must follow the target resolver", middle > target);
 
         String predicate = enclosingMethodBody(leanback, remembered);
         assertTrue("a remembered focus must be visible and still inside the control bar",
@@ -227,15 +231,31 @@ public class PlayerControlFocusIntegrationTest {
                 resolver.contains("hasRememberedFocus()") && resolver.contains("mBinding.control.action.next"));
 
         String wake = enclosingMethodBody(leanback, onKeyUp);
-        assertTrue("waking the control bar must not move focus away from the user's last control",
-                wake.contains("if (!hasRememberedFocus())")
-                        && wake.contains("showControl(getFocus2())"));
-        assertTrue("the intro/outro shortcut may only run when no user focus is remembered",
-                wake.indexOf("if (!hasRememberedFocus())") < wake.indexOf("canSetOpening"));
+        assertTrue("waking the control bar must go through the dedicated target resolver", wake.contains("showControl(upKeyFocusTarget())"));
+
+        String targetBody = enclosingMethodBody(leanback, target);
+        assertTrue("上键不该读记忆焦点：落点只看当前播放位置",
+                !targetBody.contains("hasRememberedFocus") && !targetBody.contains("mFocus2"));
+        assertTrue("片头/片尾可见且时间落在区间时，按原有次序落片头/片尾",
+                targetBody.indexOf("isEndingShortcutDue(position, duration)") < targetBody.indexOf("canSetOpening")
+                        && targetBody.indexOf("canSetOpening") < targetBody.indexOf("canSetEnding"));
+        assertTrue("不在片头/片尾区间时上键必须落到这排的中位按钮",
+                targetBody.indexOf("middleActionButton()") > targetBody.indexOf("canSetEnding"));
+
+        String down = enclosingMethodBody(leanback, leanback.indexOf("public void onKeyDown()", onKeyUp));
+        assertTrue("下键/菜单键仍走记忆焦点，不受上键改动影响", down.contains("showControl(getFocus2())"));
+
+        String middleBody = enclosingMethodBody(leanback, middle);
+        assertTrue("the middle button must be picked from visible focusable children only",
+                middleBody.contains("child.getVisibility() == View.VISIBLE")
+                        && middleBody.contains("child.isFocusable()")
+                        && middleBody.contains("candidates.get(candidates.size() / 2)"));
+        assertTrue("an empty row must still fall back to the default target",
+                middleBody.contains("return mBinding.control.action.next"));
     }
 
     @Test
-    public void leanbackEndingShortcutOutranksRememberedFocusNearTheEnd() throws Exception {
+    public void leanbackEndingShortcutKeepsItsOriginalWindowAndTarget() throws Exception {
         Path leanbackPath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String leanback = new String(Files.readAllBytes(leanbackPath), StandardCharsets.UTF_8);
 
@@ -243,20 +263,22 @@ public class PlayerControlFocusIntegrationTest {
         int due = leanback.indexOf("private boolean isEndingShortcutDue(long position, long duration)");
 
         assertTrue("the DPAD-UP wake path must exist", onKeyUp >= 0);
-        assertTrue("the ending shortcut must be a named predicate after the wake path", due > onKeyUp);
+        assertTrue("the ending shortcut must stay a named predicate after the wake path", due > onKeyUp);
 
-        String wake = enclosingMethodBody(leanback, onKeyUp);
+        int target = leanback.indexOf("private View upKeyFocusTarget()", onKeyUp);
+        String targetBody = enclosingMethodBody(leanback, target);
         String predicate = enclosingMethodBody(leanback, due);
 
-        assertTrue("片尾区间必须优先于记忆焦点门禁：快播完时上键只能落在片尾按钮上",
-                wake.contains("isEndingShortcutDue(position, duration)")
-                        && wake.indexOf("isEndingShortcutDue") < wake.indexOf("if (!hasRememberedFocus())"));
+        assertTrue("片尾快捷入口仍是最先判定的分支，未被删掉",
+                targetBody.contains("isEndingShortcutDue(position, duration)")
+                        && targetBody.indexOf("isEndingShortcutDue") < targetBody.indexOf("canSetOpening"));
         assertTrue("片尾可设窗口仍以 canSetEnding 为准",
                 predicate.contains("player().canSetEnding(position, duration)"));
         assertTrue("只有后半程才抢焦点，短片开场仍给片头",
                 predicate.contains("position >= duration / 2"));
         assertTrue("片尾落点必须是控制栏的 ending 按钮",
-                wake.contains("showControl(mBinding.control.action.ending)"));
+                targetBody.contains("return ending;")
+                        && targetBody.indexOf("isEndingShortcutDue(position, duration)) return ending;") > 0);
     }
 
     @Test

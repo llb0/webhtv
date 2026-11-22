@@ -9832,23 +9832,29 @@ private boolean runtimeSourceOnly;
 
     @Override
     public void onKeyUp() {
+        // 上键只是「把控制栏叫出来」：片头/片尾区间内仍停到片头/片尾按钮（原有逻辑），
+        // 其余情况落到这一排最中间那个按钮，不再恢复上次点过的按钮。
+        // 下键/菜单键（onKeyDown / onToggle）仍走 getFocus2() 的原有记忆逻辑。
+        showControl(upKeyFocusTarget());
+    }
+
+    /**
+     * 上键唤出控制栏时的落点，只看当前播放位置，不看记忆焦点。
+     *
+     * <p>片头/片尾按钮可见且当前时间正好落在对应区间时，就落到那个按钮上（这是它们的
+     * 快捷入口，跟「上次点过什么」无关）；片尾还有「已过中点」的限定，短剧/短片开场阶段
+     * 仍给片头。除此以外一律落到这一排可见按钮的中位那个。
+     * 下键/菜单键（{@link #onKeyDown()} / onToggle）仍走 {@link #getFocus2()} 的记忆逻辑。
+     */
+    private View upKeyFocusTarget() {
         long position = player().getPosition();
         long duration = player().getDuration();
-        if (isEndingShortcutDue(position, duration)) {
-            showControl(mBinding.control.action.ending);
-            return;
-        }
-        if (!hasRememberedFocus()) {
-            if (player().canSetOpening(position, duration)) {
-                showControl(mBinding.control.action.opening);
-                return;
-            }
-            if (player().canSetEnding(position, duration)) {
-                showControl(mBinding.control.action.ending);
-                return;
-            }
-        }
-        showControl(getFocus2());
+        View opening = mBinding.control.action.opening;
+        View ending = mBinding.control.action.ending;
+        if (isVisible(ending) && isEndingShortcutDue(position, duration)) return ending;
+        if (isVisible(opening) && player().canSetOpening(position, duration)) return opening;
+        if (isVisible(ending) && player().canSetEnding(position, duration)) return ending;
+        return middleActionButton();
     }
 
     /**
@@ -9862,9 +9868,28 @@ private boolean runtimeSourceOnly;
      *
      * <p>限定「已过中点」才抢焦点：短剧/短片整段都落在两侧可设窗口内，开场阶段按上键
      * 仍应给片头。该条件对长内容恒成立（片尾窗口必定在后半程），不改变原本能命中的场景。
+     *
+     * <p>该判据只按播放位置算，与记忆焦点无关；上键路径也不再套 {@link #hasRememberedFocus()}
+     * 门禁（见 {@link #upKeyFocusTarget()}）。
      */
     private boolean isEndingShortcutDue(long position, long duration) {
         return position > 0 && duration > 0 && position >= duration / 2 && player().canSetEnding(position, duration);
+    }
+
+    /**
+     * 这一排中间那个按钮：按当前「可见且可获焦」的子项数取中位，跳过被按钮设置隐藏掉的项。
+     * 一个都取不到时退回原来的默认目标（next），保证控制栏一定有焦点落点。
+     */
+    private View middleActionButton() {
+        ViewGroup container = mBinding.control.action.container;
+        if (container == null) return mBinding.control.action.next;
+        List<View> candidates = new ArrayList<>();
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View child = container.getChildAt(i);
+            if (child.getVisibility() == View.VISIBLE && child.isFocusable()) candidates.add(child);
+        }
+        if (candidates.isEmpty()) return mBinding.control.action.next;
+        return candidates.get(candidates.size() / 2);
     }
 
     @Override

@@ -982,38 +982,23 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void mobileShortDramaKeepsStandardSettingButtonVisible() throws Exception {
+    public void mobileShortDramaUsesSameControlBarAsNormalFullscreen() throws Exception {
+        // 短剧不再另做一套控制栏：竖屏全屏、横屏全屏、电视端给的都是同一排 action 按钮
+        //（EXO/解码/比例/音轨/字幕/倍速/片头片尾/换源/画质/选集…）。
+        // 片头片尾也在这排里，短剧时长再短也能手动设，不需要额外的三个 dock 图标入口，
+        // 也就不会出现「只有图标、倍速/刷新/换内核都摸不到」的情况。
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
-        int showControl = source.indexOf("private void showControl()");
-        int shortDrama = source.indexOf("boolean shortDrama = isShortDramaSource();", showControl);
-        int setting = source.indexOf("mBinding.control.setting.setVisibility(mHistory == null || (isFullscreen() && !shortDrama) ? View.GONE : View.VISIBLE);", shortDrama);
-        int shortDramaViews = source.indexOf("private View[] getShortDramaControlViews()");
-        int dockedSetting = source.indexOf("mBinding.control.setting,", shortDramaViews);
 
-        assertTrue(sourcePath + " is missing showControl", showControl >= 0);
-        assertTrue("short drama mode must keep the standard setting button visible while fullscreen", setting > shortDrama);
-        assertTrue("short drama floating controls must include the standard setting button", dockedSetting > shortDramaViews);
-    }
-
-    @Test
-    public void mobileShortDramaDocksChangeSourceAndQuality() throws Exception {
-        // 反馈回归：短剧模式把整条 action 栏 GONE 掉，换源与画质只有搬进 dock 才可达，
-        // 否则短剧只能在选集里换线路(flag)，无法换站点、无法切画质。
-        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
-        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
-        int views = source.indexOf("private View[] getShortDramaControlViews()");
-        assertTrue("getShortDramaControlViews must exist", views >= 0);
-        String body = source.substring(views, source.indexOf("\n    }", views));
-        // dock 里全是 48dp 图标，换源/画质/选集必须用专用 ImageView 入口，
-        // 不能直接搬 action 栏的 MaterialTextView，否则文字按钮与图标混排（见用户反馈截图）。
-        assertTrue("short drama dock must expose the change-source icon",
-                body.contains("mBinding.control.shortDramaChangeSource,"));
-        assertTrue("short drama dock must expose the quality icon",
-                body.contains("mBinding.control.shortDramaQuality,"));
-        assertFalse("short drama dock must not mix in action-bar text buttons",
-                body.contains("mBinding.control.action."));
-
+        String showControl = methodBody(source, "private void showControl()", "private boolean canShowPiP");
+        assertTrue("fullscreen must always show the action bar, portrait and short drama included",
+                showControl.contains("mBinding.control.action.getRoot().setVisibility(isFullscreen() || isFusionPlayerActionsDocked() ? View.VISIBLE : View.GONE);"));
+        assertFalse("short drama must not hide the action bar again after showControl sets it",
+                showControl.contains("syncShortDramaControlLayout("));
+        assertFalse("short drama must not relocate controls into a side dock",
+                source.contains("dockShortDramaControls()"));
+        assertFalse("the short-drama-only icon entries are gone",
+                source.contains("mBinding.control.shortDramaChangeSource"));
     }
 
     @Test
@@ -1135,46 +1120,6 @@ public class VideoActivityLayoutTest {
         int resync = exitBody.indexOf("resetInlineShortDramaMode();");
         assertTrue("leaving inline fullscreen must resync the gesture axes after clearing the flag",
                 cleared >= 0 && resync > cleared);
-    }
-
-    @Test
-    public void mobileShortDramaQualityIconHasSingleSourceOfTruth() throws Exception {
-        // setQualityVisible 有 6 个调用点，其中多处显式传 false（未选中集数、切线路重置），
-        // 与 Result.isMulti() 的结论并不一致。dock 图标若自行推导 Result，就会与 action 栏
-        // 按钮状态相反。两者必须共用 setQualityVisible 记下的同一个结论。
-        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
-        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
-
-        String setter = methodBody(source, "private void setQualityVisible(boolean visible)", "private void updateActionQuality");
-        assertTrue("setQualityVisible must record its verdict for the dock icon to reuse",
-                setter.contains("mQualityVisible = visible;"));
-
-        String sync = methodBody(source, "private void syncShortDramaControlLayout(boolean shortDrama)", "private void dockShortDramaControls");
-        assertTrue("the docked quality icon must reuse the recorded verdict",
-                sync.contains("mBinding.control.shortDramaQuality.setVisibility(mQualityVisible ? View.VISIBLE : View.GONE);"));
-        // 注释里会提到 isMulti() 来解释为何不用它，所以先剥掉注释再断言
-        String syncCode = sync.replaceAll("(?m)//.*$", "");
-        assertFalse("the docked quality icon must not re-derive visibility from the player Result",
-                syncCode.contains("isMulti()") || syncCode.contains("isQualityAvailable()"));
-    }
-
-    @Test
-    public void mobileShortDramaRestoreIsIndependentOfDeclarationOrder() throws Exception {
-        // 同一容器现在有多个搬迁项（cast/keep/换源/画质/选集/设置同属顶部栏）。逐个「摘下并立刻插回」
-        // 会让后来者挤掉前者的位置，且 PlayerButtonSetting.applyOrder 可能已重排容器，
-        // 声明顺序不等于索引升序。还原必须先全部摘下、再按原始索引升序插回。
-        Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
-        String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
-        int restore = source.indexOf("private void restoreShortDramaControls()");
-        assertTrue("restoreShortDramaControls must exist", restore >= 0);
-        String body = source.substring(restore, source.indexOf("\n    }", restore));
-
-        int detachLoop = body.indexOf("parent.removeView(item.view);");
-        int sort = body.indexOf("items.sort(Comparator.comparingInt(item -> item.index));");
-        int attachLoop = body.indexOf("item.parent.addView(item.view,");
-        assertTrue("restore must detach every docked view before re-attaching", detachLoop >= 0);
-        assertTrue("restore must re-attach in ascending original index order", sort > detachLoop);
-        assertTrue("restore must re-attach after sorting", attachLoop > sort);
     }
 
     @Test

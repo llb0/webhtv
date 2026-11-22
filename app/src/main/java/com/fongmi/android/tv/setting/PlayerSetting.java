@@ -221,6 +221,8 @@ public class PlayerSetting {
      * Exo 没有 AVI/WMV/RMVB 等老容器的解复用器，选中 Exo 时这些文件会“有声音没图像”
      * 或直接解析失败。识别出老容器后，首次播放自动改走带 FFmpeg 的 IJK；
      * 用户在历史里明确选过内核时不覆盖。
+     *
+     * <p>FLV 不在此列：media3 自带 FlvExtractor，直链 .flv 用 Exo 就能放，没必要再为它切 IJK。</p>
      */
     public static boolean isLegacyContainer(String url) {
         if (url == null) return false;
@@ -229,7 +231,7 @@ public class PlayerSetting {
         String lower = path.toLowerCase(java.util.Locale.ROOT);
         return lower.endsWith(".avi") || lower.endsWith(".wmv") || lower.endsWith(".asf")
                 || lower.endsWith(".rmvb") || lower.endsWith(".rm") || lower.endsWith(".vob")
-                || lower.endsWith(".flv") || lower.endsWith(".f4v") || lower.endsWith(".mpg")
+                || lower.endsWith(".f4v") || lower.endsWith(".mpg")
                 || lower.endsWith(".mpeg") || lower.endsWith(".divx") || lower.endsWith(".xvid");
     }
 

@@ -224,7 +224,6 @@ import org.greenrobot.eventbus.ThreadMode;
 import java.io.File;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -626,12 +625,8 @@ private int mAudioBackgroundRandomNonce;
     private long playerStartTime;
     private long pendingResumeSeekMs = C.TIME_UNSET;
     private boolean tmdbHistoryResumePending;
-    private final List<ShortDramaControlItem> mShortDramaControlItems = new ArrayList<>();
-    private ViewGroup mShortDramaControlDock;
-    private boolean shortDramaControlsDocked;
     private boolean shortDramaSession;
     /** setQualityVisible 最近一次的结论，供短剧 dock 图标复用，避免两个真值来源。 */
-    private boolean mQualityVisible;
 
     // TMDB 模式相关字段
     private com.fongmi.android.tv.ui.helper.TmdbUIAdapter mTmdbUIAdapter;
@@ -2017,9 +2012,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.right.rotate.setOnClickListener(view -> onRotate());
         mBinding.control.right.pip.setOnClickListener(guarded(this::onPiP));
         mBinding.control.fullscreen.setOnClickListener(guarded(this::onFullscreen));
-        mBinding.control.shortDramaChangeSource.setOnClickListener(view -> onChange());
-        mBinding.control.shortDramaQuality.setOnClickListener(guarded(this::onQuality));
-        mBinding.control.shortDramaEpisodes.setOnClickListener(guarded(this::onEpisodes));
         mBinding.control.action.text.setOnClickListener(guardedView(this::onTrack));
         mBinding.control.action.audio.setOnClickListener(guardedView(this::onTrack));
         mBinding.control.action.video.setOnClickListener(guardedView(this::onTrack));
@@ -4090,16 +4082,11 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     }
 
     private void setQualityVisible(boolean visible) {
-        mQualityVisible = visible;
         mBinding.qualityText.setVisibility(visible ? View.VISIBLE : View.GONE);
         mBinding.quality.setVisibility(visible ? View.VISIBLE : View.GONE);
         mBinding.control.action.actionQuality.setVisibility(visible ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
         updateActionQuality(mViewModel.getPlayer().getValue());
-        // 短剧 dock 的画质图标与 action 栏按钮同源。未 dock 时这个图标还在顶部栏里，
-        // 此时置 VISIBLE 会让非短剧场景多出一个图标，所以只在已 dock 时同步。
-        // dock 建立时会由 syncShortDramaControlLayout 用 mQualityVisible 补齐。
-        if (shortDramaControlsDocked) mBinding.control.shortDramaQuality.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
     private void updateActionQuality(Result result) {
@@ -6234,7 +6221,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         boolean shortDrama = isShortDramaSession();
         boolean showPiP = canShowPiP(shortDrama);
         hideWidgetOverlay();
-        mBinding.control.setting.setVisibility(mHistory == null || (isFullscreen() && !shortDrama) ? View.GONE : View.VISIBLE);
+        mBinding.control.setting.setVisibility(mHistory == null || isFullscreen() ? View.GONE : View.VISIBLE);
         mBinding.control.right.getRoot().setVisibility(isFullscreen() || showPiP ? View.VISIBLE : View.GONE);
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.right.pip.setVisibility(showPiP ? View.VISIBLE : View.GONE);
@@ -6251,12 +6238,10 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.osdDiagnostics.setVisibility(PlayerSetting.isOsdDiagnostics() && showPlayParams && !player().isEmpty() ? View.VISIBLE : View.GONE);
         mBinding.control.osdDiagnostics.setAlpha(mOsd != null && mOsd.isDiagnosticsVisible() ? 1f : 0.72f);
         mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() && PlayerButtonSetting.isVisible(PlayerButtonSetting.PARSE) ? View.VISIBLE : View.GONE);
-        // 竖屏模式下隐藏底部控制栏（EXO、硬解等选项），避免界面拥挤。
-        // 判定去耦：以视频方向（player().isPortrait()，即 App 期望的全屏方向）为主判据，
-        // 不再依赖系统 Configuration 何时真正旋转完成——否则慢机型会在 300ms 自动唤出时踩空、
-        // 锁定方向的机型会永久看不到控制台。ResUtil.isLand 作为额外兜底（竖屏视频被强制横屏时）。
-        boolean isLandscapeFullscreen = isFullscreen() && (!player().isPortrait() || ResUtil.isLand(this));
-        mBinding.control.action.getRoot().setVisibility(isLandscapeFullscreen || isFusionPlayerActionsDocked() ? View.VISIBLE : View.GONE);
+        // 控制栏按钮排：只要在播全屏（横屏/竖屏/短剧一视同仁）就给出同一排按钮
+        //（EXO/解码/比例/音轨/字幕/倍速/片头片尾/换源/画质/选集…），与电视端一致。
+        // 这一排本身是 HorizontalScrollView，竖屏窄也能横向滑动；小窗/内嵌（非全屏）保持隐藏。
+        mBinding.control.action.getRoot().setVisibility(isFullscreen() || isFusionPlayerActionsDocked() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
         // 顶部投屏图标只根据全屏和播放状态显示。
@@ -6265,7 +6250,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.control.bottom.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.back.setVisibility(isLock() ? View.GONE : View.VISIBLE);
         mBinding.control.top.setVisibility(isLock() ? View.GONE : View.VISIBLE);
-        syncShortDramaControlLayout(shortDrama);
         mBinding.control.getRoot().setVisibility(View.VISIBLE);
         updateDiscMenuTools();
         updateCustomButtonVisibility();
@@ -10308,105 +10292,6 @@ private void checkOrientation() {
         finishPlayback();
     }
 
-    private void syncShortDramaControlLayout(boolean shortDrama) {
-        if (!shortDrama) {
-            restoreShortDramaControls();
-            return;
-        }
-        dockShortDramaControls();
-        mBinding.control.action.getRoot().setVisibility(View.GONE);
-        mBinding.control.info.setVisibility(View.GONE);
-        mBinding.control.shortDramaChangeSource.setVisibility(View.VISIBLE);
-        mBinding.control.shortDramaEpisodes.setVisibility(View.VISIBLE);
-        // 画质仍受站点是否返回多地址约束（避免弹出只有一个选项的面板）。这里直接复用
-        // setQualityVisible 记下的结果，不再自行推导 Result：那些以 false 显式收起画质的
-        // 调用点（如未选中集数、切线路重置）与 Result.isMulti() 结论并不一致，
-        // 两个真值来源会让 dock 图标与 action 栏按钮状态相反。
-        mBinding.control.shortDramaQuality.setVisibility(mQualityVisible ? View.VISIBLE : View.GONE);
-        if (mShortDramaControlDock != null) mShortDramaControlDock.setVisibility(isLock() ? View.GONE : View.VISIBLE);
-    }
-
-    private void dockShortDramaControls() {
-        ViewGroup dock = getShortDramaControlDock();
-        if (shortDramaControlsDocked) return;
-        for (ShortDramaControlItem item : getShortDramaControlItems()) {
-            ViewGroup parent = (ViewGroup) item.view.getParent();
-            if (parent != null) parent.removeView(item.view);
-            dock.addView(item.view, item.layoutParams);
-        }
-        shortDramaControlsDocked = true;
-    }
-
-    private void restoreShortDramaControls() {
-        if (!shortDramaControlsDocked) return;
-        // 三个图标入口只服务短剧竖屏 dock，还原回顶部栏后必须重新隐藏
-        mBinding.control.shortDramaChangeSource.setVisibility(View.GONE);
-        mBinding.control.shortDramaQuality.setVisibility(View.GONE);
-        mBinding.control.shortDramaEpisodes.setVisibility(View.GONE);
-        // 先全部摘下再按记录索引升序插回：同一容器有多个搬迁项时（cast/keep/换源/画质/选集/设置同属顶部栏），
-        // 按声明顺序逐个插入会让后来者挤掉前者的位置，且 PlayerButtonSetting.applyOrder 可能已重排过容器，
-        // 声明顺序不保证等于索引升序。升序插入与「摘下前的原始索引」语义一致。
-        List<ShortDramaControlItem> items = new ArrayList<>(getShortDramaControlItems());
-        for (ShortDramaControlItem item : items) {
-            ViewGroup parent = (ViewGroup) item.view.getParent();
-            if (parent != null) parent.removeView(item.view);
-        }
-        items.sort(Comparator.comparingInt(item -> item.index));
-        for (ShortDramaControlItem item : items) {
-            item.parent.addView(item.view, Math.min(item.index, item.parent.getChildCount()), item.layoutParams);
-        }
-        if (mShortDramaControlDock != null && mShortDramaControlDock.getParent() instanceof ViewGroup) {
-            ((ViewGroup) mShortDramaControlDock.getParent()).removeView(mShortDramaControlDock);
-        }
-        shortDramaControlsDocked = false;
-    }
-
-    private ViewGroup getShortDramaControlDock() {
-        ViewGroup right = mBinding.control.right.getRoot();
-        if (mShortDramaControlDock == null) {
-            LinearLayoutCompat dock = new LinearLayoutCompat(this);
-            dock.setGravity(android.view.Gravity.CENTER);
-            dock.setOrientation(LinearLayoutCompat.VERTICAL);
-            mShortDramaControlDock = dock;
-        }
-        if (mShortDramaControlDock.getParent() != right) {
-            int index = Math.min(right.indexOfChild(mBinding.control.right.lock) + 1, right.getChildCount());
-            right.addView(mShortDramaControlDock, index, new LinearLayoutCompat.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-        return mShortDramaControlDock;
-    }
-
-    private List<ShortDramaControlItem> getShortDramaControlItems() {
-        if (mShortDramaControlItems.isEmpty()) {
-            for (View view : getShortDramaControlViews()) {
-                if (view.getParent() instanceof ViewGroup) mShortDramaControlItems.add(new ShortDramaControlItem(view));
-            }
-        }
-        return mShortDramaControlItems;
-    }
-
-    /**
-     * 短剧模式下搬到右侧竖排 dock 的控件。
-     * <p>
-     * action 栏整条被隐藏（见 syncShortDramaControlLayout），只有搬进 dock 的控件才可达，
-     * 所以换源/画质/选集必须列在这里，否则短剧只能换线路、不能换站点和画质。
-     * <p>
-     * 这里用的是 shortDramaChangeSource/shortDramaQuality/shortDramaEpisodes 三个专用 48dp 图标，
-     * 而不是 action 栏里的 MaterialTextView（change2/actionQuality/episodes）——dock 全是图标，
-     * 混入文字按钮会很突兀。id 带 shortDrama 前缀是为了避开同一视图树里的 quality/episodes 重名。
-     * 本列表顺序不必等于容器顺序，restoreShortDramaControls 按记录的原始索引升序插回。
-     */
-    private View[] getShortDramaControlViews() {
-        return new View[]{
-                mBinding.control.cast,
-                mBinding.control.keep,
-                mBinding.control.shortDramaChangeSource,
-                mBinding.control.shortDramaQuality,
-                mBinding.control.shortDramaEpisodes,
-                mBinding.control.setting,
-        };
-    }
-
     private boolean isInitAuto() {
         return initAuto;
     }
@@ -10985,20 +10870,6 @@ private void checkOrientation() {
             com.fongmi.android.tv.api.config.UserAdRuleStore.add(rule);
             Notify.show(R.string.ad_feedback_saved);
         });
-    }
-
-    private static class ShortDramaControlItem {
-        private final View view;
-        private final ViewGroup parent;
-        private final ViewGroup.LayoutParams layoutParams;
-        private final int index;
-
-        private ShortDramaControlItem(View view) {
-            this.view = view;
-            this.parent = (ViewGroup) view.getParent();
-            this.layoutParams = view.getLayoutParams();
-            this.index = parent.indexOfChild(view);
-        }
     }
 
     private static class TmdbMovedView {
