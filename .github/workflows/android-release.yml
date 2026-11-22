@@ -2,8 +2,6 @@ name: Android Release
 
 on:
   push:
-    branches-ignore:
-      - main
   workflow_dispatch:
     inputs:
       release_tag:
@@ -128,8 +126,11 @@ jobs:
           VERSION_CODE="$(sed -n 's/^[[:space:]]*versionCode[[:space:]]*\([0-9][0-9]*\).*/\1/p' app/build.gradle | head -1)"
           CHANNEL="${{ inputs.release_channel }}"
           if [ "$CHANNEL" = "auto" ] || [ -z "$CHANNEL" ]; then
-            if [ "${{ github.event_name }}" = "push" ]; then
-              # 分支推送的自动打包只做 beta 预发布，避免任何分支都把 stable 的 latest 顶掉。
+            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_name }}" = "main" ]; then
+              # main 的推送就是正式发布。
+              CHANNEL="stable"
+            elif [ "${{ github.event_name }}" = "push" ]; then
+              # 其他分支的自动打包只做 beta 预发布，避免把 stable 的 latest 顶掉。
               CHANNEL="beta"
             elif [ "${{ github.ref_name }}" = "dev" ] || [ "${{ github.ref_name }}" = "fongmi-sync" ]; then
               CHANNEL="beta"
@@ -283,6 +284,12 @@ jobs:
           import os
 
           raw = os.environ.get("RELEASE_NOTES_RAW", "").strip()
+          if not raw:
+              notes_file = ".github/release-notes.md"
+              if os.path.isfile(notes_file):
+                  # 自动打包没有手填说明时，用仓库里维护好的发布说明文件。
+                  with open(notes_file, encoding="utf-8") as fh:
+                      raw = fh.read().strip()
           notes = (
               raw
               .replace("\\r\\n", "\n")
