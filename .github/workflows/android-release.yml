@@ -48,6 +48,7 @@ env:
   CNB_WEB_ENDPOINT: https://cnb.cool
   CNB_REPO_SLUG: fish2035/webhtv-release
   CNB_REPO_URL: https://cnb.cool/fish2035/webhtv-release.git
+  UPDATE_CHANNEL_TAG: update-channel
   GRADLE_DAEMON_JVM_DOWNLOAD: false
   GRADLE_OPTS: "-Dorg.gradle.java.installers.download=false"
 
@@ -236,9 +237,15 @@ jobs:
           cp Release/apk/*.apk dist/
           ls -lh dist/
 
+      # publish_oci 打开但没配置 registry 时不该让发布失败：此时只发 GitHub Release。
+      - name: Report OCI publishing state
+        if: ${{ inputs.publish_oci && vars.OCI_REPOSITORY == '' }}
+        run: |
+          echo "::notice title=OCI publishing skipped::publish_oci is enabled but vars.OCI_REPOSITORY is not configured. APKs are published to GitHub Releases only."
+
       - name: Set up ORAS
         id: oras
-        if: ${{ inputs.publish_oci }}
+        if: ${{ inputs.publish_oci && vars.OCI_REPOSITORY != '' }}
         continue-on-error: true
         uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
         with:
@@ -247,7 +254,7 @@ jobs:
 
       - name: Publish APKs to OCI Registry
         id: oci
-        if: ${{ inputs.publish_oci && steps.oras.outcome == 'success' }}
+        if: ${{ inputs.publish_oci && vars.OCI_REPOSITORY != '' && steps.oras.outcome == 'success' }}
         continue-on-error: true
         env:
           DIST_DIR: dist
@@ -361,6 +368,48 @@ jobs:
               $PRERELEASE_FLAG \
               dist/*.apk dist/*.json
           fi
+
+      - name: Publish update channel manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf channel-manifests other-channel-manifests
+          mkdir -p channel-manifests other-channel-manifests
+          cp dist/*.json channel-manifests/
+
+          if [ "${{ steps.meta.outputs.channel }}" = "stable" ]; then
+            OTHER_TAG="$(gh release list --limit 100 --json tagName,isDraft,isPrerelease \
+              --jq '[.[] | select((.isDraft == false) and (.isPrerelease == true) and (.tagName | test("-beta-[0-9]{12}$")))] | first | .tagName // ""')"
+            OTHER_PATTERN="*-beta.json"
+          else
+            OTHER_TAG="$(gh release list --limit 100 --json tagName,isDraft,isPrerelease \
+              --jq '[.[] | select((.isDraft == false) and (.isPrerelease == false) and (.tagName | test("^v.+-[0-9]{12}$")))] | first | .tagName // ""')"
+            OTHER_PATTERN="*.json"
+          fi
+
+          if [ -n "$OTHER_TAG" ]; then
+            if gh release download "$OTHER_TAG" --pattern "$OTHER_PATTERN" --dir other-channel-manifests; then
+              for manifest in other-channel-manifests/*.json; do
+                [ -e "$manifest" ] || continue
+                if [ "${{ steps.meta.outputs.channel }}" = "beta" ] && [[ "$(basename "$manifest")" == *-beta.json ]]; then
+                  continue
+                fi
+                cp "$manifest" channel-manifests/
+              done
+            else
+              echo "::warning title=Channel manifest seed failed::Could not download $OTHER_PATTERN from $OTHER_TAG."
+            fi
+          fi
+
+          if ! gh release view "$UPDATE_CHANNEL_TAG" >/dev/null 2>&1; then
+            gh release create "$UPDATE_CHANNEL_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "Update channel manifests" \
+              --notes "Machine-managed stable and beta update manifests." \
+              --prerelease
+          fi
+          gh release upload "$UPDATE_CHANNEL_TAG" channel-manifests/*.json --clobber
 
       - name: Sync to CNB
         if: ${{ inputs.sync_cnb }}
