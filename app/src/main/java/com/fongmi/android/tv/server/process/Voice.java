@@ -507,6 +507,7 @@ public class Voice implements Process {
      */
     private static java.util.List<android.view.View> displayRoots(Activity activity) {
         java.util.ArrayList<android.view.View> roots = new java.util.ArrayList<>();
+        java.util.Map<android.view.View, String> extras = new java.util.HashMap<>();
         if (activity == null) return roots;
         android.view.View decor = activity.getWindow().getDecorView();
         try {
@@ -515,12 +516,23 @@ public class Voice implements Process {
             java.lang.reflect.Field field = clazz.getDeclaredField("mViews");
             field.setAccessible(true);
             Object value = field.get(global);
+            java.util.List<?> windowParams = null;
+            try {
+                java.lang.reflect.Field paramsField = clazz.getDeclaredField("mParams");
+                paramsField.setAccessible(true);
+                Object params = paramsField.get(global);
+                if (params instanceof java.util.List) windowParams = (java.util.List<?>) params;
+            } catch (Throwable ignored) {
+            }
             if (value instanceof java.util.List) {
+                int index = 0;
                 for (Object item : (java.util.List<?>) value) {
+                    int at = index++;
                     if (!(item instanceof android.view.View)) continue;
                     android.view.View view = (android.view.View) item;
                     if (!view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) continue;
                     if (isExcluded(view) || roots.contains(view)) continue;
+                    extras.put(view, describeWindow(windowParams, at));
                     roots.add(view);
                 }
             }
@@ -539,12 +551,15 @@ public class Voice implements Process {
             android.view.View root = iterator.next();
             if (root == decor) continue;
             Activity owner = ownerActivity(root.getContext());
-            if (owner == null || owner == activity) continue;
-            skipped.add(owner.getClass().getSimpleName() + " " + root.getWidth() + "x" + root.getHeight());
+            if (owner == activity) continue;
+            // 归属不明（Context 解析不出 Activity）的窗口也一律不叠：实测返回首页时有一张
+            // 全屏 DecorView 就是这么压在新页面上面约 10 秒的，镜像冻在旧画面上直到它消失。
+            String name = owner == null ? "归属不明" : owner.getClass().getSimpleName();
+            skipped.add(name + " " + root.getWidth() + "x" + root.getHeight() + extras.getOrDefault(root, ""));
             iterator.remove();
         }
         if (!roots.contains(decor)) roots.add(0, decor);
-        logRootsChange(activity, decor, roots, skipped);
+        logRootsChange(activity, decor, roots, skipped, extras);
         return roots;
     }
 
@@ -555,7 +570,7 @@ public class Voice implements Process {
      * 窗口表变化才记一行：哪张窗口在、尺寸位置、属于哪个 Activity、跳过了谁。
      * 镜像"卡住"这类问题只看这一个字段就能判断是基准页没换、还是被别的窗口盖住。
      */
-    private static void logRootsChange(Activity activity, android.view.View decor, java.util.List<android.view.View> roots, java.util.List<String> skipped) {
+    private static void logRootsChange(Activity activity, android.view.View decor, java.util.List<android.view.View> roots, java.util.List<String> skipped, java.util.Map<android.view.View, String> extras) {
         StringBuilder readable = new StringBuilder();
         StringBuilder signature = new StringBuilder(activity.getClass().getSimpleName());
         for (android.view.View root : roots) {
@@ -568,11 +583,24 @@ public class Voice implements Process {
         }
         if (!skipped.isEmpty()) {
             readable.append("｜跳过 ").append(TextUtils.join("、", skipped));
-            signature.append('#').append(skipped.size());
+            signature.append('#').append(TextUtils.join("、", skipped));
         }
         if (signature.toString().equals(rootSignature)) return;
         rootSignature = signature.toString();
         com.github.catvod.crawler.DebugLogStore.add("voice", "镜像窗口 " + roots.size() + " 个｜" + readable);
+    }
+
+    /** 窗口类型/标题：归属不明时靠它认人（type=2 是对话框，1/1BBC 之类是 Activity 窗口）。 */
+    private static String describeWindow(java.util.List<?> params, int index) {
+        if (params == null || index < 0 || index >= params.size()) return "";
+        Object item = params.get(index);
+        if (!(item instanceof android.view.WindowManager.LayoutParams)) return "";
+        android.view.WindowManager.LayoutParams lp = (android.view.WindowManager.LayoutParams) item;
+        try {
+            return " type=" + lp.type + " title=" + lp.getTitle();
+        } catch (Throwable error) {
+            return " type=" + lp.type;
+        }
     }
 
     /**
