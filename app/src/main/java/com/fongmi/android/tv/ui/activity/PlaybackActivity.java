@@ -631,6 +631,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     protected void setVideoRotation(int rotation) {
         videoRotation = ((rotation % 360) + 360) % 360;
+        if (videoRotation != 0) switchToExoForRotation();
         if (mService != null && player().isExo() && videoRotation != 0) rotationEngaged = true;
         if (mService != null && player().isExo() && render != getRender()) {
             // 切渲染后 surface 异步重建，此时立即 applyVideoRotation 会落在旧 surface 上
@@ -642,6 +643,25 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             applyVideoRotation();
         }
         applyResizeMode(requestedAspectMode);
+    }
+
+    /**
+     * 旋转前先把内核切到 Exo。
+     *
+     * <p>画面旋转靠 {@link android.view.TextureView#setTransform} 实现，而渲染路径只在
+     * {@code player().isExo()} 且 {@code rotationEngaged} 时才切到 TextureView
+     *（见 {@link #getRender()}）。IJK/MPV 走 SurfaceView，setTransform 根本落不到 native 面，
+     * 点旋转按钮等于没点。这里先手动切到 Exo（保留进度续播）再走原来的旋转流程：
+     * 切换同步更新 playerType，onPlayerRebuild 会重新 setRender + 绑 Surface，
+     * 新的 TextureView 面挂上后由 onSurfaceAttached / onSizeChanged 重新施加旋转。</p>
+     */
+    private void switchToExoForRotation() {
+        if (mService == null || player() == null || player().getPlayer() == null) return;
+        if (player().isExo()) return;
+        if (SpiderDebug.isEnabled()) {
+            SpiderDebug.log("playback-flow", "rotate switch kernel from=%d to=%d", player().getPlayerType(), PlayerSetting.EXO);
+        }
+        player().switchPlayerManually(PlayerSetting.EXO);
     }
 
     protected void onReset() {
