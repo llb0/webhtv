@@ -157,8 +157,98 @@ public final class AboutDialog {
             });
         });
         githubDialog.show();
+        if (Util.isLeanback()) githubDialog.setOnKeyListener((d, keyCode, event) -> onProxyKey(binding, githubDialog, keyCode, event));
         LightDialog.apply(githubDialog);
         configureGithubProxyWindow(activity, githubDialog, binding);
+    }
+
+    /**
+     * 加速源界面的电视端按键：菜单键执行延迟探测，上下方向键在两端环形跳转。
+     *
+     * <p>整屏一条环：源列表各项 → 开关 → 模式 → 输入框 → 添加 → 重置 → 探测 → 确定。
+     * 只在首尾两端接管 —— 最上面按 ↑ 跳到最下面的「确定」，最下面按 ↓ 跳回最上面的第一项，
+     * 中间的移动全部交给系统原本的焦点规则。</p>
+     */
+    private static boolean onProxyKey(DialogGithubProxyBinding binding, AlertDialog dialog, int keyCode, KeyEvent event) {
+        if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            probeLatency(binding);
+            return true;
+        }
+        if (keyCode != KeyEvent.KEYCODE_DPAD_UP && keyCode != KeyEvent.KEYCODE_DPAD_DOWN) return false;
+        Window window = dialog.getWindow();
+        View focused = window == null ? null : window.getDecorView().findFocus();
+        if (focused == null) return false;
+        List<View> ring = proxyRing(binding, dialog);
+        if (ring.isEmpty()) return false;
+        int index = ring.indexOf(focused);
+        if (index < 0) return false;
+        int last = ring.size() - 1;
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP && index == 0) {
+            boolean ok = ring.get(last).requestFocus();
+            // 「确定」在滚动区外面，焦点跳到它时系统不会滚内容区，底部（重置/探测）就一直是藏着的
+            if (ok) scrollProxyContent(binding, true);
+            return ok;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && index == last) {
+            boolean ok = ring.get(0).requestFocus();
+            if (ok) scrollProxyContent(binding, false);
+            return ok;
+        }
+        return false;
+    }
+
+    /**
+     * 把加速源内容区滚到顶/底。
+     *
+     * <p>从列表往上逐层找滚动容器各自滚一次：本页自己的 NestedScrollView 是 wrap_content（内容多高它多高，
+     * 没有滚动量，滚了也无害），真正起作用的是承载它的外层滚动区 —— 内容被裁掉的那一块归它管。</p>
+     */
+    private static void scrollProxyContent(DialogGithubProxyBinding binding, boolean bottom) {
+        View view = binding.list;
+        while (view != null) {
+            if (view instanceof androidx.core.widget.NestedScrollView) {
+                ((androidx.core.widget.NestedScrollView) view).fullScroll(bottom ? View.FOCUS_DOWN : View.FOCUS_UP);
+            }
+            android.view.ViewParent parent = view.getParent();
+            view = parent instanceof View ? (View) parent : null;
+        }
+    }
+
+    /** 整屏焦点环：源列表各项 → 开关 → 模式 → 输入框 → 添加 → 重置 → 探测 → 确定。 */
+    private static List<View> proxyRing(DialogGithubProxyBinding binding, AlertDialog dialog) {
+        List<View> ring = new java.util.ArrayList<>();
+        for (int i = 0; i < binding.list.getChildCount(); i++) {
+            View child = binding.list.getChildAt(i);
+            if (child == null) continue;
+            addRing(ring, child.findViewById(R.id.text));
+        }
+        addRing(ring, binding.enabled);
+        addRing(ring, modeButton(binding));
+        addRing(ring, binding.input);
+        addRing(ring, binding.add);
+        addRing(ring, binding.reset);
+        addRing(ring, binding.probe);
+        addRing(ring, dialog.getButton(AlertDialog.BUTTON_POSITIVE));
+        return ring;
+    }
+
+    private static void addRing(List<View> ring, View view) {
+        if (view == null || !view.isShown() || !view.isFocusable() || ring.contains(view)) return;
+        ring.add(view);
+    }
+
+    /** 模式切换组以"当前选中那一个"作为环上的一个点。 */
+    private static View modeButton(DialogGithubProxyBinding binding) {
+        int checked = binding.modeGroup.getCheckedButtonId();
+        View first = null;
+        for (int i = 0; i < binding.modeGroup.getChildCount(); i++) {
+            View child = binding.modeGroup.getChildAt(i);
+            if (child == null || !child.isShown() || !child.isFocusable()) continue;
+            if (child.getId() == checked) return child;
+            if (first == null) first = child;
+        }
+        return first;
     }
 
     private static void probeLatency(DialogGithubProxyBinding binding) {

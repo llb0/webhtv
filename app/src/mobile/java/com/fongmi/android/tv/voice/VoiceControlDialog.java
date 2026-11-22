@@ -803,9 +803,6 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
     private void showFrame(Frame frame, long cost) {
         // 电视端抓帧是"一次只抓一帧、抓不出来就回上一帧"：序号没变 / 带 Stale 头都说明这不是新画面
         boolean same = frame.seq > 0 && frame.seq == lastFrameSeq;
-        if (com.github.catvod.crawler.DebugLogStore.isEnabled())
-            com.github.catvod.crawler.DebugLogStore.add("voice", "画面 seq=" + frame.seq + (frame.stale ? "(缓存)" : "")
-                    + " " + frame.width + "x" + frame.height + " " + frame.data.length + "B " + cost + "ms");
         if (frame.stale || same) {
             markFrameMissing(cost, same ? "画面未更新" : "电视端回的是缓存帧");
             return;
@@ -815,7 +812,10 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
             markFrameMissing(cost, "画面解码失败");
             return;
         }
-        frameStuck = 0;
+        if (frameStuck > 0) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "画面恢复更新：停滞 " + frameStuck + " 帧，seq=" + frame.seq + " 耗时=" + cost + "ms");
+            frameStuck = 0;
+        }
         lastFrameSeq = frame.seq;
         binding.padShot.setImageBitmap(bitmap);
         hideHint();   // 画到了就把提示文字收掉，别再压在画面上
@@ -832,10 +832,14 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
      * 以前这里什么都不做，旧的 Bitmap 会一直留在 ImageView 上，看着就像"遥控器卡死了"。
      */
     private void markFrameMissing(long cost, String reason) {
+        // 不按帧写日志（抓帧 3 次/秒会把日志刷成流水），只在"开始卡住"和"卡到清图"各记一行。
+        // 这两行是判断"画面为什么不动"的关键：是电视端回了缓存帧，还是序号没变。
         frameStuck++;
-        if (com.github.catvod.crawler.DebugLogStore.isEnabled())
-            com.github.catvod.crawler.DebugLogStore.add("voice", "画面缺失 " + frameStuck + " 次（" + reason + "，" + cost + "ms）");
+        if (frameStuck == 1) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "画面不再更新：" + reason + "（seq=" + lastFrameSeq + "，耗时=" + cost + "ms）");
+        }
         if (frameStuck < 6 || binding == null) return;
+        com.github.catvod.crawler.DebugLogStore.add("voice", "画面停滞 " + frameStuck + " 帧：" + reason);
         binding.padShot.setImageBitmap(null);
         binding.padHint.setText("画面未更新，正在重试…");
         binding.padHint.setVisibility(android.view.View.VISIBLE);

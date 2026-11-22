@@ -17,7 +17,6 @@ import com.fongmi.android.tv.voice.VoiceCommand;
 import com.fongmi.android.tv.voice.VoiceCommandParser;
 import com.fongmi.android.tv.voice.VoiceNav;
 import com.fongmi.android.tv.voice.VoicePlay;
-import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -49,7 +48,6 @@ public class Voice implements Process {
         Map<String, String> params = session.getParms();
         String cmd = params.get("cmd");
         if (TextUtils.isEmpty(cmd)) return Nano.ok(identity());
-        SpiderDebug.log("voice", "cmd=%s q=%s", cmd, params.get("q"));
         return switch (cmd) {
             case "ping" -> Nano.ok(identity());
             case "pair" -> pair();
@@ -66,16 +64,6 @@ public class Voice implements Process {
     }
 
     private Response dispatch(String cmd, Map<String, String> params) {
-        try {
-            StringBuilder builder = new StringBuilder("收到指令 ").append(cmd);
-            for (Map.Entry<String, String> entry : params.entrySet()) {
-                String key = entry.getKey();
-                if ("token".equals(key)) continue;
-                builder.append(' ').append(key).append('=').append(entry.getValue());
-            }
-            com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
-        } catch (Throwable ignored) {
-        }
         return switch (cmd) {
             case "say" -> say(params.get("q"));
             case "search" -> search(params.get("q"));
@@ -220,7 +208,7 @@ public class Voice implements Process {
         boolean log = kind == android.view.MotionEvent.ACTION_DOWN || kind == android.view.MotionEvent.ACTION_UP;
         if (target == activity.getWindow().getDecorView()) {
             boolean handled = activity.dispatchTouchEvent(event);
-            if (log) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 Activity handled=" + handled);
+            if (log && !handled) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 Activity 未消费");
             event.recycle();
             return;
         }
@@ -232,8 +220,7 @@ public class Voice implements Process {
         } catch (Throwable error) {
             com.github.catvod.crawler.DebugLogStore.add("voice", "触摸直接投递异常：" + error);
         }
-        if (log) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸投递 " + target.getClass().getSimpleName()
-                + " via dispatch handled=" + handled);
+        if (log && !handled) com.github.catvod.crawler.DebugLogStore.add("voice", "触摸直接投递未消费 " + target.getClass().getSimpleName());
         if (!handled) {
             android.view.MotionEvent copy = android.view.MotionEvent.obtain(event);
             if (postInput(target, copy)) {
@@ -362,10 +349,7 @@ public class Voice implements Process {
             }
             java.lang.reflect.Method dispatch = rootImpl.getClass().getMethod("dispatchInputEvent", android.view.InputEvent.class);
             dispatch.invoke(rootImpl, event);
-            if (event instanceof android.view.KeyEvent) {
-                android.view.KeyEvent key = (android.view.KeyEvent) event;
-                com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递 ViewRootImpl " + top.getClass().getSimpleName() + " " + keyName(key));
-            }
+            // 成功投递不在这里记账：调用方 dispatchKey 每个按键只记一行，否则一次按键要出两三行
             return true;
         } catch (Throwable error) {
             com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递失败：" + error.getClass().getSimpleName());
@@ -398,7 +382,7 @@ public class Voice implements Process {
         if (target != null && target != decor) {
             boolean posted = postInput(target, event);
             if (posted || target.dispatchKeyEvent(event)) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "按键投递 " + target.getClass().getSimpleName() + " " + keyName(event));
+                logKey(target, event);
                 return true;
             }
             // 窗口还没拿到焦点时 postInput 会被拒，这里再走一次 Dialog 自己的 dispatch
@@ -414,15 +398,25 @@ public class Voice implements Process {
         // 做 focusSearch 找下一个焦点控件完成的，activity.dispatchKeyEvent 只到 View 层级，
         // 到不了那一步：控件自己实现方向键（比如列表）还能动，其余场景完全没反应。
         // beta 版按键能用，正是因为它是 postInput(topView())（ViewRootImpl）而不是 dispatchKeyEvent。
-        boolean posted = postInput(target != null ? target : decor, event);
-        if (posted) return true;
+        android.view.View root = target != null ? target : decor;
+        boolean posted = postInput(root, event);
+        if (posted) {
+            logKey(root, event);
+            return true;
+        }
         if (activity.dispatchKeyEvent(event)) {
-            com.github.catvod.crawler.DebugLogStore.add("voice", "按键 Activity(dispatch) " + keyName(event));
+            logKey(activity.getWindow().getDecorView(), event);
             return true;
         }
         boolean handled = target != null && target != decor && target.dispatchKeyEvent(event);
         com.github.catvod.crawler.DebugLogStore.add("voice", "按键未消费 " + keyName(event) + " handled=" + handled);
         return handled;
+    }
+
+    /** 一个按键只记一行，且只记按下：按下与抬起都记会让日志量翻倍。 */
+    private static void logKey(android.view.View target, android.view.KeyEvent event) {
+        if (event.getAction() != android.view.KeyEvent.ACTION_DOWN) return;
+        log("按键 " + keyName(event) + " → " + (target == null ? "?" : target.getClass().getSimpleName()));
     }
 
     /** 日志用：按键名。 */
@@ -501,7 +495,6 @@ public class Voice implements Process {
             com.github.catvod.crawler.DebugLogStore.add("voice", "枚举弹出菜单失败：" + error);
             return;
         }
-        if (added > 0) com.github.catvod.crawler.DebugLogStore.add("voice", "弹出菜单 " + added + " 个");
     }
 
     /**
@@ -514,6 +507,7 @@ public class Voice implements Process {
      */
     private static java.util.List<android.view.View> displayRoots(Activity activity) {
         java.util.ArrayList<android.view.View> roots = new java.util.ArrayList<>();
+        java.util.Map<android.view.View, String> extras = new java.util.HashMap<>();
         if (activity == null) return roots;
         android.view.View decor = activity.getWindow().getDecorView();
         try {
@@ -522,12 +516,27 @@ public class Voice implements Process {
             java.lang.reflect.Field field = clazz.getDeclaredField("mViews");
             field.setAccessible(true);
             Object value = field.get(global);
+            java.util.List<?> windowParams = null;
+            try {
+                java.lang.reflect.Field paramsField = clazz.getDeclaredField("mParams");
+                paramsField.setAccessible(true);
+                Object params = paramsField.get(global);
+                if (params instanceof java.util.List) windowParams = (java.util.List<?>) params;
+            } catch (Throwable ignored) {
+            }
             if (value instanceof java.util.List) {
+                int index = 0;
                 for (Object item : (java.util.List<?>) value) {
+                    int at = index++;
                     if (!(item instanceof android.view.View)) continue;
                     android.view.View view = (android.view.View) item;
                     if (!view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) continue;
+                    // isShown() 只说明"已 attach 且 VISIBLE"，不代表系统真的把它合成上去了：
+                    // 已经 stop 掉的页面窗口就还满足它，但它不参与合成。这种情况下面按归属再筛一次，
+                    // 这里先把透明/已分离的直接剔掉，少画一层是一层。
+                    if (!view.isAttachedToWindow() || view.getAlpha() <= 0f) continue;
                     if (isExcluded(view) || roots.contains(view)) continue;
+                    extras.put(view, describeWindow(windowParams, at));
                     roots.add(view);
                 }
             }
@@ -537,21 +546,77 @@ public class Voice implements Process {
         // 反射被拦时兜底：DialogFragment 的窗口 + 移动端的弹出菜单
         if (roots.isEmpty()) roots.addAll(dialogDecors(activity));
         addPopupRoots(roots);
-        if (!roots.contains(decor)) roots.add(0, decor);
-        try {
-            StringBuilder builder = new StringBuilder("窗口表 ").append(roots.size()).append(" 个");
-            for (android.view.View root : roots) {
-                int[] location = new int[2];
-                root.getLocationOnScreen(location);
-                builder.append("｜").append(root.getClass().getSimpleName())
-                        .append(' ').append(root.getWidth()).append('x').append(root.getHeight())
-                        .append('@').append(location[0]).append(',').append(location[1])
-                        .append(root.hasWindowFocus() ? "[焦点]" : "");
-            }
-            com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
-        } catch (Throwable ignored) {
+        // 只画属于当前 Activity 的窗口。退出某个页面时，它的窗口会继续留在窗口表里一段时间
+        // （实测返回首页那次滞留了约 10 秒），画上去就是一张整屏旧页面盖在新页面上——电视早就切好了，
+        // 镜像却一直"卡"着旧画面，直到那个窗口被销毁才恢复。
+        java.util.List<String> skipped = new java.util.ArrayList<>();
+        java.util.Iterator<android.view.View> iterator = roots.iterator();
+        while (iterator.hasNext()) {
+            android.view.View root = iterator.next();
+            if (root == decor) continue;
+            Activity owner = ownerActivity(root.getContext());
+            if (owner == activity) continue;
+            // 归属不明（Context 解析不出 Activity）的窗口也一律不叠：实测返回首页时有一张
+            // 全屏 DecorView 就是这么压在新页面上面约 10 秒的，镜像冻在旧画面上直到它消失。
+            String name = owner == null ? "归属不明" : owner.getClass().getSimpleName();
+            skipped.add(name + " " + root.getWidth() + "x" + root.getHeight() + extras.getOrDefault(root, ""));
+            iterator.remove();
         }
+        if (!roots.contains(decor)) roots.add(0, decor);
+        logRootsChange(activity, decor, roots, skipped, extras);
         return roots;
+    }
+
+    /** 上一次的窗口表指纹，只在窗口集合/归属变化时记一行，正常 3 帧/秒的抓帧不写日志。 */
+    private static String rootSignature;
+
+    /**
+     * 窗口表变化才记一行：哪张窗口在、尺寸位置、属于哪个 Activity、跳过了谁。
+     * 镜像"卡住"这类问题只看这一个字段就能判断是基准页没换、还是被别的窗口盖住。
+     */
+    private static void logRootsChange(Activity activity, android.view.View decor, java.util.List<android.view.View> roots, java.util.List<String> skipped, java.util.Map<android.view.View, String> extras) {
+        StringBuilder readable = new StringBuilder();
+        StringBuilder signature = new StringBuilder(activity.getClass().getSimpleName());
+        for (android.view.View root : roots) {
+            Activity owner = root == decor ? activity : ownerActivity(root.getContext());
+            String name = owner == null ? "?" : owner.getClass().getSimpleName();
+            readable.append(readable.length() == 0 ? "" : "｜").append(root.getClass().getSimpleName())
+                    .append(' ').append(root.getWidth()).append('x').append(root.getHeight()).append('|').append(name);
+            signature.append('#').append(root.getClass().getSimpleName()).append(root.getWidth()).append('x')
+                    .append(root.getHeight()).append('|').append(name);
+        }
+        if (!skipped.isEmpty()) {
+            readable.append("｜跳过 ").append(TextUtils.join("、", skipped));
+            signature.append('#').append(TextUtils.join("、", skipped));
+        }
+        if (signature.toString().equals(rootSignature)) return;
+        rootSignature = signature.toString();
+        com.github.catvod.crawler.DebugLogStore.add("voice", "镜像窗口 " + roots.size() + " 个｜" + readable);
+    }
+
+    /** 窗口类型/标题：归属不明时靠它认人（type=2 是对话框，1/1BBC 之类是 Activity 窗口）。 */
+    private static String describeWindow(java.util.List<?> params, int index) {
+        if (params == null || index < 0 || index >= params.size()) return "";
+        Object item = params.get(index);
+        if (!(item instanceof android.view.WindowManager.LayoutParams)) return "";
+        android.view.WindowManager.LayoutParams lp = (android.view.WindowManager.LayoutParams) item;
+        try {
+            return " type=" + lp.type + " title=" + lp.getTitle();
+        } catch (Throwable error) {
+            return " type=" + lp.type;
+        }
+    }
+
+    /**
+     * 这个窗口属于哪个 Activity。对话框也是用 Activity 当 Context 创建的，所以弹层照样能取到；
+     * 取不到（Application Context 之类）返回 null，按"不拦"处理。
+     */
+    private static Activity ownerActivity(android.content.Context context) {
+        for (int i = 0; i < 8 && context instanceof android.content.ContextWrapper; i++) {
+            if (context instanceof Activity) return (Activity) context;
+            context = ((android.content.ContextWrapper) context).getBaseContext();
+        }
+        return context instanceof Activity ? (Activity) context : null;
     }
 
     /** 投递目标：按叠放顺序取最上层的那个对话框/弹出菜单，没有就投 Activity。 */
@@ -605,7 +670,6 @@ public class Voice implements Process {
             com.github.catvod.crawler.DebugLogStore.add("voice", "枚举对话框窗口失败：" + error);
             return;
         }
-        if (added > 0) com.github.catvod.crawler.DebugLogStore.add("voice", "对话框窗口 " + added + " 个");
     }
 
     /** Window 类型是 TYPE_APPLICATION 才算对话框窗口。 */
@@ -645,6 +709,256 @@ public class Voice implements Process {
         return event;
     }
 
+    // ---------------------------------------------------------------- 触摸滚动后的选中项跟随
+    //
+    // leanback 的网格（BaseGridView / VerticalGridView / HorizontalGridView）以"选中项"为布局锚点：
+    // 触摸滚动只改了像素偏移，选中项还在原处；下一次布局（松手、点击、焦点变化都会触发）就把列表
+    // 拉回到选中项该在的位置 —— 这就是"首页/Vod 列表松手弹回原位""点一下又弹回去"的根源。
+    // 选站那种普通 RecyclerView 没有这个模型，所以它滑得动、也不弹。
+    //
+    // 首页是两层网格套着的：外层纵向（整页上下）、每行内层横向。手指落在一张卡片上时，
+    // 命中的最内层是横向网格，它纵向永远不滚；上下滑动的其实是外层。所以按下时把整条祖先链
+    // 都记下来，松手后逐层各自判断"这一层滚没滚"，滚了的对锚点、没滚的对按下的那一点。
+    //
+    // 真遥控器不存在这个问题（它只按键）。所以这段只做在镜像注入这条路上，不改 App 与系统行为。
+
+    private static final String GRID_CLASS_NAME = "androidx.leanback.widget.BaseGridView";
+    private static Class<?> gridClass;
+    private static final java.util.List<GridMemo> gridMemos = new java.util.ArrayList<>();
+
+    /** 按下时某一层网格的基准：滚到哪儿、焦点子项在哪儿、按下点在哪儿。 */
+    private static final class GridMemo {
+
+        private android.view.View grid;
+        private int scrollX;
+        private int scrollY;
+        private int anchorLeft = -1;
+        private int anchorTop = -1;
+        private int downLeft;
+        private int downTop;
+        /** 按下点所在的那个子项，用来量"画面到底挪没挪"：它在网格里的坐标变化就是真实滚动量。 */
+        private android.view.View probe;
+        private int probeLeft;
+        private int probeTop;
+    }
+
+    private static boolean isGrid(android.view.View view) {
+        if (view == null) return false;
+        try {
+            if (gridClass == null) gridClass = Class.forName(GRID_CLASS_NAME);
+            return gridClass.isInstance(view);
+        } catch (Throwable error) {
+            return false;
+        }
+    }
+
+    /** 网格自身的滚动方向：HorizontalGridView 横向，VerticalGridView 纵向，其它（如纯 BaseGridView）返回 null 交给偏移量判断。 */
+    private static Boolean gridHorizontal(android.view.View grid) {
+        String name = grid.getClass().getName();
+        if (name.contains("HorizontalGridView")) return Boolean.TRUE;
+        if (name.contains("VerticalGridView")) return Boolean.FALSE;
+        return null;
+    }
+
+    private static android.view.View probeChild(android.view.ViewGroup group, int left, int top) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            android.view.View child = group.getChildAt(i);
+            if (child == null || child.getWidth() <= 0 || child.getHeight() <= 0) continue;
+            if (left >= child.getLeft() && left < child.getRight() && top >= child.getTop() && top < child.getBottom()) return child;
+        }
+        return group.getChildCount() > 0 ? group.getChildAt(0) : null;
+    }
+
+    /**
+     * 真实滚动量：拿按下时那个子项现在的坐标跟按下时比。
+     *
+     * <p>不直接用 computeVerticalScrollOffset：leanback 的 GridLayoutManager 自己接管排布，
+     * 这个值在实机上一直是 0（日志里 dx=0 dy=0 拖了 400 多像素都没变），拿它判断"滚没滚"必然误判。
+     * 子项坐标是被 offsetChildrenVertical 直接改的，量它最可靠。子项被回收了就退回用偏移量。</p>
+     */
+    private static int[] gridDelta(GridMemo memo) {
+        android.view.View grid = memo.grid;
+        if (memo.probe != null && memo.probe.getParent() == grid) {
+            return new int[]{memo.probe.getLeft() - memo.probeLeft, memo.probe.getTop() - memo.probeTop};
+        }
+        return new int[]{gridScroll(grid, true) - memo.scrollX, gridScroll(grid, false) - memo.scrollY};
+    }
+
+    private static int gridScroll(android.view.View grid, boolean horizontal) {
+        // computeHorizontalScrollOffset / computeVerticalScrollOffset 在 View 上是 protected，
+        // 只有 RecyclerView 把它们覆写成了 public，所以必须按 RecyclerView 类型调
+        if (!(grid instanceof androidx.recyclerview.widget.RecyclerView recycler)) return 0;
+        try {
+            return horizontal ? recycler.computeHorizontalScrollOffset() : recycler.computeVerticalScrollOffset();
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    /**
+     * 从窗口根按坐标往下找，把经过的每一层网格按"由内到外"记进 out。
+     *
+     * @return 这个子树里有没有网格被命中
+     */
+    private static boolean collectGrids(android.view.View view, float x, float y, java.util.List<android.view.View> out) {
+        if (view == null) return false;
+        boolean inside = x >= 0 && y >= 0 && x <= view.getWidth() && y <= view.getHeight();
+        boolean hit = false;
+        if (view instanceof android.view.ViewGroup group) {
+            for (int i = group.getChildCount() - 1; i >= 0; i--) {
+                android.view.View child = group.getChildAt(i);
+                if (child == null || child.getVisibility() != android.view.View.VISIBLE) continue;
+                float cx = x - child.getLeft() + group.getScrollX();
+                float cy = y - child.getTop() + group.getScrollY();
+                if (cx < 0 || cy < 0 || cx > child.getWidth() || cy > child.getHeight()) continue;
+                if (collectGrids(child, cx, cy, out)) {
+                    hit = true;
+                    break;
+                }
+            }
+        }
+        if (!inside) return hit;
+        if (!isGrid(view)) return hit;
+        out.add(view);
+        return true;
+    }
+
+    /** 按下时记基准：每一层网格当时滚到哪儿、焦点子项在网格里的偏移、按下点在网格里的坐标。 */
+    private static void rememberGrid(android.view.View windowRoot, float screenX, float screenY, int[] windowLoc) {
+        gridMemos.clear();
+        if (windowRoot == null || windowLoc == null) return;
+        java.util.List<android.view.View> grids = new java.util.ArrayList<>();
+        collectGrids(windowRoot, screenX - windowLoc[0], screenY - windowLoc[1], grids);
+        if (grids.isEmpty()) return;
+        for (android.view.View grid : grids) {
+            GridMemo memo = new GridMemo();
+            memo.grid = grid;
+            memo.scrollX = gridScroll(grid, true);
+            memo.scrollY = gridScroll(grid, false);
+            int[] location = new int[2];
+            grid.getLocationOnScreen(location);
+            memo.downLeft = Math.round(screenX - location[0]);
+            memo.downTop = Math.round(screenY - location[1]);
+            if (grid instanceof android.view.ViewGroup group) {
+                android.view.View focused = group.getFocusedChild();
+                if (focused != null) {
+                    memo.anchorLeft = focused.getLeft();
+                    memo.anchorTop = focused.getTop();
+                }
+                memo.probe = probeChild(group, memo.downLeft, memo.downTop);
+                if (memo.probe != null) {
+                    memo.probeLeft = memo.probe.getLeft();
+                    memo.probeTop = memo.probe.getTop();
+                }
+            }
+            gridMemos.add(memo);
+        }
+    }
+
+    /** 手势结束：逐层把选中项跟到"手指实际停下/点到"的那一项。 */
+    private static void finishGrid(boolean cancel) {
+        java.util.List<GridMemo> memos = new java.util.ArrayList<>(gridMemos);
+        gridMemos.clear();
+        if (cancel) return;
+        for (GridMemo memo : memos) followGrid(memo);
+    }
+
+    /**
+     * 单层网格的跟随。
+     *
+     * <p>滚动过：选"现在正好落在按下时焦点项那个偏移"的子项 —— 还原对齐时画面不动，也就不会弹。
+     * <br>没滚动（单纯点一下）：不动选中项 —— 改变选中项会让网格按对齐策略平移，点一下画面跳一下，
+     * 而点击本身系统已经按坐标投给手指底下那个 View 了，不需要我们再帮忙。</p>
+     */
+    private static void followGrid(GridMemo memo) {
+        android.view.View grid = memo.grid;
+        if (grid == null || !(grid instanceof android.view.ViewGroup group) || group.getChildCount() == 0) return;
+        String name = grid.getClass().getSimpleName();
+        int[] moved = gridDelta(memo);
+        int dx = moved[0];
+        int dy = moved[1];
+        boolean scrolled = dx != 0 || dy != 0;
+        // 方向必须按网格自己的类型判，不能拿 |dx|>=|dy| 猜：两边都是 0 的时候那个判法会把纵向网格
+        // 当成横向，拿 X 坐标去跟每行的 getLeft()（全是 0）比，结果永远选中第一行。
+        Boolean axis = gridHorizontal(grid);
+        boolean horizontal = axis != null ? axis : Math.abs(dx) >= Math.abs(dy);
+        // 没滚动（只是点了一下）：不动选中项。动了反而会让网格按对齐策略把整页/整行平移过去，
+        // 看起来就是"点一下画面跳一下"，而点击本身系统已经按坐标投给手指底下那个 View 了。
+        if (!scrolled) return;   // 只是点了一下：不动选中项，也不记账
+        int anchor = horizontal ? memo.anchorLeft : memo.anchorTop;
+        if (anchor < 0) anchor = horizontal ? grid.getWidth() / 2 : grid.getHeight() / 2;
+        int span = horizontal ? grid.getWidth() : grid.getHeight();
+        android.view.View best = null;
+        int bestDelta = Integer.MAX_VALUE;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            android.view.View child = group.getChildAt(i);
+            if (child == null || child.getWidth() <= 0 || child.getHeight() <= 0) continue;
+            int start = horizontal ? child.getLeft() : child.getTop();
+            int size = horizontal ? child.getWidth() : child.getHeight();
+            if (start + size <= 0 || start >= span) continue;   // 完全滑出可视区的不算
+            int offset = Math.abs(start - anchor);
+            if (offset < bestDelta) {
+                bestDelta = offset;
+                best = child;
+            }
+        }
+        if (best == null) return;
+        int position = -1;
+        try {
+            position = ((androidx.recyclerview.widget.RecyclerView) grid).getChildAdapterPosition(best);
+        } catch (Throwable ignored) {
+        }
+        if (position < 0) return;
+        if (!selectPosition(grid, position)) {
+            log("网格跟随失败：没有 setSelectedPosition " + name);
+            return;
+        }
+        // 触屏模式下这些控件通常不参与触摸取焦，拿不到焦点也没关系：选中项已经对上，布局不会弹回
+        if (!best.isFocused()) best.requestFocus();
+        log("触摸抬起 " + name + " position=" + position + " dx=" + dx + " dy=" + dy
+                + (memo.probe != null && memo.probe.getParent() == grid ? "" : "（探针失效，用偏移量）"));
+    }
+
+    private static boolean selectPosition(android.view.View grid, int position) {
+        for (String name : new String[]{"setSelectedPosition", "setSelectedPositionSmooth"}) {
+            try {
+                grid.getClass().getMethod(name, int.class).invoke(grid, position);
+                return true;
+            } catch (Throwable ignored) {
+            }
+        }
+        return false;
+    }
+
+    private static void log(String text) {
+        try {
+            com.github.catvod.crawler.DebugLogStore.add("voice", text);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 抓帧链路（3 次/秒）专用的限流日志：同类问题只留一条，最少隔 30 秒才再记一次。
+     * 卡帧、慢帧会连续几十上百次触发，逐条记就是刷屏；限流后既能看出"有没有问题"，日志量也是常数级。
+     */
+    private static final java.util.Map<String, Long> shotLogTimes = new java.util.HashMap<>();
+
+    /**
+     * 抓帧链路（3 次/秒）专用的限流日志。
+     *
+     * <p>按"问题种类"各自计时：卡帧、慢帧、PixelCopy 失败、叠加绘制失败……各自 30 秒最多一条，
+     * 互不挤占。以前共用一个计时器，一条慢帧会把随后 30 秒内的卡帧全吞掉，正好把要查的东西藏起来。</p>
+     */
+    private static void logThrottled(String key, String text) {
+        long now = android.os.SystemClock.uptimeMillis();
+        synchronized (shotLogTimes) {
+            Long last = shotLogTimes.get(key);
+            if (last != null && now - last < 30000) return;
+            shotLogTimes.put(key, now);
+        }
+        log(text);
+    }
+
     /** 触摸板：把归一化坐标(0~1000)投成本地触摸事件，相当于用鼠标点界面。 */
     private static long touchDownTime;
     private Response touch(Map<String, String> params) {
@@ -675,11 +989,14 @@ public class Voice implements Process {
             // 这样折叠菜单这种弹出窗口才收得到触摸。
             android.view.View target = targetView(activity);
             if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "触摸丢弃：目标窗口尺寸为 0");
+                logThrottled("触摸丢弃", "触摸丢弃：目标窗口尺寸为 0");
                 return;
             }
             int[] location = new int[2];
             target.getLocationOnScreen(location);
+            float screenX = baseLoc[0] + nx * base.getWidth() / 1000f;
+            float screenY = baseLoc[1] + ny * base.getHeight() / 1000f;
+            if (action == 0) rememberGrid(target, screenX, screenY, location);
             if (action == 0) {
                 com.github.catvod.crawler.DebugLogStore.add("voice", "触摸按下 x=" + Math.round(nx) + " y=" + Math.round(ny)
                         + " 目标=" + target.getClass().getSimpleName() + " 目标尺寸=" + target.getWidth() + "x" + target.getHeight()
@@ -710,6 +1027,9 @@ public class Voice implements Process {
             // downTime 必须始终是按下那一刻，否则系统会把按下和抬起当成同一瞬间（列表就会"点一下再弹回"）
             android.view.MotionEvent event = obtainTouch(touchDownTime, now, type, px - location[0], py - location[1]);
             deliverTouch(activity, target, event);
+            // 手势结束：leanback 网格是按"选中项"排布的，触摸只挪了像素没挪选中项，
+            // 不改的话下一次布局会把列表拉回原处（松手弹回、点一下也弹回）。这里把选中项跟到现实位置。
+            if (up) finishGrid(action == 5);
             if (up) touchDownTime = 0;
         });
         return Nano.ok("touch:" + action);
@@ -734,11 +1054,8 @@ public class Voice implements Process {
             canvas.clipRect(0, 0, root.getWidth(), root.getHeight());
             try {
                 root.draw(canvas);
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口 " + root.getClass().getSimpleName()
-                        + " 尺寸=" + root.getWidth() + "x" + root.getHeight()
-                        + " 位置=" + location[0] + "," + location[1]);
             } catch (Throwable error) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
+                logThrottled("叠加窗口失败", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
             }
             canvas.restore();
         }
@@ -753,7 +1070,7 @@ public class Voice implements Process {
             canvas.clipRect(0, 0, bitmap.getWidth(), bitmap.getHeight());
             decor.draw(canvas);
             canvas.restore();
-            com.github.catvod.crawler.DebugLogStore.add("voice", "镜像兜底：主窗口 view.draw");
+            logThrottled("镜像兜底", "镜像兜底：主窗口 view.draw");
         }
         for (android.view.View root : roots) {
             if (root == null || !root.isShown() || root.getWidth() <= 0 || root.getHeight() <= 0) continue;
@@ -765,11 +1082,8 @@ public class Voice implements Process {
             canvas.clipRect(0, 0, root.getWidth(), root.getHeight());
             try {
                 root.draw(canvas);
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口 " + root.getClass().getSimpleName()
-                        + " 尺寸=" + root.getWidth() + "x" + root.getHeight()
-                        + " 位置=" + location[0] + "," + location[1]);
             } catch (Throwable error) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
+                logThrottled("叠加窗口失败", "叠加窗口失败 " + root.getClass().getSimpleName() + "：" + error);
             }
             canvas.restore();
         }
@@ -786,17 +1100,53 @@ public class Voice implements Process {
     private static volatile boolean shotBusy;
     private static volatile byte[] shotLastJpeg;
     private static volatile int shotLastW, shotLastH, shotLastSeq;
+    /**
+     * 相邻帧的画面指纹与"连续一致"计数：只在连续一致/恢复变化时各记一行，不按帧写日志。
+     * 分叠加前（PixelCopy 出的基准画面）和叠加后（叠了弹层/残留窗口的成图）两份——
+     * 成图一直不变而基准画面在变，就说明是新画面被叠加层整屏盖住了；两份都不变，才是基准窗口自己没刷新。
+     */
+    private static volatile long shotBaseSig, shotFinalSig;
+    private static long prevBaseSig, prevFinalSig;
+    private static int shotSameFrames;
+    private static long shotSameSince;
+    /**
+     * 抓帧"在途"标记：真正结束的标志是主线程上那张图绘制完（PixelCopy 回调 + 叠加弹层绘制），
+     * 而不是 shot() 这个请求线程等满 900ms 就撤。以前只认 900ms，超时后主线程上的绘制还在跑，
+     * 手机每 350ms 又来一帧，主线程上就堆起一串整屏绘制——返回首页那一下（WebView 重新落层、
+     * view.draw 特别慢）能堆到十几帧，镜像就一直回上一帧，看着像卡了十来秒。远程按键不受影响，
+     * 因为输入事件照常在帧与帧之间被处理。
+     */
+    private static volatile boolean capturePending;
+    private static volatile long captureSince;
+    private static final long CAPTURE_STALE_MS = 5000;
+
+    /** 回上一帧缓存（带 X-Frame-Stale=1），没有缓存就报 frame-busy。 */
+    private Response cachedFrame() {
+        byte[] cached = shotLastJpeg;
+        if (cached != null) return Nano.jpeg(cached, shotLastW, shotLastH, shotLastSeq, true);
+        return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "frame-busy");
+    }
+
+    /** 抓帧真正收尾：清"在途"标记并放行等待方。所有结束路径都必须走这里。 */
+    private static void finishCapture(java.util.concurrent.CountDownLatch latch) {
+        capturePending = false;
+        latch.countDown();
+    }
 
     /** 抓一帧当前界面（JPEG），手机上把这张画面当触摸板底图用。 */
     private Response shot(Map<String, String> params) {
         Activity activity = App.activity();
         if (activity == null) return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "app-not-open");
-        if (shotBusy) {
-            byte[] cached = shotLastJpeg;
-            if (cached != null) return Nano.jpeg(cached, shotLastW, shotLastH, shotLastSeq, true);
-            return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "frame-busy");
+        long now = android.os.SystemClock.uptimeMillis();
+        // 上一帧还在抓 / 主线程还在画它：直接回上一帧，别再压任务。5 秒是兜底，
+        // 万一那次绘制因为异常没收尾，也不至于把镜像永久卡死。
+        if (shotBusy || (capturePending && now - captureSince < CAPTURE_STALE_MS)) {
+            logThrottled("抓帧占用", "抓帧占用中，回上一帧");
+            return cachedFrame();
         }
         shotBusy = true;
+        capturePending = true;
+        captureSince = now;
         try {
             final int seq = shotLastSeq + 1;
             final long started = android.os.SystemClock.uptimeMillis();
@@ -807,7 +1157,7 @@ public class Voice implements Process {
                 int width = decor.getWidth();
                 int height = decor.getHeight();
                 if (width <= 0 || height <= 0) {
-                    latch.countDown();
+                    finishCapture(latch);
                     return;
                 }
                 int[] origin = new int[2];
@@ -816,48 +1166,47 @@ public class Voice implements Process {
                 try {
                     bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
                 } catch (Throwable error) {
-                    com.github.catvod.crawler.DebugLogStore.add("voice", "抓帧建图失败：" + error);
-                    latch.countDown();
+                    logThrottled("抓帧建图失败", "抓帧建图失败：" + error);
+                    finishCapture(latch);
                     return;
                 }
                 java.util.List<android.view.View> roots = displayRoots(activity);
-                try {
-                    StringBuilder builder = new StringBuilder("镜像抓帧 seq=").append(seq).append(' ').append(width).append('x').append(height).append(" 窗口=").append(roots.size());
-                    for (android.view.View root : roots) {
-                        if (root == null) continue;
-                        builder.append('｜').append(root.getClass().getSimpleName()).append(' ').append(root.getWidth()).append('x').append(root.getHeight());
-                    }
-                    com.github.catvod.crawler.DebugLogStore.add("voice", builder.toString());
-                } catch (Throwable ignored) {
-                }
                 // WebView 是硬件渲染的，用 view.draw(canvas) 画出来会是空白、而且被缩到左上角，
                 // 所以主窗口走 PixelCopy（直接拿窗口合成后的像素），弹层再用 view.draw 补在上面。
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                     try {
                         android.view.PixelCopy.request(activity.getWindow(), bitmap, result -> {
                             try {
-                                if (result == android.view.PixelCopy.SUCCESS) paintOverlays(bitmap, origin, decor, roots);
-                                else {
-                                    com.github.catvod.crawler.DebugLogStore.add("voice", "PixelCopy 失败 result=" + result + "，改用 view.draw");
+                                if (result == android.view.PixelCopy.SUCCESS) {
+                                    long base = bitmapSig(bitmap);
+                                    paintOverlays(bitmap, origin, decor, roots);
+                                    shotBaseSig = base;
+                                    shotFinalSig = bitmapSig(bitmap);
+                                } else {
+                                    logThrottled("PixelCopy 失败", "PixelCopy 失败 result=" + result + "，改用 view.draw");
                                     paintFallback(bitmap, origin, decor, roots);
+                                    shotBaseSig = 0L;
+                                    shotFinalSig = bitmapSig(bitmap);
                                 }
                             } catch (Throwable ignored) {
                             } finally {
                                 holder[0] = bitmap;
-                                latch.countDown();
+                                finishCapture(latch);
                             }
                         }, new android.os.Handler(android.os.Looper.getMainLooper()));
                         return;
                     } catch (Throwable error) {
-                        com.github.catvod.crawler.DebugLogStore.add("voice", "PixelCopy 异常，改用 view.draw：" + error);
+                        logThrottled("PixelCopy 异常", "PixelCopy 异常，改用 view.draw：" + error);
                     }
                 }
                 try {
                     paintFallback(bitmap, origin, decor, roots);
                 } catch (Throwable ignored) {
                 }
+                shotBaseSig = 0L;
+                shotFinalSig = bitmapSig(bitmap);
                 holder[0] = bitmap;
-                latch.countDown();
+                finishCapture(latch);
             });
             try {
                 // 900ms 足够一帧（原来等 3s，界面切换时把请求全堵在这，越堵越慢）
@@ -867,7 +1216,7 @@ public class Voice implements Process {
             android.graphics.Bitmap frame = holder[0];
             long cost = android.os.SystemClock.uptimeMillis() - started;
             if (frame == null) {
-                com.github.catvod.crawler.DebugLogStore.add("voice", "抓帧未完成 " + cost + "ms，回上一帧");
+                logThrottled("抓帧未完成", "抓帧未完成 " + cost + "ms，回上一帧");
                 byte[] cached = shotLastJpeg;
                 if (cached != null) return Nano.jpeg(cached, shotLastW, shotLastH, shotLastSeq, true);
                 return Nano.error(Response.Status.INTERNAL_ERROR, "no-frame");
@@ -884,15 +1233,61 @@ public class Voice implements Process {
             if (small != frame) small.recycle();
             frame.recycle();
             byte[] bytes = output.toByteArray();
+            trackFrameContent(shotFinalSig, shotBaseSig, seq);
             shotLastJpeg = bytes;
             shotLastW = outWidth;
             shotLastH = outHeight;
             shotLastSeq = seq;
-            com.github.catvod.crawler.DebugLogStore.add("voice", "镜像出帧 seq=" + seq + " " + outWidth + "x" + outHeight + " " + bytes.length + "B 耗时=" + cost + "ms");
+            // 正常帧不再记账（3 帧/秒的流水会瞬间写满日志），只留慢帧
+            if (cost >= 200) logThrottled("出帧慢", "出帧慢 seq=" + seq + " 耗时=" + cost + "ms");
             return Nano.jpeg(bytes, outWidth, outHeight, seq, false);
         } finally {
             shotBusy = false;
         }
+    }
+
+    /** 画面指纹：8x8 网格抽 64 个像素，够便宜，也足以判断两帧是不是同一张图。 */
+    private static long bitmapSig(android.graphics.Bitmap bitmap) {
+        if (bitmap == null || bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0) return 0L;
+        long sig = ((long) bitmap.getWidth() << 32) | bitmap.getHeight();
+        int stepX = Math.max(1, bitmap.getWidth() / 8);
+        int stepY = Math.max(1, bitmap.getHeight() / 8);
+        try {
+            for (int y = 0; y < bitmap.getHeight(); y += stepY) {
+                for (int x = 0; x < bitmap.getWidth(); x += stepX) sig = sig * 1000003L + bitmap.getPixel(x, y);
+            }
+        } catch (Throwable error) {
+            return 0L;
+        }
+        return sig;
+    }
+
+    /**
+     * 连续输出同一张图时记两行（开始一致、恢复变化），不按帧记账。
+     * 开始一致那一行会带上"叠加前画面有没有在变"：变了就是被叠加层盖住，没变就是基准窗口自己没刷新。
+     */
+    private static void trackFrameContent(long finalSig, long baseSig, int seq) {
+        long now = android.os.SystemClock.uptimeMillis();
+        boolean same = shotSameFrames > 0 && finalSig != 0L && finalSig == prevFinalSig;
+        if (same) {
+            shotSameFrames++;
+            if (shotSameFrames == 3) {
+                com.github.catvod.crawler.DebugLogStore.add("voice", "镜像内容开始一致（连续 3 帧同图）seq=" + seq
+                        + "，叠加前画面" + (baseSig != 0L && prevBaseSig != 0L && baseSig != prevBaseSig
+                        ? "在变（是被叠加层盖住的）" : "也没变（基准窗口本身没刷新）")
+                        + "，窗口=" + rootSignature);
+                shotSameSince = now;
+            }
+            prevBaseSig = baseSig;
+            return;
+        }
+        if (shotSameFrames >= 3) {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "镜像内容恢复变化：连续 " + shotSameFrames + " 帧同图，历时 "
+                    + (now - shotSameSince) + "ms，seq=" + seq);
+        }
+        shotSameFrames = 0;
+        prevFinalSig = finalSig;
+        prevBaseSig = baseSig;
     }
 
     /** 回包标识：端类型 + 当前屏幕方向，手机端据此排布触摸板（竖屏左右两半、横屏上下两半）。 */

@@ -30,6 +30,7 @@ public final class TouchOptimizationHelper {
     private static final Map<View, Boolean> ORIGINAL_TOUCH_MODES = new WeakHashMap<>();
     private static final Map<View, GridState> GRID_STATES = new WeakHashMap<>();
     private static final Set<RecyclerView> RECYCLERS_WITH_LISTENER = Collections.newSetFromMap(new WeakHashMap<>());
+    private static boolean attachFailed;
 
     private TouchOptimizationHelper() {
     }
@@ -128,8 +129,18 @@ public final class TouchOptimizationHelper {
                         if (newState == RecyclerView.SCROLL_STATE_IDLE && !state.touchActive) state.touchSettling = false;
                     }
                 });
-            } catch (ReflectiveOperationException | RuntimeException ignored) {
+            } catch (ReflectiveOperationException | RuntimeException error) {
                 GRID_STATES.remove(grid);
+                // 这里以前是静默失败：监听挂不上就摘掉状态，后面所有跟随逻辑都成了哑的，日志里一个字都看不到。
+                // 一旦挂不上就说明这台设备上这套反射不可用，必须能看见。
+                if (!attachFailed) {
+                    attachFailed = true;
+                    try {
+                        com.github.catvod.crawler.DebugLogStore.add("voice", "网格触摸监听挂载失败："
+                                + error.getClass().getSimpleName() + (error.getMessage() == null ? "" : (" " + error.getMessage())));
+                    } catch (Throwable ignored) {
+                    }
+                }
             }
         }
     }
@@ -156,11 +167,13 @@ public final class TouchOptimizationHelper {
             state.touchGeneration++;
             state.touchSettling = false;
             state.touchActive = true;
+            rememberAnchor(state, grid);
             invoke(grid, "setFocusScrollStrategy", int.class, FOCUS_SCROLL_ITEM);
             invoke(grid, "setFocusSearchDisabled", boolean.class, true);
         } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
             int generation = ++state.touchGeneration;
             state.touchActive = false;
+            followScroll(state, grid);
             restoreGrid(grid);
             state.touchSettling = true;
             grid.post(() -> {
@@ -174,6 +187,62 @@ public final class TouchOptimizationHelper {
             restoreGrid(grid);
         }
         return false;
+    }
+
+    /** 记下按下时焦点子项的位置与滚动偏移，作为"松手后列表应该停在哪儿"的基准。 */
+    private static void rememberAnchor(GridState state, View grid) {
+        if (!(grid instanceof RecyclerView recycler)) return;
+        state.downScrollX = recycler.computeHorizontalScrollOffset();
+        state.downScrollY = recycler.computeVerticalScrollOffset();
+        View focused = recycler.getFocusedChild();
+        state.anchorLeft = focused != null ? focused.getLeft() : -1;
+        state.anchorTop = focused != null ? focused.getTop() : -1;
+    }
+
+    /**
+     * 松手时把"选中项"跟到手指停下来看到的那一项。
+     *
+     * <p>leanback 的 BaseGridView 是以**选中项**为布局锚点的：触摸滚动只改了像素偏移，选中项还在原处，
+     * 一还原焦点滚动策略（ALIGNED = 让选中项停在原来的对齐位置），下一次布局就把整张列表拉回原位置
+     * —— 这就是"松手瞬间弹回"。选站那种普通 RecyclerView 没有选中项，所以不会弹。</p>
+     *
+     * <p>做两件事：① 找出"现在正好落在按下时焦点项那个位置"的子项；② 把它设成选中项（并尽力给它焦点）。
+     * 这样还原策略时对齐的就是它自己，画面不动，方向键也从这个位置继续。</p>
+     */
+    private static void followScroll(GridState state, View grid) {
+        if (!(grid instanceof RecyclerView recycler) || recycler.getChildCount() == 0) return;
+        int dx = recycler.computeHorizontalScrollOffset() - state.downScrollX;
+        int dy = recycler.computeVerticalScrollOffset() - state.downScrollY;
+        // 只是点了一下、没滚动：不改选中项，交给原有逻辑（点击该点哪就点哪）
+        if (dx == 0 && dy == 0) return;
+        boolean horizontal = Math.abs(dx) >= Math.abs(dy);
+        int anchor = horizontal ? state.anchorLeft : state.anchorTop;
+        int span = horizontal ? grid.getWidth() : grid.getHeight();
+        if (anchor < 0) anchor = span / 2;
+        View best = null;
+        int bestDelta = Integer.MAX_VALUE;
+        for (int i = 0; i < recycler.getChildCount(); i++) {
+            View child = recycler.getChildAt(i);
+            if (child == null || child.getWidth() <= 0 || child.getHeight() <= 0) continue;
+            int start = horizontal ? child.getLeft() : child.getTop();
+            int size = horizontal ? child.getWidth() : child.getHeight();
+            if (start + size <= 0 || start >= span) continue;   // 已经完全滑出可视区的不算
+            int delta = Math.abs(start - anchor);
+            if (delta < bestDelta) {
+                bestDelta = delta;
+                best = child;
+            }
+        }
+        if (best == null) return;
+        int position = recycler.getChildAdapterPosition(best);
+        if (position == RecyclerView.NO_POSITION) return;
+        invoke(grid, "setSelectedPosition", int.class, position);
+        // 触屏模式下这些控件通常不参与触摸取焦，拿不到就只靠选中项，滚动同样不会弹回
+        if (!best.isFocused()) best.requestFocus();
+        try {
+            com.github.catvod.crawler.DebugLogStore.add("voice", "触屏滚动 跟随选中 position=" + position + (horizontal ? " 横向" : " 纵向"));
+        } catch (Throwable ignored) {
+        }
     }
 
     private static void restoreGrid(RecyclerView recycler) {
@@ -249,5 +318,10 @@ public final class TouchOptimizationHelper {
         private boolean touchActive;
         private boolean touchSettling;
         private int touchGeneration;
+        /** 按下时焦点子项在网格里的偏移：松手后要找出"现在正好落在这个位置"的那一项。 */
+        private int anchorLeft = -1;
+        private int anchorTop = -1;
+        private int downScrollX;
+        private int downScrollY;
     }
 }
