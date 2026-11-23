@@ -23,7 +23,6 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
-import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.utils.ResUtil;
 
 import java.util.ArrayList;
@@ -32,17 +31,22 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 长按快进/快退时的预览层：顶部一条进度条（游标就是焦点），下面一排缩略图。
+ * 长按快进/快退时的预览层：一排缩略图在上、进度条在下，游标就是焦点。
  *
  * <p>放手后不立刻收起，而是停留 {@link #HOLD_MS}，期间任何一次方向键移动都重新计时；
  * 这期间按上键把焦点移进缩略图排，左右选图，OK 直接跳到该图时间点。</p>
+ *
+ * <p>缩略图间隔不跟 10 秒步进走，而是按片长摊开：短片段 30 秒一格，长片按总时长 / 30 放大，
+ * 最多 5 分钟一格 —— 一排图覆盖几分钟到十几分钟的区间，不会挤在 1 分钟里反复跳。</p>
  */
 public class SeekPreviewStrip extends FrameLayout {
 
-    private static final String TAG = "SeekPreviewStrip";
     private static final int CELL_COUNT = 7;
     private static final long HOLD_MS = 3000L;
-    private static final long STEP_MS = Constant.INTERVAL_SEEK;
+    private static final long MIN_SPACING_MS = 30L * 1000L;
+    private static final long MAX_SPACING_MS = 5L * 60L * 1000L;
+    /** 游标停稳一会儿再取帧，避免拖动时把还没解码完的请求全作废。 */
+    private static final long FRAME_DEBOUNCE_MS = 260L;
     private static final int FOCUS_NONE = -1;
 
     public interface Listener {
@@ -52,12 +56,15 @@ public class SeekPreviewStrip extends FrameLayout {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable holdRunner = this::dismiss;
+    private final Runnable frameRunner = this::loadFrames;
     private final LinearLayout container;
     private final TextView titleView;
-    private final BarView barView;
     private final LinearLayout rowView;
+    private final BarView barView;
     private final List<Cell> cells = new ArrayList<>();
     private final List<Bitmap> recentFrames = new ArrayList<>();
+    private final int cellWidth;
+    private final int cellHeight;
 
     private Listener listener;
     private String media;
@@ -66,6 +73,7 @@ public class SeekPreviewStrip extends FrameLayout {
     private long cursor;
     private int focus = FOCUS_NONE;
     private boolean active;
+    private boolean dragging;
 
     public SeekPreviewStrip(Context context) {
         this(context, null);
@@ -76,51 +84,52 @@ public class SeekPreviewStrip extends FrameLayout {
         setVisibility(GONE);
         setClipChildren(false);
 
+        cellWidth = computeCellWidth();
+        cellHeight = Math.max(dp(44), cellWidth * 9 / 16);
+
         container = new LinearLayout(context);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.setPadding(dp(14), dp(10), dp(14), dp(12));
+        container.setPadding(dp(12), dp(8), dp(12), dp(10));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(0xE6101014);
-        background.setCornerRadius(dp(14));
+        background.setColor(0xF2141418);
+        background.setCornerRadius(dp(12));
         container.setBackground(background);
 
         titleView = new TextView(context);
         titleView.setTextColor(Color.WHITE);
-        titleView.setTextSize(15f);
+        titleView.setTextSize(14f);
+        titleView.setPadding(dp(2), 0, dp(2), dp(4));
         container.addView(titleView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        barView = new BarView(context);
-        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(28));
-        barParams.topMargin = dp(6);
-        container.addView(barView, barParams);
-
+        // 缩略图在上，进度条在下。
         rowView = new LinearLayout(context);
         rowView.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rowParams.topMargin = dp(8);
-        container.addView(rowView, rowParams);
+        container.addView(rowView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        int cellWidth = cellWidth();
-        int cellHeight = Math.max(dp(48), cellWidth * 9 / 16);
         for (int i = 0; i < CELL_COUNT; i++) {
-            Cell cell = new Cell(context, cellWidth, cellHeight);
+            Cell cell = new Cell(context);
             final int index = i;
             cell.root.setOnClickListener(view -> onCellClicked(index));
             cells.add(cell);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(cellWidth, cellHeight);
-            if (i > 0) params.leftMargin = dp(6);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, cellHeight, 1f);
+            if (i > 0) params.leftMargin = dp(5);
             rowView.addView(cell.root, params);
         }
+
+        barView = new BarView(context);
+        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(26));
+        barParams.topMargin = dp(8);
+        container.addView(barView, barParams);
 
         FrameLayout.LayoutParams containerParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         containerParams.gravity = Gravity.BOTTOM;
-        containerParams.leftMargin = dp(24);
-        containerParams.rightMargin = dp(24);
-        containerParams.bottomMargin = dp(28);
+        containerParams.leftMargin = dp(20);
+        containerParams.rightMargin = dp(20);
+        containerParams.bottomMargin = dp(26);
         addView(container, containerParams);
     }
 
@@ -130,6 +139,11 @@ public class SeekPreviewStrip extends FrameLayout {
 
     public boolean isActive() {
         return active;
+    }
+
+    /** 焦点是否已经进到缩略图排；只有这时才把左右键当成选图。 */
+    public boolean isRowFocused() {
+        return focus != FOCUS_NONE;
     }
 
     /** 长按开始：给定时长、起始游标、以及取帧用的媒体源。 */
@@ -164,8 +178,10 @@ public class SeekPreviewStrip extends FrameLayout {
 
     public void dismiss() {
         handler.removeCallbacks(holdRunner);
+        handler.removeCallbacks(frameRunner);
         active = false;
         focus = FOCUS_NONE;
+        dragging = false;
         recentFrames.clear();
         if (getVisibility() == VISIBLE) setVisibility(GONE);
     }
@@ -190,27 +206,40 @@ public class SeekPreviewStrip extends FrameLayout {
     }
 
     /**
-     * 遥控器按键。返回 true 表示这次事件已经被预览层吃掉，播放页不应再处理。
+     * 遥控器按键。只有焦点确实在缩略图排时，左右键才在这里吃掉；
+     * 其余时候返回 false，让播放页的「按住快进」会话继续正常累计并在松手时提交。
      */
     public boolean handleKey(int keyCode, boolean actionDown) {
         if (!active) return false;
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (!actionDown) return true;
+            dismiss();
+            return true;
+        }
+        if (focus == FOCUS_NONE) {
+            if (keyCode != KeyEvent.KEYCODE_DPAD_UP) return false;
+            if (!actionDown) return true;
+            focus = CELL_COUNT / 2;
+            render();
+            scheduleHold();
+            return true;
+        }
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
                 if (!actionDown) return true;
-                if (focus == FOCUS_NONE) focus = CELL_COUNT / 2;
-                else focus = FOCUS_NONE;
+                focus = FOCUS_NONE;
                 render();
                 scheduleHold();
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 if (!actionDown) return true;
-                if (focus != FOCUS_NONE) focus = Math.max(0, focus - 1);
+                focus = Math.max(0, focus - 1);
                 render();
                 scheduleHold();
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 if (!actionDown) return true;
-                if (focus != FOCUS_NONE) focus = Math.min(CELL_COUNT - 1, focus + 1);
+                focus = Math.min(CELL_COUNT - 1, focus + 1);
                 render();
                 scheduleHold();
                 return true;
@@ -218,11 +247,7 @@ public class SeekPreviewStrip extends FrameLayout {
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (!actionDown) return true;
-                commit(focus == FOCUS_NONE ? cursor : cells.get(focus).position);
-                return true;
-            case KeyEvent.KEYCODE_BACK:
-                if (!actionDown) return true;
-                dismiss();
+                commit(cells.get(focus).position);
                 return true;
             default:
                 return false;
@@ -256,13 +281,11 @@ public class SeekPreviewStrip extends FrameLayout {
         }
     }
 
-    private boolean dragging;
-
     private boolean insideBar(MotionEvent event) {
         int[] location = new int[2];
         barView.getLocationOnScreen(location);
         float y = event.getRawY();
-        return y >= location[1] - dp(8) && y <= location[1] + barView.getHeight() + dp(8);
+        return y >= location[1] - dp(10) && y <= location[1] + barView.getHeight() + dp(10);
     }
 
     private void updateFromTouch(MotionEvent event) {
@@ -274,10 +297,6 @@ public class SeekPreviewStrip extends FrameLayout {
         render();
     }
 
-    private float clampRatio(float ratio) {
-        return Math.max(0f, Math.min(1f, ratio));
-    }
-
     private void render() {
         titleView.setText(String.format(Locale.getDefault(), "%s / %s", format(cursor), format(duration)));
         barView.setProgress(duration <= 0 ? 0f : (float) cursor / duration);
@@ -287,19 +306,42 @@ public class SeekPreviewStrip extends FrameLayout {
         List<Long> positions = cellPositions();
         for (int i = 0; i < cells.size(); i++) {
             Cell cell = cells.get(i);
-            long position = positions.get(i);
-            cell.position = position;
-            cell.label.setText(format(position));
+            cell.position = positions.get(i);
+            cell.label.setText(format(cell.position));
             cell.setFocused(focus == i);
+        }
+        // 游标停稳再取帧：拖动过程中只更新时间文字和游标，免得请求全被后面的位置作废。
+        handler.removeCallbacks(frameRunner);
+        handler.postDelayed(frameRunner, FRAME_DEBOUNCE_MS);
+    }
+
+    private void loadFrames() {
+        if (!active) return;
+        List<Long> positions = cellPositions();
+        for (int i = 0; i < cells.size(); i++) {
+            Cell cell = cells.get(i);
+            long position = positions.get(i);
+            if (cell.position != position) continue;
             requestFrame(cell, position);
         }
     }
 
+    /**
+     * 缩略图间隔：按片长摊开，30 秒到 5 分钟之间。短片段 30 秒一格，
+     * 两小时的片子约 4 分钟一格，一排图覆盖约半小时，挑段更有意义。
+     */
+    private long spacing() {
+        if (duration <= 0) return MIN_SPACING_MS;
+        long value = Math.max(MIN_SPACING_MS, duration / 30);
+        return Math.min(value, MAX_SPACING_MS);
+    }
+
     private List<Long> cellPositions() {
+        long spacing = spacing();
         List<Long> positions = new ArrayList<>(CELL_COUNT);
         long half = CELL_COUNT / 2;
         for (int i = 0; i < CELL_COUNT; i++) {
-            positions.add(clamp(cursor + (i - half) * STEP_MS));
+            positions.add(clamp(cursor + (i - half) * spacing));
         }
         return positions;
     }
@@ -320,8 +362,8 @@ public class SeekPreviewStrip extends FrameLayout {
         }
         final String expected = SeekPreviewFrameCache.keyFor(media, position);
         cell.key = expected;
-        int width = cell.root.getWidth() > 0 ? cell.root.getWidth() : Math.max(1, cell.root.getLayoutParams().width);
-        int height = cell.root.getHeight() > 0 ? cell.root.getHeight() : Math.max(1, cell.root.getLayoutParams().height);
+        int width = Math.max(1, cell.root.getWidth() > 0 ? cell.root.getWidth() : cellWidth);
+        int height = Math.max(1, cell.root.getHeight() > 0 ? cell.root.getHeight() : cellHeight);
         SeekPreviewFrameCache.request(getContext(), media, headers, position, width, height, (key, bitmap) -> {
             if (!active) return;
             if (!TextUtils.equals(expected, cell.key)) return;
@@ -361,6 +403,10 @@ public class SeekPreviewStrip extends FrameLayout {
         return null;
     }
 
+    private float clampRatio(float ratio) {
+        return Math.max(0f, Math.min(1f, ratio));
+    }
+
     private long clamp(long position) {
         long max = duration > 0 ? duration : Long.MAX_VALUE;
         return Math.max(0, Math.min(position, max));
@@ -375,9 +421,10 @@ public class SeekPreviewStrip extends FrameLayout {
         return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
     }
 
-    private int cellWidth() {
+    private int computeCellWidth() {
         int width = ResUtil.getScreenWidth();
-        return Math.max(dp(64), (width - dp(24 + 24 + 28 + 36 + 6 * 6)) / CELL_COUNT);
+        int usable = width - dp(20 + 20 + 12 + 12);
+        return Math.max(dp(56), (usable - dp(5) * (CELL_COUNT - 1)) / CELL_COUNT);
     }
 
     private int dp(int value) {
@@ -392,7 +439,7 @@ public class SeekPreviewStrip extends FrameLayout {
         long position;
         String key;
 
-        Cell(Context context, int width, int height) {
+        Cell(Context context) {
             root = new FrameLayout(context);
             GradientDrawable background = new GradientDrawable();
             background.setColor(0xFF1C1C22);

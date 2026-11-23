@@ -9652,10 +9652,20 @@ private boolean runtimeSourceOnly;
                     || keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
                     || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) return true;
         }
-        if (mSeekPreview != null && mSeekPreview.isActive()
-                && mSeekPreview.handleKey(event.getKeyCode(), KeyUtil.isActionDown(event))) {
-            cancelKeySeek();
-            return true;
+        // 预览层只接管「上键进缩略图排」以及焦点已在排内的导航；
+        // 左右键仍要留给按住快进会话，否则松手时它拿不到 UP，既不快进、界面也只剩一下闪现。
+        if (mSeekPreview != null && mSeekPreview.isActive()) {
+            int previewKey = event.getKeyCode();
+            boolean previewDown = KeyUtil.isActionDown(event);
+            if (mSeekPreview.isRowFocused()) {
+                if (mSeekPreview.handleKey(previewKey, previewDown)) return true;
+            } else if (previewKey == KeyEvent.KEYCODE_DPAD_UP) {
+                if (previewDown) mSeekPreview.handleKey(previewKey, true);
+                return true;
+            } else if (KeyUtil.isBackKey(event)) {
+                if (previewDown) mSeekPreview.dismiss();
+                return true;
+            }
         }
         if (KeyUtil.isActionDown(event) && (!isFullscreen() || isVisible(mBinding.control.getRoot()) || isVisible(mBinding.lutQuick) || (!KeyUtil.isLeftKey(event) && !KeyUtil.isRightKey(event) && !KeyUtil.isBackKey(event)))) cancelKeySeek();
         if (KeyUtil.isActionDown(event) && KeyUtil.isBackKey(event)) {

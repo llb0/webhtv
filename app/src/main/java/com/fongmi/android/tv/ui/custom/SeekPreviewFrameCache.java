@@ -115,20 +115,21 @@ public final class SeekPreviewFrameCache {
     private static Bitmap extract(String media, Map<String, String> headers, long positionMs, int width, int height) {
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
-            if (media.startsWith("/") || media.startsWith("file://")) {
-                retriever.setDataSource(media.startsWith("file://") ? media.substring(7) : media);
-            } else {
-                retriever.setDataSource(media, headers == null ? Collections.emptyMap() : headers);
-            }
+            bindSource(retriever, media, headers);
             long timeUs = positionMs * 1000L;
-            Bitmap frame;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 && width > 0 && height > 0) {
-                frame = retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, width, height);
-            } else {
-                frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-                frame = scale(frame, width, height);
+            // 先走列表缩略图同一套 getFrameAtTime：不少盒子上 getScaledFrameAtTime 直接返回 null，
+            // 之前一屏占位图主要就是这条路挂了。取到之后自己缩放。
+            Bitmap frame = grab(retriever, timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+            if (frame == null) frame = grab(retriever, timeUs, MediaMetadataRetriever.OPTION_CLOSEST);
+            if (frame == null) frame = grab(retriever, timeUs, MediaMetadataRetriever.OPTION_PREVIOUS_SYNC);
+            if (frame == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 && width > 0 && height > 0) {
+                try {
+                    frame = retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, width, height);
+                } catch (Throwable ignored) {
+                    frame = null;
+                }
             }
-            return frame;
+            return scale(frame, width, height);
         } catch (Throwable ignored) {
             return null;
         } finally {
@@ -136,6 +137,28 @@ public final class SeekPreviewFrameCache {
                 retriever.release();
             } catch (Throwable ignored) {
             }
+        }
+    }
+
+    private static void bindSource(MediaMetadataRetriever retriever, String media, Map<String, String> headers) {
+        if (media.startsWith("/") || media.startsWith("file://")) {
+            retriever.setDataSource(media.startsWith("file://") ? media.substring(7) : media);
+            return;
+        }
+        Map<String, String> safe = headers == null ? Collections.emptyMap() : headers;
+        try {
+            retriever.setDataSource(media, safe);
+        } catch (Throwable ignored) {
+            // 带上请求头打不开时再退回不带头的裸地址，SMB 代理多数情况下不吃头。
+            retriever.setDataSource(media, Collections.emptyMap());
+        }
+    }
+
+    private static Bitmap grab(MediaMetadataRetriever retriever, long timeUs, int option) {
+        try {
+            return retriever.getFrameAtTime(timeUs, option);
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
