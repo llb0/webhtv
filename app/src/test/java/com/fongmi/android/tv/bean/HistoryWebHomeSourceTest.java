@@ -37,7 +37,8 @@ public class HistoryWebHomeSourceTest {
     @Test
     public void webHomeMissingArtworkFallsBackToRenderedFrameSnapshot() throws Exception {
         String base = read(source("main", "java", "com", "fongmi", "android", "tv", "ui", "activity", "PlaybackActivity.java"));
-        assertTrue(base.contains("WEBHOME_SNAPSHOT_DELAYS = {2500L, 2000L, 2000L}"));
+        // 兜底截图改到 60 秒后再截，避开片头广告和黑场。
+        assertTrue(base.contains("SNAPSHOT_DELAYS = {60000L, 5000L, 5000L}"));
         assertTrue(base.contains("scheduleWebHomeSnapshot()"));
         assertTrue(base.contains("PlaybackFrameSnapshot.capture"));
         assertTrue(base.contains("WebHomeInlineVodStore.setPic"));

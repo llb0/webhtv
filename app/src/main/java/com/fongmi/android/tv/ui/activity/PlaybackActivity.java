@@ -112,14 +112,19 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private ExoSubtitleSession attachedSubtitleSession;
     private final com.fongmi.android.tv.player.SurfaceDiagnosticCollector surfaceDiagnostics =
             new com.fongmi.android.tv.player.SurfaceDiagnosticCollector();
-    private static final long[] WEBHOME_SNAPSHOT_DELAYS = {2500L, 2000L, 2000L};
+    /**
+     * 无图历史的兜底截图时间点：前 60 秒常有片头广告和黑场，等过了广告再截，
+     * 后面两次是补截（比如第一帧还在黑场或画面被弹层挡住），黑屏画面本身由取帧端丢掉。
+     */
+    private static final long[] SNAPSHOT_DELAYS = {60000L, 5000L, 5000L};
     private final Handler webHomeSnapshotHandler = new Handler(Looper.getMainLooper());
     private String webHomeSnapshotKey;
     private int webHomeSnapshotAttempt;
     private boolean webHomeSnapshotRunning;
     private boolean webHomeSnapshotDone;
     /** SMB 视频缩略图补图：只有 IJK 能解的老容器列表阶段取不到帧，播过一次再补。 */
-    private static final long[] SMB_THUMB_DELAYS = {4000L, 8000L, 16000L};
+    /** SMB 缩略图补图沿用同一套时间点，避开广告和片头黑场。 */
+    private static final long[] SMB_THUMB_DELAYS = SNAPSHOT_DELAYS;
     private final Handler smbThumbHandler = new Handler(Looper.getMainLooper());
     private String smbThumbKey;
     private int smbThumbAttempt;
@@ -518,7 +523,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (!needsPlaybackSnapshot(history)) return;
         if (TextUtils.equals(history.getKey(), webHomeSnapshotKey)) {
             if (webHomeSnapshotDone || webHomeSnapshotRunning
-                    || webHomeSnapshotAttempt >= WEBHOME_SNAPSHOT_DELAYS.length) return;
+                    || webHomeSnapshotAttempt >= SNAPSHOT_DELAYS.length) return;
         } else {
             webHomeSnapshotKey = history.getKey();
             webHomeSnapshotAttempt = 0;
@@ -529,8 +534,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     private void scheduleNextWebHomeSnapshot() {
-        if (webHomeSnapshotDone || webHomeSnapshotAttempt >= WEBHOME_SNAPSHOT_DELAYS.length) return;
-        long delay = WEBHOME_SNAPSHOT_DELAYS[webHomeSnapshotAttempt++];
+        if (webHomeSnapshotDone || webHomeSnapshotAttempt >= SNAPSHOT_DELAYS.length) return;
+        long delay = SNAPSHOT_DELAYS[webHomeSnapshotAttempt++];
         webHomeSnapshotHandler.postDelayed(this::captureWebHomeSnapshot, delay);
     }
 
