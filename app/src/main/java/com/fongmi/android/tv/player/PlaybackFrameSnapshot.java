@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.view.PixelCopy;
 import android.view.SurfaceView;
 import android.view.TextureView;
@@ -139,6 +140,22 @@ public final class PlaybackFrameSnapshot {
                 file.delete();
                 return "";
             }
+        }
+        return Uri.fromFile(file).toString();
+    }
+
+    /**
+     * 播放画面抓不到（网页源叠层、黑屏、还没出图）时，改从片源直接抽一帧封面。
+     * 走 ffmpeg 关键帧抽取，HLS / 老容器也能拿到图；失败返回空串。
+     */
+    public static String captureFromSource(Activity activity, String media, java.util.Map<String, String> headers) {
+        if (activity == null || TextUtils.isEmpty(media)) return "";
+        File directory = new File(activity.getFilesDir(), "webhome_snapshot");
+        if (!directory.exists() && !directory.mkdirs()) return "";
+        File file = new File(directory, "snapshot-" + System.currentTimeMillis() + "-" + System.nanoTime() + ".jpg");
+        if (!TrickplayStore.saveCover(activity.getApplicationContext(), media, headers, file)) {
+            file.delete();
+            return "";
         }
         return Uri.fromFile(file).toString();
     }

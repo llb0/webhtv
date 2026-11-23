@@ -127,6 +127,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private int webHomeSnapshotAttempt;
     private boolean webHomeSnapshotRunning;
     private boolean webHomeSnapshotDone;
+    /** 播放画面抓不到时，ffmpeg 封面兜底每次播放只试一次。 */
+    private boolean webHomeCoverTried;
     /** SMB 视频缩略图补图：只有 IJK 能解的老容器列表阶段取不到帧，播过一次再补，时间点与历史截图同一套。 */
     private final Handler smbThumbHandler = new Handler(Looper.getMainLooper());
     private String smbThumbKey;
@@ -531,6 +533,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             webHomeSnapshotKey = history.getKey();
             webHomeSnapshotAttempt = 0;
             webHomeSnapshotDone = false;
+            webHomeCoverTried = false;
         }
         armWebHomeSnapshot(-1L);
     }
@@ -648,12 +651,37 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             History current = getPlaybackHistory();
             if (current == null || !TextUtils.equals(current.getKey(), key)) return;
             if (TextUtils.isEmpty(uri)) {
-                // 黑屏或还没出图：隔几秒再补，次数用尽就作罢，等下次播放再试。
+                // 黑屏或还没出图：先从片源直接抽一帧兜底（网页叠层/黑屏时也能拿到图），
+                // 抽不到再隔几秒补截图，次数用尽就作罢，等下次播放再试。
+                if (!webHomeCoverTried) captureWebHomeCover(key, cid, vodId, siteKey);
                 if (!webHomeSnapshotDone && webHomeSnapshotAttempt < SNAPSHOT_MAX_ATTEMPTS) armWebHomeSnapshot(SNAPSHOT_RETRY_MS);
                 return;
             }
             webHomeSnapshotDone = true;
             persistWebHomeSnapshot(cid, key, vodId, siteKey, uri);
+        });
+    }
+
+    /** ffmpeg 封面兜底：从当前片源抽一帧，当作历史卡片图。 */
+    private void captureWebHomeCover(String key, int cid, String vodId, String siteKey) {
+        webHomeCoverTried = true;
+        final String media = player().getUrl();
+        final java.util.Map<String, String> headers = player().getHeaders();
+        Task.execute(() -> {
+            String uri = "";
+            try {
+                uri = PlaybackFrameSnapshot.captureFromSource(this, media, headers);
+            } catch (Throwable ignored) {
+            }
+            final String result = uri;
+            App.post(() -> {
+                if (isFinishing() || isDestroyed() || TextUtils.isEmpty(result)) return;
+                History current = getPlaybackHistory();
+                if (current == null || !TextUtils.equals(current.getKey(), key)) return;
+                webHomeSnapshotDone = true;
+                persistWebHomeSnapshot(cid, key, vodId, siteKey, result);
+                webHomeSnapshotHandler.removeCallbacksAndMessages(null);
+            });
         });
     }
 

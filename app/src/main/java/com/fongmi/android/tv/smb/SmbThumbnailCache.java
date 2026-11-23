@@ -22,6 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import com.fongmi.android.tv.player.TrickplayStore;
+
 /**
  * SMB 视频缩略图：从文件本身取一帧非黑屏画面，落盘到 {@code cache/smb_thumbs}。
  *
@@ -190,6 +192,21 @@ public final class SmbThumbnailCache {
     }
 
     private static Bitmap generate(Context context, String key, String url, File target) {
+        // 先用 ffmpeg 抽一张（关键帧直取，比 MMR 快，还能解 MMR 打不开的 avi/rmvb/wmv/HLS）；
+        // 抽不到再退回 MMR，两条路都失败就交给「播放时补图」。
+        Bitmap cover = null;
+        try {
+            cover = TrickplayStore.extractCover(context, url, null);
+        } catch (Throwable ignored) {
+            cover = null;
+        }
+        if (cover != null && !cover.isRecycled()) {
+            Bitmap scaled = scale(cover, TARGET_WIDTH, 0);
+            if (scaled != cover) cover.recycle();
+            write(scaled, target);
+            trim(context);
+            return scaled;
+        }
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         Bitmap chosen = null;
         double bestLuma = -1;

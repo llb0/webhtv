@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.cache;
 
+import com.fongmi.android.tv.player.TrickplayStore;
 import com.fongmi.android.tv.smb.SmbThumbnailCache;
 import com.fongmi.android.tv.ui.custom.SeekPreviewFrameCache;
 import com.fongmi.android.tv.plugin.PluginAuditStore;
@@ -118,10 +119,12 @@ public final class CacheModuleRegistry {
                 // 统计与清理一起走，目录内的容量上限和 30 天过期由 SmbThumbnailCache 自管。
                 // 快进预览的取帧缓存也归在图片缓存口径下：与海报、SMB 缩略图一起统计和清理，
                 // 目录内 64MB / 7 天的上限由 SeekPreviewFrameCache 自管，且不受清理开关影响。
+                // ffmpeg 抽出来的 trickplay 缩略图同样归在这里，256MB / 30 天由 TrickplayStore 自管。
                 module(CacheModuleId.GLIDE, CacheGroup.MEDIA, List.of(
                         CacheRoot.tree(new File(cache, "image_manager_disk_cache")),
                         CacheRoot.tree(new File(cache, SmbThumbnailCache.DIR)),
-                        CacheRoot.tree(new File(cache, SeekPreviewFrameCache.DIR))
+                        CacheRoot.tree(new File(cache, SeekPreviewFrameCache.DIR)),
+                        CacheRoot.tree(new File(cache, TrickplayStore.DIR))
                 ), CacheCleanability.OWNER_MANAGED, CacheEvictionPolicy.OWNER_MANAGED, false, true, true, false),
                 module(CacheModuleId.PLUGIN_SCRIPTS, CacheGroup.PLUGIN, List.of(
                         CacheRoot.tree(new File(cache, "js")),

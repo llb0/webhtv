@@ -116,6 +116,7 @@ import com.fongmi.android.tv.player.PlaybackExperimentPolicy;
 import com.fongmi.android.tv.player.PlaybackResourceClassifier;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
+import com.fongmi.android.tv.player.TrickplayStore;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.lut.LutPreset;
@@ -8673,6 +8674,8 @@ private void setupSeekPreview() {
         if (state == Player.STATE_READY) renewAutoDanmaku();
         switch (state) {
             case Player.STATE_BUFFERING:
+                // 缓冲/卡顿时挂起后台抽帧，别和播放抢带宽
+                TrickplayStore.setPlayerBusy(true);
                 // 播放器缓冲时始终显示加载动画（转圈+流量），不管 TMDB 内容是否加载完成
                 showProgress();
                 break;
@@ -8683,6 +8686,9 @@ private void setupSeekPreview() {
                 if (canHideSeekProgress()) showPlaybackContent();
                 if (mPendingKaraokeResult == null) mKaraokeResultShown = false;
                 boolean pendingResumeSeekApplied = applyPendingResumeSeek();
+                // 起播不卡之后就在后台把缩略图抽出来（先抽片头应急段），不必等第一次快进
+                TrickplayStore.setPlayerBusy(false);
+                TrickplayStore.startBackground(this, player().getUrl(), player().getHeaders(), player().getDuration());
                 checkControl();
                 refreshLyrics();
                 player().reset();
@@ -10802,6 +10808,7 @@ private void checkOrientation() {
 
     @Override
     protected void onDestroy() {
+        TrickplayStore.stopBackground();
         cancelPendingSeekPreview();
         mSeekPreviewHandler.removeCallbacksAndMessages(null);
         if (mSeekPreview != null) mSeekPreview.dismiss();

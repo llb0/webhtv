@@ -23,6 +23,7 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
+import com.fongmi.android.tv.player.TrickplayStore;
 import com.fongmi.android.tv.utils.ResUtil;
 
 import java.util.ArrayList;
@@ -41,10 +42,10 @@ import java.util.Map;
  */
 public class SeekPreviewStrip extends FrameLayout {
 
-    /** 缩略图目标高度；实际格数与格宽按可用宽度算，保持 16:9 紧挨，不强行平分也不拉伸。 */
+    /** 缩略图目标高度；手机屏幕小，按 5 格保底，格宽再均分，整排铺满不留大空白。 */
     private static final int TARGET_CELL_HEIGHT_DP = 64;
     private static final int CELL_GAP_DP = 5;
-    private static final int MIN_CELL_COUNT = 3;
+    private static final int MIN_CELL_COUNT = 5;
     private static final long HOLD_MS = 3000L;
     private static final long MIN_SPACING_MS = 30L * 1000L;
     private static final long MAX_SPACING_MS = 5L * 60L * 1000L;
@@ -324,13 +325,61 @@ public class SeekPreviewStrip extends FrameLayout {
     }
 
     private void loadFrames() {
+        loadFrames(true);
+    }
+
+    /**
+     * 读缩略图：命中 trickplay 磁盘缓存就直接贴；缺格时补当前这一窗（一次 ffmpeg 调用），
+     * 补完再读一遍。仍然缺（源不支持或抽帧失败）就退回旧的 MMR 现场取帧，只补缺的那几格。
+     */
+    private void loadFrames(boolean allowPrepare) {
         if (!active) return;
-        List<Long> positions = cellPositions();
-        for (int i = 0; i < cells.size(); i++) {
+        final android.content.Context context = getContext() == null ? null : getContext().getApplicationContext();
+        if (context == null) return;
+        final List<Long> positions = cellPositions();
+        final int width = Math.max(1, cellWidth);
+        final int height = Math.max(1, cellHeight);
+        final String mediaUrl = media;
+        final Map<String, String> mediaHeaders = headers;
+        TrickplayStore.io().execute(() -> {
+            final List<Bitmap> results = new ArrayList<>(positions.size());
+            final List<Long> missing = new ArrayList<>();
+            for (long position : positions) {
+                Bitmap bitmap = TextUtils.isEmpty(mediaUrl) ? null
+                        : TrickplayStore.read(context, mediaUrl, position, width, height);
+                results.add(bitmap);
+                if (bitmap == null) missing.add(position);
+            }
+            handler.post(() -> {
+                if (!active) return;
+                List<Long> current = cellPositions();
+                for (int i = 0; i < cells.size() && i < results.size(); i++) {
+                    if (current.get(i).longValue() != positions.get(i).longValue()) continue;
+                    applyFallback(cells.get(i), results.get(i));
+                }
+            });
+            if (missing.isEmpty() || TextUtils.isEmpty(mediaUrl)) return;
+            long first = missing.get(0);
+            long last = missing.get(missing.size() - 1);
+            int count = (int) ((last - first) / TrickplayStore.STEP_MS) + 1;
+            if (allowPrepare) {
+                TrickplayStore.prepareWindow(context, mediaUrl, mediaHeaders, first, count,
+                        () -> handler.post(() -> loadFrames(false)));
+            } else {
+                handler.post(() -> loadFallbackFrames(positions));
+            }
+        });
+    }
+
+    /** ffmpeg 这条路走不通时，沿用 MMR 单帧抽取，只处理还空着的格子。 */
+    private void loadFallbackFrames(List<Long> positions) {
+        if (!active) return;
+        List<Long> current = cellPositions();
+        for (int i = 0; i < cells.size() && i < positions.size(); i++) {
+            if (current.get(i).longValue() != positions.get(i).longValue()) continue;
             Cell cell = cells.get(i);
-            long position = positions.get(i);
-            if (cell.position != position) continue;
-            requestFrame(cell, position);
+            if (cell.image.getDrawable() != null) continue;
+            requestFrame(cell, positions.get(i));
         }
     }
 
@@ -346,11 +395,21 @@ public class SeekPreviewStrip extends FrameLayout {
 
     private List<Long> cellPositions() {
         long spacing = spacing();
-        List<Long> positions = new ArrayList<>(cellCount);
-        long half = cellCount / 2;
-        for (int i = 0; i < cellCount; i++) {
-            positions.add(clamp(cursor + (i - half) * spacing));
+        if (duration > 0) {
+            // 片子比一整排还短时把间隔收到刚好铺满，不出现重复时间点。
+            long span = spacing * (cellCount - 1);
+            if (span > duration) spacing = Math.max(1_000L, duration / Math.max(1, cellCount - 1));
         }
+        // 整个窗口平移，而不是逐格 clamp：接近片头/片尾时不会出现一排 00:00。
+        long start = cursor - (cellCount / 2) * spacing;
+        if (duration > 0) {
+            long span = spacing * (cellCount - 1);
+            start = Math.max(0, Math.min(start, Math.max(0, duration - span)));
+        } else {
+            start = Math.max(0, start);
+        }
+        List<Long> positions = new ArrayList<>(cellCount);
+        for (int i = 0; i < cellCount; i++) positions.add(start + i * spacing);
         return positions;
     }
 

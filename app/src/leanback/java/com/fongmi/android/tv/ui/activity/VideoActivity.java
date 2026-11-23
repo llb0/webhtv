@@ -94,6 +94,7 @@ import com.fongmi.android.tv.player.PlaybackExperimentPolicy;
 import com.fongmi.android.tv.player.PlaybackResourceClassifier;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
+import com.fongmi.android.tv.player.TrickplayStore;
 import com.fongmi.android.tv.player.lut.LutPreset;
 import com.fongmi.android.tv.player.lut.LutStore;
 import com.fongmi.android.tv.service.AiAdDetectionService;
@@ -7426,6 +7427,8 @@ private boolean runtimeSourceOnly;
         if (state == Player.STATE_READY) renewAutoDanmaku();
         switch (state) {
             case Player.STATE_BUFFERING:
+                // 缓冲/卡顿时挂起后台抽帧，别和播放抢带宽
+                TrickplayStore.setPlayerBusy(true);
                 showProgress();
                 break;
             case Player.STATE_READY:
@@ -7438,6 +7441,9 @@ private boolean runtimeSourceOnly;
                 // 亮起，这里不收它就仍在屏上，由最小可见计时器与网速 ticker 收尾。
                 if (canHideSeekProgress()) showPlaybackContent();
                 boolean pendingResumeSeekApplied = applyPendingResumeSeek();
+                // 起播不卡之后就在后台把缩略图抽出来（先抽片头应急段），不必等第一次快进
+                TrickplayStore.setPlayerBusy(false);
+                TrickplayStore.startBackground(this, player().getUrl(), player().getHeaders(), player().getDuration());
                 refreshLyrics();
                 player().reset();
                 applyShortDramaMode();
@@ -10219,6 +10225,7 @@ private boolean runtimeSourceOnly;
 
     @Override
     protected void onDestroy() {
+        TrickplayStore.stopBackground();
         invalidateShortDramaQueue("destroy");
         cancelPendingEpisodeGridFocus();
         cancelPendingArrayFocus();
