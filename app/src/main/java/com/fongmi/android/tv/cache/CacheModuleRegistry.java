@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.cache;
 
+import com.fongmi.android.tv.smb.SmbThumbnailCache;
 import com.fongmi.android.tv.plugin.PluginAuditStore;
 import com.fongmi.android.tv.plugin.PluginHttpCache;
 
@@ -112,7 +113,12 @@ public final class CacheModuleRegistry {
                 module(CacheModuleId.WEBHOME_EXT, CacheGroup.NETWORK, List.of(CacheRoot.tree(new File(cache, "webhome_ext"))), CacheCleanability.SAFE_NOW, CacheEvictionPolicy.LRU_WITH_TTL, true, true, false, false),
                 module(CacheModuleId.WEBHOME_RAW, CacheGroup.NETWORK, List.of(CacheRoot.tree(new File(cache, "webhome_raw"))), CacheCleanability.OWNER_MANAGED, CacheEvictionPolicy.LRU, false, true, true, false),
                 module(CacheModuleId.EPG, CacheGroup.NETWORK, List.of(CacheRoot.tree(epg)), CacheCleanability.SAFE_NOW, CacheEvictionPolicy.TTL, false, true, false, false),
-                module(CacheModuleId.GLIDE, CacheGroup.MEDIA, List.of(CacheRoot.tree(new File(cache, "image_manager_disk_cache"))), CacheCleanability.OWNER_MANAGED, CacheEvictionPolicy.OWNER_MANAGED, false, true, true, false),
+                // SMB 视频缩略图与海报/封面共用图片缓存的管理口径：同属 GLIDE 模块，
+                // 统计与清理一起走，目录内的容量上限和 30 天过期由 SmbThumbnailCache 自管。
+                module(CacheModuleId.GLIDE, CacheGroup.MEDIA, List.of(
+                        CacheRoot.tree(new File(cache, "image_manager_disk_cache")),
+                        CacheRoot.tree(new File(cache, SmbThumbnailCache.DIR))
+                ), CacheCleanability.OWNER_MANAGED, CacheEvictionPolicy.OWNER_MANAGED, false, true, true, false),
                 module(CacheModuleId.PLUGIN_SCRIPTS, CacheGroup.PLUGIN, List.of(
                         CacheRoot.tree(new File(cache, "js")),
                         CacheRoot.tree(new File(cache, "py")),

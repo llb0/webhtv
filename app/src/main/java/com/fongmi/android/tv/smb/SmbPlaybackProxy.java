@@ -25,6 +25,10 @@ import java.util.UUID;
 public final class SmbPlaybackProxy {
 
     private static final Map<String, FileRef> FILES = new LinkedHashMap<>();
+    /** 缩略图专用 token 池：目录里逐行取帧不该把播放中的直链从 FILES 里挤掉。 */
+    private static final Map<String, FileRef> THUMBS = new LinkedHashMap<>();
+    private static final int MAX_FILES = 24;
+    private static final int MAX_THUMBS = 8;
     private static ProxyServer server;
 
     private SmbPlaybackProxy() {
@@ -35,7 +39,7 @@ public final class SmbPlaybackProxy {
         ensureServer();
         String token = UUID.randomUUID().toString().replace("-", "");
         FILES.put(token, new FileRef(host, share, path, username, password, domain));
-        while (FILES.size() > 24) {
+        while (FILES.size() > MAX_FILES) {
             String first = FILES.keySet().iterator().next();
             FILES.remove(first);
         }
@@ -47,6 +51,25 @@ public final class SmbPlaybackProxy {
         // 以前给未知后缀补 .mp4 会让 Exo 按 MP4 解析旧 AVI/WMV，外调播放器也会误判格式。
         return "http://127.0.0.1:" + server.getListeningPort() + "/" + token + "/"
                 + encodePathSegment(name) + "?smb=1";
+    }
+
+    /**
+     * 缩略图取帧专用地址：同一文件给固定 token（重复取帧复用同一条），
+     * 并且走独立的 {@link #THUMBS} 池，避免逐行取帧把播放中的直链挤出 {@link #FILES}。
+     */
+    public static synchronized String createThumbUrl(String host, String share, String path,
+                                                     String username, String password, String domain) throws IOException {
+        ensureServer();
+        String token = "t" + digest(host + "|" + share + "|" + path);
+        THUMBS.put(token, new FileRef(host, share, path, username, password, domain));
+        while (THUMBS.size() > MAX_THUMBS) {
+            String first = THUMBS.keySet().iterator().next();
+            THUMBS.remove(first);
+        }
+        String name = path == null ? "" : path.substring(path.lastIndexOf((char) 92) + 1);
+        if (name.isEmpty()) name = "media";
+        return "http://127.0.0.1:" + server.getListeningPort() + "/" + token + "/"
+                + encodePathSegment(name) + "?smb=1&thumb=1";
     }
 
     /**
@@ -94,6 +117,18 @@ public final class SmbPlaybackProxy {
         return new String[]{ref.host, ref.share, ref.path, ref.username, ref.password, ref.domain};
     }
 
+    private static String digest(String value) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+            byte[] bytes = md.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) out.append(String.format(Locale.ROOT, "%02x", b));
+            return out.toString().substring(0, 24);
+        } catch (Exception e) {
+            return Integer.toHexString(value.hashCode());
+        }
+    }
+
     private static String encodePathSegment(String value) {
         try {
             // 不用 API 33 才有的 Charset 重载，保证 Android 7/8 设备也能按 UTF-8 编码。
@@ -128,6 +163,7 @@ public final class SmbPlaybackProxy {
             FileRef ref;
             synchronized (SmbPlaybackProxy.class) {
                 ref = FILES.get(token);
+                if (ref == null) ref = THUMBS.get(token);
             }
             if (ref == null) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found");
 
