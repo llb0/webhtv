@@ -56,6 +56,7 @@ import com.fongmi.android.tv.smb.SmbNetworkScanner;
 import com.fongmi.android.tv.smb.SmbPlaybackProxy;
 import com.fongmi.android.tv.smb.SmbRowAdapter;
 import com.fongmi.android.tv.smb.SmbThumbnailCache;
+import com.fongmi.android.tv.setting.PlayerSetting;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.color.MaterialColors;
@@ -1167,25 +1168,28 @@ public class SmbBrowserActivity extends AppCompatActivity {
                         if (entry.directory && isHiddenFolder(remotePath)) continue;
                         visibleFiles.add(entry);
                         if (entry.directory) {
-                            rows.add(SmbRowAdapter.Row.icon(entry.name, "文件夹", "📁"));
+                            rows.add(SmbRowAdapter.Row.icon(entry.name, "", "📁"));
                         } else if (SmbClient.isVideo(entry.name)) {
                             // 视频行给缩略图：取帧走缩略图专用 token 池，不会挤掉正在播放的直链。
+                            // 只有 IJK 能播的老容器（avi/wmv/rmvb 等）系统取帧器解不出来，直接按小图标显示。
                             String thumbUrl = null;
-                            try {
-                                thumbUrl = SmbPlaybackProxy.createThumbUrl(host, share, remotePath, username, password, domain);
-                            } catch (IOException ignored) {
-                                thumbUrl = null;
+                            if (!PlayerSetting.isLegacyContainer(entry.name)) {
+                                try {
+                                    thumbUrl = SmbPlaybackProxy.createThumbUrl(host, share, remotePath, username, password, domain);
+                                } catch (IOException ignored) {
+                                    thumbUrl = null;
+                                }
                             }
                             rows.add(thumbUrl == null
-                                    ? SmbRowAdapter.Row.icon(entry.name, "视频", "▶")
-                                    : SmbRowAdapter.Row.video(entry.name, "视频",
+                                    ? SmbRowAdapter.Row.icon(entry.name, "", "▶")
+                                    : SmbRowAdapter.Row.video(entry.name, "",
                                     SmbThumbnailCache.key(host, share, remotePath), thumbUrl));
                         } else if (SmbClient.isAudio(entry.name)) {
-                            rows.add(SmbRowAdapter.Row.icon(entry.name, "音频", "♫"));
+                            rows.add(SmbRowAdapter.Row.icon(entry.name, "", "♫"));
                         } else if (SmbClient.isImage(entry.name)) {
-                            rows.add(SmbRowAdapter.Row.icon(entry.name, "图片", "🖼️"));
+                            rows.add(SmbRowAdapter.Row.icon(entry.name, "", "🖼️"));
                         } else if (SmbClient.isApk(entry.name)) {
-                            rows.add(SmbRowAdapter.Row.icon(entry.name, "安装包", "📦"));
+                            rows.add(SmbRowAdapter.Row.icon(entry.name, "", "📦"));
                         } else {
                             rows.add(SmbRowAdapter.Row.icon(entry.name, "", "📄"));
                         }

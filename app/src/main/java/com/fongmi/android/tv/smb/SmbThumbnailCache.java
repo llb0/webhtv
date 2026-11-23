@@ -18,6 +18,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -41,6 +43,8 @@ public final class SmbThumbnailCache {
     private static final double MIN_LUMA = 36;
     private static final int TARGET_WIDTH = 480;
 
+    /** 这一次会话里取帧失败过的文件不再重试：老容器大多只有 IJK 能解，重试只会白读网络。 */
+    private static final Set<String> FAILED = ConcurrentHashMap.newKeySet();
     private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(3);
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final LruCache<String, Bitmap> MEMORY = new LruCache<String, Bitmap>(12 * 1024 * 1024) {
@@ -70,7 +74,14 @@ public final class SmbThumbnailCache {
      * 复用的行会在回来时校验 tag，避免图片落到别的条目上。
      */
     public static void load(Context context, String key, String url, ImageView view, int width, int height) {
+        load(context, key, url, view, width, height, null);
+    }
+
+    /** {@code onReady} 在主线程、图片真正贴上之后回调，供列表在缩略图就绪时再撑开左侧格子。 */
+    public static void load(Context context, String key, String url, ImageView view, int width, int height,
+                            Runnable onReady) {
         if (context == null || key == null || view == null) return;
+        if (FAILED.contains(key)) return;
         view.setTag(key);
         Bitmap memory = MEMORY.get(key);
         if (memory != null && !memory.isRecycled()) {
@@ -88,12 +99,14 @@ public final class SmbThumbnailCache {
             } catch (Throwable ignored) {
                 bitmap = null;
             }
+            if (bitmap == null) FAILED.add(key);
             Bitmap result = bitmap;
             MAIN.post(() -> {
                 Object tag = view.getTag();
                 if (result == null || tag == null || !tag.equals(key)) return;
                 MEMORY.put(key, result);
                 view.setImageBitmap(result);
+                if (onReady != null) onReady.run();
             });
         });
     }
@@ -101,6 +114,7 @@ public final class SmbThumbnailCache {
     /** 图片缓存被清理后调用：把内存里的引用一起放掉，避免删了盘还占着。 */
     public static void clearMemory() {
         MEMORY.evictAll();
+        FAILED.clear();
     }
 
     public static File file(Context context, String key) {

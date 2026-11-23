@@ -15,6 +15,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.fongmi.android.tv.setting.Setting;
 import com.google.android.material.color.MaterialColors;
 
 import java.util.ArrayList;
@@ -24,7 +25,9 @@ import java.util.List;
  * SMB 浏览页的卡片式列表：所有视图（主机、共享、目录、收藏夹、隐藏项）共用这一个适配器，
  * 长按菜单与点击仍按 {@code mode + position} 取数据，显示层改版不影响它们。
  *
- * <p>视频行带缩略图（{@link SmbThumbnailCache}），目录/音频/图片/APK 行用图标占位。</p>
+ * <p>非视频行只有一个小图标加标题；视频行同样先显示小图标，等缩略图真的取到了
+ * 才把左侧换成 16:9 截图，避免大部分取不到截图的视频白白撑开一行大黑底。
+ * 标题显示遵循设置里的「标题换行」：单行跑马灯，或按设置的 2/3/不限行换行。</p>
  */
 public class SmbRowAdapter extends BaseAdapter {
 
@@ -43,11 +46,6 @@ public class SmbRowAdapter extends BaseAdapter {
             this.thumbUrl = thumbUrl;
         }
 
-        /** 只有标题的普通行（主机/共享/收藏夹文本）。 */
-        public static Row text(String title) {
-            return new Row(title, "", "", null, null);
-        }
-
         /**
          * 从既有标签生成行：标签形如 "📁  名称" / "★ 主机 / 共享 / 路径" 时，
          * 把前面那个符号当作左侧图标，其余当标题；没有符号就当纯文本行。
@@ -64,23 +62,29 @@ public class SmbRowAdapter extends BaseAdapter {
             return text(label);
         }
 
-        /** 带图标占位、但没有缩略图的行。 */
+        /** 只有标题的普通行。 */
+        public static Row text(String title) {
+            return new Row(title, "", "", null, null);
+        }
+
+        /** 带小图标、没有缩略图的行。 */
         public static Row icon(String title, String subtitle, String glyph) {
             return new Row(title, subtitle, glyph == null ? "" : glyph, null, null);
         }
 
-        /** 视频行：缩略图异步取帧，副标题放大小等信息。 */
+        /** 视频行：缩略图取到之前仍按小图标显示，取到后由适配器自己换成截图。 */
         public static Row video(String title, String subtitle, String thumbKey, String thumbUrl) {
             return new Row(title, subtitle, "▶", thumbKey, thumbUrl);
         }
     }
 
     private static final class Holder {
-        FrameLayout box;
+        TextView icon;
+        FrameLayout thumbBox;
         ImageView thumb;
-        TextView glyph;
         TextView title;
         TextView subtitle;
+        String thumbKey;
     }
 
     private final Context context;
@@ -141,8 +145,7 @@ public class SmbRowAdapter extends BaseAdapter {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(6), dp(8), dp(10), dp(8));
-        row.setMinimumHeight(dp(90));
+        row.setPadding(dp(10), dp(8), dp(12), dp(8));
         // 默认透明，让 ListView 自己的选中/焦点背景透出来；电视焦点环仍落在整行上。
         StateListDrawable background = new StateListDrawable();
         background.addState(new int[]{android.R.attr.state_focused, android.R.attr.state_window_focused},
@@ -151,28 +154,29 @@ public class SmbRowAdapter extends BaseAdapter {
         background.addState(new int[]{}, new ColorDrawable(0x00000000));
         row.setBackground(background);
 
-        FrameLayout thumbBox = new FrameLayout(context);
-        thumbBox.setBackgroundColor(0xFF1A2130);
-        LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(thumbWidth, thumbHeight);
-        row.addView(thumbBox, boxParams);
+        holder.icon = new TextView(context);
+        holder.icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        holder.icon.setTextColor(variant);
+        holder.icon.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(28), dp(28));
+        iconParams.setMarginEnd(dp(10));
+        row.addView(holder.icon, iconParams);
 
-        holder.box = thumbBox;
+        holder.thumbBox = new FrameLayout(context);
+        holder.thumbBox.setBackgroundColor(0xFF1A2130);
+        holder.thumbBox.setVisibility(View.GONE);
+        LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(thumbWidth, thumbHeight);
+        boxParams.setMarginEnd(dp(10));
+        row.addView(holder.thumbBox, boxParams);
+
         holder.thumb = new ImageView(context);
         holder.thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        thumbBox.addView(holder.thumb, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        holder.glyph = new TextView(context);
-        holder.glyph.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
-        holder.glyph.setTextColor(onSurface);
-        holder.glyph.setGravity(Gravity.CENTER);
-        thumbBox.addView(holder.glyph, new FrameLayout.LayoutParams(
+        holder.thumbBox.addView(holder.thumb, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         LinearLayout text = new LinearLayout(context);
         text.setOrientation(LinearLayout.VERTICAL);
         text.setGravity(Gravity.CENTER_VERTICAL);
-        text.setPadding(dp(14), 0, 0, 0);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1f);
         row.addView(text, textParams);
 
@@ -180,8 +184,6 @@ public class SmbRowAdapter extends BaseAdapter {
         holder.title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         holder.title.setTextColor(onSurface);
         holder.title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        holder.title.setSingleLine(true);
-        holder.title.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         text.addView(holder.title, new LinearLayout.LayoutParams(-1, -2));
 
         holder.subtitle = new TextView(context);
@@ -197,17 +199,29 @@ public class SmbRowAdapter extends BaseAdapter {
 
     private void bind(Holder holder, Row row) {
         holder.title.setText(row.title == null ? "" : row.title);
+        // 「标题换行」设置统一决定是单行跑马灯，还是按 2/3/不限行换行。
+        Setting.applyTitleMaxLines(holder.title);
+        holder.title.setSelected(true);
         holder.subtitle.setText(row.subtitle == null ? "" : row.subtitle);
         holder.subtitle.setVisibility(TextUtils.isEmpty(row.subtitle) ? View.GONE : View.VISIBLE);
+
         boolean hasThumb = !TextUtils.isEmpty(row.thumbKey) && !TextUtils.isEmpty(row.thumbUrl);
-        // 既没有缩略图也没有图标的行不占左侧格子（例如隐藏主机里的纯 IP）。
-        holder.box.setVisibility(hasThumb || !TextUtils.isEmpty(row.glyph) ? View.VISIBLE : View.GONE);
+        holder.icon.setText(row.glyph == null ? "" : row.glyph);
+        holder.icon.setVisibility(TextUtils.isEmpty(row.glyph) ? View.GONE : View.VISIBLE);
+        holder.thumbBox.setVisibility(View.GONE);
         holder.thumb.setImageDrawable(null);
         holder.thumb.setTag(null);
-        holder.thumb.setVisibility(hasThumb ? View.VISIBLE : View.GONE);
-        holder.glyph.setVisibility(hasThumb ? View.GONE : View.VISIBLE);
-        holder.glyph.setText(row.glyph == null ? "" : row.glyph);
-        if (hasThumb) SmbThumbnailCache.load(context, row.thumbKey, row.thumbUrl, holder.thumb, thumbWidth, thumbHeight);
+        holder.thumbKey = row.thumbKey;
+        if (!hasThumb) return;
+
+        // 截图回来之前保持紧凑的小图标行；回来后才把左侧换成缩略图并让整行重新量一次高度。
+        SmbThumbnailCache.load(context, row.thumbKey, row.thumbUrl, holder.thumb, thumbWidth, thumbHeight, () -> {
+            if (row.thumbKey == null || !row.thumbKey.equals(holder.thumbKey)) return;
+            holder.icon.setVisibility(View.GONE);
+            holder.thumbBox.setVisibility(View.VISIBLE);
+            View parent = (View) holder.thumbBox.getParent();
+            if (parent != null) parent.requestLayout();
+        });
     }
 
     private int dp(int value) {
