@@ -2627,10 +2627,20 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
     /**
      * 起播前把内核切到本剧记住的选择，并返回该内核给取址用——取播放地址要按内核区分线路。
      * 记住的内核只对当前线路自己的记录生效；跨源聚合来的记录回落到设置页的全局默认。
+     * 老容器（AVI/WMV/RMVB 等）Exo 没有解复用器，记忆里是 EXO 也要改走 IJK，避免总时长 0/黑屏。
      * 播放服务还没连上时先只记会话内核（取址在工作线程上读它），引擎由 onServiceConnected 补齐。
      */
-    private int applyHistoryPlayerKernel(boolean forcePrepare) {
+    private int applyHistoryPlayerKernel(String sourceUrl, boolean forcePrepare) {
         int kernel = mHistory == null ? PlayerSetting.getPlayer() : mHistory.getPlaybackPlayerOrDefault(kernelFlag());
+        // 本地 /file 代理地址正常带原后缀；若被编码/截断丢了后缀，再用当前文件名兜底判断。
+        boolean legacyContainer = PlayerSetting.isLegacyContainer(sourceUrl)
+                || PlayerSetting.isLegacyContainer(getName());
+        if (kernel == PlayerSetting.EXO && legacyContainer) {
+            kernel = PlayerSetting.IJK;
+            // 只有 SMB 入口先前把会话覆盖成 EXO 时才需要反向覆盖；本地文件没有 EXO 覆盖，
+            // 不要把 IJK 写进全局运行期覆盖，否则退出后会影响后续普通播放，看起来像被锁死。
+            if (isSmbSource()) PlayerSetting.setRuntimePlayerOverride(PlayerSetting.IJK);
+        }
         PlayerSetting.putActivePlayer(kernel);
         if (service() == null) {
             mPendingPlayerKernel = kernel;
@@ -2646,9 +2656,13 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         return kernel;
     }
 
-    /** 兼容重载：调用方手上只有 URL，不再参与内核判断。 */
+    private int applyHistoryPlayerKernel(boolean forcePrepare) {
+        return applyHistoryPlayerKernel(null, forcePrepare);
+    }
+
+    /** 调用点手上只有 URL，用它做老容器判断。 */
     private int applyHistoryPlayerKernel(String sourceUrl) {
-        return applyHistoryPlayerKernel(false);
+        return applyHistoryPlayerKernel(sourceUrl, false);
     }
 
     /** 当前线路名：内核记忆按线路存，读写都必须带它。 */

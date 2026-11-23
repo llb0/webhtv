@@ -20,7 +20,7 @@ public class VideoActivitySeekProgressSourceTest {
     @Test
     public void historyKernelRebuildRebindsSeekView() throws Exception {
         String activity = readActivity();
-        String body = methodBody(activity, "private int applyHistoryPlayerKernel(boolean forcePrepare)");
+        String body = methodBody(activity, "private int applyHistoryPlayerKernel(String sourceUrl, boolean forcePrepare)");
 
         int prepare = body.indexOf("player().preparePlayer(kernel, forcePrepare);");
         int rebind = body.indexOf("getSeekView().setProgressPlayer(player().getPlayer());", prepare);
@@ -56,7 +56,7 @@ public class VideoActivitySeekProgressSourceTest {
         assertTrue("getSeekView() must keep returning the control bar seek view",
                 accessor.contains("mBinding.control.seek"));
         assertFalse("the rebinds must go through getSeekView() rather than binding the seek view directly",
-                methodBody(activity, "private int applyHistoryPlayerKernel(boolean forcePrepare)")
+                methodBody(activity, "private int applyHistoryPlayerKernel(String sourceUrl, boolean forcePrepare)")
                         .contains("mBinding.control.seek"));
     }
 
