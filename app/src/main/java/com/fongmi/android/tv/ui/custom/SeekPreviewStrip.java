@@ -10,6 +10,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+
+import com.fongmi.android.tv.player.TrickplayNative;
 import android.util.AttributeSet;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -42,10 +44,9 @@ import java.util.Map;
  */
 public class SeekPreviewStrip extends FrameLayout {
 
-    /** 缩略图目标高度；手机屏幕小，按 5 格保底，格宽再均分，整排铺满不留大空白。 */
-    private static final int TARGET_CELL_HEIGHT_DP = 64;
+    /** 固定 8 格，格宽按可用宽度等分（16:9 比例），整排铺满，不自动算格数。 */
+    private static final int CELL_COUNT = 8;
     private static final int CELL_GAP_DP = 5;
-    private static final int MIN_CELL_COUNT = 5;
     private static final long HOLD_MS = 3000L;
     private static final long MIN_SPACING_MS = 30L * 1000L;
     private static final long MAX_SPACING_MS = 5L * 60L * 1000L;
@@ -79,6 +80,7 @@ public class SeekPreviewStrip extends FrameLayout {
     private int focus = FOCUS_NONE;
     private boolean active;
     private boolean dragging;
+    private boolean reportedUnavailable;
 
     public SeekPreviewStrip(Context context) {
         this(context, null);
@@ -91,10 +93,10 @@ public class SeekPreviewStrip extends FrameLayout {
 
         int usable = usableWidth();
         int gap = dp(CELL_GAP_DP);
-        int targetWidth = Math.round(dp(TARGET_CELL_HEIGHT_DP) * 16f / 9f);
-        cellCount = Math.max(MIN_CELL_COUNT, Math.round((usable + gap) / (float) (targetWidth + gap)));
-        cellWidth = Math.max(dp(48), (usable - gap * (cellCount - 1)) / cellCount);
-        cellHeight = Math.max(dp(27), Math.round(cellWidth * 9f / 16f));
+        cellCount = CELL_COUNT;
+        // 严格等分：多出来的像素按格均匀分掉，避免右侧留白或某格被拉伸。
+        cellWidth = Math.max(1, (usable - gap * (cellCount - 1)) / cellCount);
+        cellHeight = Math.max(1, Math.round(cellWidth * 9f / 16f));
 
         container = new LinearLayout(context);
         container.setOrientation(LinearLayout.VERTICAL);
@@ -329,8 +331,8 @@ public class SeekPreviewStrip extends FrameLayout {
     }
 
     /**
-     * 读缩略图：命中 trickplay 磁盘缓存就直接贴；缺格时补当前这一窗（一次 ffmpeg 调用），
-     * 补完再读一遍。仍然缺（源不支持或抽帧失败）就退回旧的 MMR 现场取帧，只补缺的那几格。
+     * 读缩略图：命中 trickplay 磁盘缓存就直接贴；缺格时按“这 8 个位置”逐格补，
+     * 补到一格就刷新一格，不用等整排抽完。仍然缺（源不支持或抽帧失败）才退回 MMR 兜底。
      */
     private void loadFrames(boolean allowPrepare) {
         if (!active) return;
@@ -342,33 +344,63 @@ public class SeekPreviewStrip extends FrameLayout {
         final String mediaUrl = media;
         final Map<String, String> mediaHeaders = headers;
         TrickplayStore.io().execute(() -> {
-            final List<Bitmap> results = new ArrayList<>(positions.size());
             final List<Long> missing = new ArrayList<>();
             for (long position : positions) {
                 Bitmap bitmap = TextUtils.isEmpty(mediaUrl) ? null
                         : TrickplayStore.read(context, mediaUrl, position, width, height);
-                results.add(bitmap);
                 if (bitmap == null) missing.add(position);
-            }
-            handler.post(() -> {
-                if (!active) return;
-                List<Long> current = cellPositions();
-                for (int i = 0; i < cells.size() && i < results.size(); i++) {
-                    if (current.get(i).longValue() != positions.get(i).longValue()) continue;
-                    applyFallback(cells.get(i), results.get(i));
+                else {
+                    final Bitmap found = bitmap;
+                    final long at = position;
+                    handler.post(() -> applyAt(positions, at, found));
                 }
-            });
-            if (missing.isEmpty() || TextUtils.isEmpty(mediaUrl)) return;
-            long first = missing.get(0);
-            long last = missing.get(missing.size() - 1);
-            int count = (int) ((last - first) / TrickplayStore.STEP_MS) + 1;
-            if (allowPrepare) {
-                TrickplayStore.prepareWindow(context, mediaUrl, mediaHeaders, first, count,
-                        () -> handler.post(() -> loadFrames(false)));
-            } else {
-                handler.post(() -> loadFallbackFrames(positions));
             }
+            if (missing.isEmpty() || TextUtils.isEmpty(mediaUrl)) return;
+            if (!allowPrepare) {
+                handler.post(() -> loadFallbackFrames(positions));
+                return;
+            }
+            TrickplayStore.ensureFrames(context, mediaUrl, mediaHeaders, missing,
+                    () -> TrickplayStore.io().execute(() -> {
+                        // 每落一格就重新读一次还空着的位置，抽到哪贴到哪。
+                        for (long position : positions) {
+                            Bitmap bitmap = TrickplayStore.read(context, mediaUrl, position, width, height);
+                            if (bitmap == null) continue;
+                            final Bitmap found = bitmap;
+                            final long at = position;
+                            handler.post(() -> applyAt(positions, at, found));
+                        }
+                    }),
+                    () -> handler.post(() -> {
+                        if (!TrickplayNative.isReady()) reportUnavailableOnce(context);
+                        loadFallbackFrames(positions);
+                    }));
         });
+    }
+
+    /** 只在“位置还没变”的格子上贴图，避免拖动后贴到错位。 */
+    private void applyAt(List<Long> positions, long position, Bitmap bitmap) {
+        if (!active || bitmap == null) return;
+        List<Long> current = cellPositions();
+        for (int i = 0; i < cells.size() && i < positions.size() && i < current.size(); i++) {
+            if (positions.get(i).longValue() != position) continue;
+            if (current.get(i).longValue() != position) continue;
+            applyFallback(cells.get(i), bitmap);
+        }
+    }
+
+    /** 抽帧不可用时提示一次原因，省得用户只能靠猜。 */
+    private void reportUnavailableOnce(android.content.Context context) {
+        if (reportedUnavailable) return;
+        reportedUnavailable = true;
+        String reason = TrickplayNative.lastError();
+        if (TextUtils.isEmpty(reason)) reason = "内置 FFmpeg 未加载";
+        try {
+            android.widget.Toast.makeText(context,
+                    "预览抽帧不可用：" + reason + "（已退回旧取帧）",
+                    android.widget.Toast.LENGTH_LONG).show();
+        } catch (Throwable ignored) {
+        }
     }
 
     /** ffmpeg 这条路走不通时，沿用 MMR 单帧抽取，只处理还空着的格子。 */

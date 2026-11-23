@@ -72,6 +72,11 @@ decltype(&av_freep) p_av_freep;
 
 bool gBound = false;
 std::mutex gBindMutex;
+std::string gLastError;
+
+void setLastError(const std::string& error) {
+    gLastError = error;
+}
 
 void* openLibrary(const char* dir, const char* name) {
     std::string path = std::string(dir) + "/" + name;
@@ -205,13 +210,38 @@ void releaseExtractor(Extractor* ex) {
     delete ex;
 }
 
+// Read packets until one frame comes out of the decoder (or EOF).
+bool nextDecodedFrame(Extractor* ex) {
+    p_av_frame_unref(ex->frame);
+    while (p_av_read_frame(ex->fmt, ex->pkt) >= 0) {
+        if (ex->pkt->stream_index != ex->streamIndex) {
+            p_av_packet_unref(ex->pkt);
+            continue;
+        }
+        int sendResult = p_avcodec_send_packet(ex->dec, ex->pkt);
+        p_av_packet_unref(ex->pkt);
+        if (sendResult < 0 && sendResult != AVERROR(EAGAIN)) continue;
+        if (p_avcodec_receive_frame(ex->dec, ex->frame) == 0) return true;
+    }
+    p_avcodec_send_packet(ex->dec, nullptr);
+    return p_avcodec_receive_frame(ex->dec, ex->frame) == 0;
+}
+
 // Decode the first frame at (or right before) the requested position.
 bool decodeAt(Extractor* ex, int64_t positionMs) {
     AVStream* stream = ex->fmt->streams[ex->streamIndex];
     int64_t ts = p_av_rescale_q(positionMs, AVRational{1, 1000}, stream->time_base);
     ex->deadlineMs.store(nowMs() + kReadTimeoutMs, std::memory_order_relaxed);
     int seekResult = p_av_seek_frame(ex->fmt, ex->streamIndex, ts, AVSEEK_FLAG_BACKWARD);
-    if (seekResult < 0) LOGW("seek failed at %lld: %d", (long long) positionMs, seekResult);
+    if (seekResult < 0) {
+        // 定位不了就别硬解第一帧冒充这一格（例如部分直播型 m3u8）。
+        LOGW("seek failed at %lld: %d", (long long) positionMs, seekResult);
+        if (positionMs > 2000) {
+            setLastError("该位置不支持定位");
+            ex->deadlineMs.store(0, std::memory_order_relaxed);
+            return false;
+        }
+    }
     p_avcodec_flush_buffers(ex->dec);
     p_av_frame_unref(ex->frame);
     p_av_packet_unref(ex->pkt);
@@ -231,6 +261,7 @@ bool decodeAt(Extractor* ex, int64_t positionMs) {
     }
     p_avcodec_send_packet(ex->dec, nullptr);
     bool ok = p_avcodec_receive_frame(ex->dec, ex->frame) == 0;
+    if (!ok) setLastError("该位置解不出画面");
     ex->deadlineMs.store(0, std::memory_order_relaxed);
     return ok;
 }
@@ -322,7 +353,10 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeOpen(JNIEnv* env, jclass
     ex->fmt->interrupt_callback.opaque = ex;
 
     AVDictionary* options = nullptr;
-    p_av_dict_set(&options, "timeout", "15000000", 0);  // microseconds
+    p_av_dict_set(&options, "timeout", "20000000", 0);  // microseconds
+    // 网络源（HLS 等）探测别太久：够拿 codec 参数即可，探慢了预览就等不及。
+    p_av_dict_set(&options, "probesize", "2000000", 0);
+    p_av_dict_set(&options, "analyzeduration", "3000000", 0);
     applyHeaders(env, headers, &options);
     ex->deadlineMs.store(nowMs() + kOpenTimeoutMs, std::memory_order_relaxed);
     int openResult = p_avformat_open_input(&ex->fmt, target.c_str(), nullptr, &options);
@@ -330,6 +364,7 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeOpen(JNIEnv* env, jclass
     ex->deadlineMs.store(0, std::memory_order_relaxed);
     if (openResult < 0) {
         LOGW("open failed: %d (%s)", openResult, target.c_str());
+        setLastError("打开片源失败(" + std::to_string(openResult) + ")");
         releaseExtractor(ex);
         return 0;
     }
@@ -338,12 +373,14 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeOpen(JNIEnv* env, jclass
     ex->deadlineMs.store(0, std::memory_order_relaxed);
     if (infoResult < 0) {
         LOGW("find_stream_info failed: %d", infoResult);
+        setLastError("读取片源信息失败(" + std::to_string(infoResult) + ")");
         releaseExtractor(ex);
         return 0;
     }
     ex->streamIndex = p_av_find_best_stream(ex->fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
     if (ex->streamIndex < 0) {
         LOGW("no video stream");
+        setLastError("没有视频流");
         releaseExtractor(ex);
         return 0;
     }
@@ -351,6 +388,7 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeOpen(JNIEnv* env, jclass
     const AVCodec* codec = p_avcodec_find_decoder(stream->codecpar->codec_id);
     if (codec == nullptr) {
         LOGW("no decoder for codec id %d", stream->codecpar->codec_id);
+        setLastError("没有对应的解码器");
         releaseExtractor(ex);
         return 0;
     }
@@ -358,16 +396,19 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeOpen(JNIEnv* env, jclass
     if (ex->dec == nullptr || p_avcodec_parameters_to_context(ex->dec, stream->codecpar) < 0 ||
         p_avcodec_open2(ex->dec, codec, nullptr) < 0) {
         LOGW("decoder open failed");
+        setLastError("解码器打开失败");
         releaseExtractor(ex);
         return 0;
     }
-    ex->dec->thread_count = 1;  // thumbnails only; keep memory/CPU low
+    ex->dec->thread_count = 1;              // thumbnails only; keep memory/CPU low
+    ex->dec->skip_frame = AVDISCARD_NONKEY;  // 和 Jellyfin 一样只解关键帧
     ex->pkt = p_av_packet_alloc();
     ex->frame = p_av_frame_alloc();
     if (ex->pkt == nullptr || ex->frame == nullptr) {
         releaseExtractor(ex);
         return 0;
     }
+    setLastError("");
     LOGI("opened %s stream=%d %dx%d", target.c_str(), ex->streamIndex, stream->codecpar->width,
          stream->codecpar->height);
     return reinterpret_cast<jlong>(ex);
@@ -387,4 +428,51 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeClose(JNIEnv*, jclass, j
     Extractor* ex = reinterpret_cast<Extractor*>(handle);
     if (ex == nullptr) return;
     if (gBound) releaseExtractor(ex);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_fongmi_android_tv_player_TrickplayNative_nativeRestart(JNIEnv*, jclass, jlong handle,
+                                                                 jlong positionMs) {
+    Extractor* ex = reinterpret_cast<Extractor*>(handle);
+    if (ex == nullptr || !gBound) return JNI_FALSE;
+    AVStream* stream = ex->fmt->streams[ex->streamIndex];
+    int64_t ts = p_av_rescale_q(positionMs, AVRational{1, 1000}, stream->time_base);
+    ex->deadlineMs.store(nowMs() + kReadTimeoutMs, std::memory_order_relaxed);
+    bool ok = p_av_seek_frame(ex->fmt, ex->streamIndex, ts, AVSEEK_FLAG_BACKWARD) >= 0;
+    p_avcodec_flush_buffers(ex->dec);
+    p_av_frame_unref(ex->frame);
+    p_av_packet_unref(ex->pkt);
+    ex->deadlineMs.store(0, std::memory_order_relaxed);
+    if (!ok) setLastError("定位失败");
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// 顺序往前解，直到落在 targetMs 或之后的第一个关键帧；到片尾返回 null。
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_fongmi_android_tv_player_TrickplayNative_nativeAdvance(JNIEnv* env, jclass, jlong handle,
+                                                                 jlong targetMs, jint targetWidth) {
+    Extractor* ex = reinterpret_cast<Extractor*>(handle);
+    if (ex == nullptr || !gBound) return nullptr;
+    AVStream* stream = ex->fmt->streams[ex->streamIndex];
+    ex->deadlineMs.store(nowMs() + kReadTimeoutMs, std::memory_order_relaxed);
+    while (nextDecodedFrame(ex)) {
+        int64_t stamp = ex->frame->best_effort_timestamp;
+        if (stamp == AV_NOPTS_VALUE) stamp = ex->frame->pts;
+        int64_t frameMs = stamp == AV_NOPTS_VALUE ? -1
+                : p_av_rescale_q(stamp, stream->time_base, AVRational{1, 1000});
+        if (frameMs < 0 || frameMs >= targetMs) {
+            ex->deadlineMs.store(0, std::memory_order_relaxed);
+            setLastError("");
+            return frameToArgb(env, ex, targetWidth);
+        }
+    }
+    ex->deadlineMs.store(0, std::memory_order_relaxed);
+    setLastError("已到片尾");
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_fongmi_android_tv_player_TrickplayNative_nativeLastError(JNIEnv* env, jclass) {
+    if (gLastError.empty()) return nullptr;
+    return env->NewStringUTF(gLastError.c_str());
 }

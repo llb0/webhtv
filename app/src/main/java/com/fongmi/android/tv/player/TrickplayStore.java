@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.LruCache;
 
 import java.io.File;
@@ -104,14 +105,26 @@ public final class TrickplayStore {
             return handle != 0 && !closed;
         }
 
-        public Bitmap grab(long positionMs, int width) {
+        public synchronized Bitmap grab(long positionMs, int width) {
             if (!isValid()) return null;
             int[] frame = TrickplayNative.nativeGrab(handle, Math.max(0, positionMs), width);
             return TrickplayNative.bitmapOf(frame);
         }
 
+        /** 顺序模式：先定位一次，之后用 {@link #advance} 一路往前，避免逐格 seek 把盘扫死。 */
+        public synchronized boolean restart(long positionMs) {
+            if (!isValid()) return false;
+            return TrickplayNative.nativeRestart(handle, Math.max(0, positionMs));
+        }
+
+        public synchronized Bitmap advance(long targetMs, int width) {
+            if (!isValid()) return null;
+            int[] frame = TrickplayNative.nativeAdvance(handle, Math.max(0, targetMs), width);
+            return TrickplayNative.bitmapOf(frame);
+        }
+
         @Override
-        public void close() {
+        public synchronized void close() {
             if (closed) return;
             closed = true;
             long value = handle;
@@ -148,16 +161,15 @@ public final class TrickplayStore {
         thread.start();
     }
 
+    /**
+     * 停止后台抽帧。这里只发停止信号并唤醒线程，句柄由抽帧线程自己在 finally 里关，
+     * 避免主线程 nativeClose 掉正在 nativeGrab 的句柄（那是之前退出 SMB 崩溃的原因）。
+     */
     public static void stopBackground() {
         backgroundKey = null;
+        Thread thread = backgroundThread;
         backgroundThread = null;
-        closeBackgroundExtractor();
-    }
-
-    private static void closeBackgroundExtractor() {
-        Extractor extractor = backgroundExtractor;
-        backgroundExtractor = null;
-        if (extractor != null) extractor.close();
+        if (thread != null) thread.interrupt();
     }
 
     /** 播放器缓冲 / 卡顿时挂起后台抽帧，READY 后继续。 */
@@ -173,31 +185,38 @@ public final class TrickplayStore {
         }
         if (durationMs <= 0) return;
         Extractor extractor = null;
-        int failures = 0;
         try {
+            int index = lastCompleteIndex(context, key) + 1;
+            if ((index - 1) * STEP_MS >= durationMs) return;
+            extractor = open(context, media, headers);
+            if (extractor == null || !extractor.isValid()) {
+                logFailure(context, "后台抽帧打不开：" + TrickplayNative.lastError());
+                return;
+            }
+            backgroundExtractor = extractor;
+            // 只在开头定位一次，之后一路顺序解码，不再每格 seek（本地 avi 这种没索引的尤其明显）。
+            if (!extractor.restart((index - 1) * STEP_MS)) {
+                logFailure(context, "后台抽帧定位失败：" + TrickplayNative.lastError());
+                return;
+            }
             while (key.equals(backgroundKey)) {
+                long target = (index - 1) * STEP_MS;
+                if (target >= durationMs) return;
                 if (playerBusy || RUNNING.contains(key)) {
-                    sleep(500);
+                    // 缓冲 / 前台窗口在抽帧：先让路，位置不动，回来继续。
+                    sleep(400);
                     continue;
                 }
-                int index = lastCompleteIndex(context, key) + 1;
-                if ((index - 1) * STEP_MS >= durationMs) return;
-                if (extractor == null) {
-                    extractor = open(context, media, headers);
-                    backgroundExtractor = extractor;
-                    if (extractor == null || !extractor.isValid()) return;
-                }
-                Bitmap bitmap = extractor.grab((index - 1) * STEP_MS, FRAME_WIDTH);
+                Bitmap bitmap = extractor.advance(target, FRAME_WIDTH);
                 if (!key.equals(backgroundKey)) return;
-                if (bitmap == null) {
-                    // 网络抖动之类：同一格重试几次，仍然不行就放弃后台，别空转。
-                    if (++failures >= MAX_STREAM_FAILURES) return;
-                    sleep(1_000L);
-                    continue;
-                }
-                failures = 0;
-                writeFrame(frameFile(context, key, index), bitmap);
+                if (bitmap == null) return;  // 到片尾或解不出来
+                File file = frameFile(context, key, index);
+                if (!file.isFile() || file.length() == 0) writeFrame(file, bitmap);
+                else bitmap.recycle();
+                index++;
                 trim(context);
+                // 轻让一下 CPU，给播放解码留出余量。
+                sleep(20);
             }
         } finally {
             if (extractor != null) extractor.close();
@@ -265,23 +284,22 @@ public final class TrickplayStore {
     }
 
     /**
-     * 补一窗：{@code count} 格，从 {@code firstMs} 起。同一次预览重复打开只跑一次，
-     * 已经在跑的窗口会被后来的请求替换成最新位置。每抽到一格就落盘，调用方随时可读。
+     * 补指定位置：预览条要哪几格就抽哪几格（不再按 10 秒网格补一整窗），
+     * 一格抽完就落盘并回调一次，界面可以边抽边贴，不用等整排补完。
      */
-    public static void prepareWindow(Context context, String media, Map<String, String> headers,
-                                     long firstMs, int count, Runnable onDone) {
-        if (context == null || TextUtils.isEmpty(media) || count <= 0) {
+    public static void ensureFrames(Context context, String media, Map<String, String> headers,
+                                    java.util.List<Long> positions, Runnable onFrame, Runnable onDone) {
+        if (context == null || TextUtils.isEmpty(media) || positions == null || positions.isEmpty()) {
             if (onDone != null) MAIN.post(onDone);
             return;
         }
         String key = keyFor(media);
-        int start = frameIndex(firstMs);
-        String token = key + "@" + start + "+" + count;
+        String token = key + "#" + positions.hashCode();
         if (!ATTEMPTED.add(token)) {
             if (onDone != null) MAIN.post(onDone);
             return;
         }
-        Window window = new Window(context.getApplicationContext(), media, headers, start, count, onDone);
+        Window window = new Window(context.getApplicationContext(), media, headers, positions, onFrame, onDone);
         if (RUNNING.add(key)) {
             IO.execute(() -> runWindow(window));
         } else {
@@ -303,20 +321,49 @@ public final class TrickplayStore {
     }
 
     private static void executeWindow(Window window) {
-        if (window.count <= 0) return;
+        if (window.positions.isEmpty()) return;
         try (Extractor extractor = open(window.context, window.media, window.headers)) {
-            if (extractor == null || !extractor.isValid()) return;
-            for (int i = 0; i < window.count; i++) {
-                int index = window.start + i;
+            if (extractor == null || !extractor.isValid()) {
+                logFailure(window.context, "抽帧会话打不开：" + TrickplayNative.lastError());
+                return;
+            }
+            // 预览位置是按时间递增的：定位一次后顺序推进，比逐格 seek 快得多。
+            boolean ascending = true;
+            for (int i = 1; i < window.positions.size(); i++) {
+                if (window.positions.get(i) <= window.positions.get(i - 1)) ascending = false;
+            }
+            if (ascending && !window.positions.isEmpty()) {
+                extractor.restart((frameIndex(window.positions.get(0)) - 1) * STEP_MS);
+            }
+            for (Long position : window.positions) {
+                if (!RUNNING.contains(window.key)) break;
+                int index = frameIndex(position);
                 File file = frameFile(window.context, window.key, index);
                 if (file.isFile() && file.length() > 0) continue;
-                Bitmap bitmap = extractor.grab((index - 1) * STEP_MS, FRAME_WIDTH);
-                if (bitmap == null) continue;
+                Bitmap bitmap = ascending
+                        ? extractor.advance((index - 1) * STEP_MS, FRAME_WIDTH)
+                        : extractor.grab((index - 1) * STEP_MS, FRAME_WIDTH);
+                if (bitmap == null) {
+                    logFailure(window.context, "抽帧失败：" + TrickplayNative.lastError());
+                    continue;
+                }
                 writeFrame(file, bitmap);
+                if (window.onFrame != null) MAIN.post(window.onFrame);
             }
         } finally {
             trim(window.context);
         }
+    }
+
+    private static void logFailure(Context context, String message) {
+        if (context == null) return;
+        File marker = new File(context.getCacheDir(), "trickplay.log");
+        if (marker.length() > 64 * 1024) marker.delete();
+        try (FileOutputStream output = new FileOutputStream(marker, true)) {
+            output.write((System.currentTimeMillis() + " " + message + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Throwable ignored) {
+        }
+        Log.w("Trickplay", message);
     }
 
     /** 写一格 jpg：先写 .tmp 再改名，读端永远不会看到半张图。 */
@@ -554,17 +601,18 @@ public final class TrickplayStore {
         final String media;
         final Map<String, String> headers;
         final String key;
-        final int start;
-        final int count;
+        final java.util.List<Long> positions;
+        final Runnable onFrame;
         final Runnable onDone;
 
-        Window(Context context, String media, Map<String, String> headers, int start, int count, Runnable onDone) {
+        Window(Context context, String media, Map<String, String> headers,
+               java.util.List<Long> positions, Runnable onFrame, Runnable onDone) {
             this.context = context;
             this.media = media;
             this.headers = headers;
             this.key = keyFor(media);
-            this.start = start;
-            this.count = count;
+            this.positions = new java.util.ArrayList<>(positions);
+            this.onFrame = onFrame;
             this.onDone = onDone;
         }
     }
