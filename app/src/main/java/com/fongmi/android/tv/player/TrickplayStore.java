@@ -8,13 +8,8 @@ import android.os.Looper;
 import android.text.TextUtils;
 import android.util.LruCache;
 
-import com.arthenica.ffmpegkit.FFmpegKit;
-import com.arthenica.ffmpegkit.FFmpegSession;
-import com.arthenica.ffmpegkit.FFmpegSessionCompleteCallback;
-import com.arthenica.ffmpegkit.SessionState;
-import com.arthenica.ffmpegkit.ReturnCode;
-
 import java.io.File;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HashMap;
@@ -27,12 +22,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * trickplay 缩略图仓库：用 ffmpeg(-kit) 直接从片源抽关键帧，按「10 秒一格」落盘成 jpg，
- * 预览条只做读盘 + 裁剪，不再每次现场开一个解码器解一帧。
+ * trickplay 缩略图仓库：用应用自带的 FFmpeg（{@link TrickplayNative}，JNI 抽帧）直接从片源
+ * 抽关键帧，按「10 秒一格」落盘成 jpg，预览条只做读盘 + 裁剪。
  *
- * <p>与 Plex / Jellyfin 服务端 trickplay 的思路一致（{@code -skip_frame nokey} 只解关键帧、
- * 缩到 320 宽、10 秒一格），区别是生成放在设备端按需进行：预览条打开时只补当前那一窗（
- * 8~12 格，一次 ffmpeg 调用），已经抽过的位置永久命中磁盘缓存。</p>
+ * <p>与 Plex / Jellyfin 服务端 trickplay 思路一致（关键帧、320 宽、10 秒一格），区别是生成放在
+ * 设备端按需进行：起播就跑后台流式抽帧，抽一格写一格，预览条读多少用多少；预览打开时优先补
+ * 当前那一窗。</p>
  *
  * <p>目录挂在 {@code cache/trickplay}，参与缓存统计与自动清理，上限自管。</p>
  */
@@ -44,7 +39,7 @@ public final class TrickplayStore {
     public static final long STEP_MS = 10_000L;
     /** 预览图宽度：320 足够一排小格，单张 jpg 约 7KB。 */
     private static final int FRAME_WIDTH = 320;
-    private static final int FRAME_QUALITY = 4;
+    private static final int FRAME_JPEG_QUALITY = 84;
     private static final int COVER_WIDTH = 480;
     private static final long DISK_MAX_BYTES = 256L * 1024 * 1024;
     private static final long DISK_TRIM_TARGET_BYTES = 200L * 1024 * 1024;
@@ -53,6 +48,8 @@ public final class TrickplayStore {
     /** 找不到精确格时往前后各找几格（黄金时刻还没抽到时就近顶替）。 */
     private static final int NEIGHBORS = 5;
     private static final double MIN_COVER_LUMA = 36;
+    private static final long STREAM_POLL_MS = 300L;
+    private static final int MAX_STREAM_FAILURES = 3;
 
     private static final ExecutorService IO = Executors.newFixedThreadPool(2, runnable -> {
         Thread thread = new Thread(runnable, "trickplay");
@@ -71,14 +68,11 @@ public final class TrickplayStore {
     private static final Set<String> ATTEMPTED = ConcurrentHashMap.newKeySet();
     private static final AtomicLong LAST_TRIM = new AtomicLong(0);
 
-    private static final long STREAM_POLL_MS = 500L;
-    private static final int MAX_STREAM_FAILURES = 2;
-
     private static volatile boolean playerBusy;
     private static volatile String backgroundKey;
     private static volatile Thread backgroundThread;
-    /** 正在跑的那条流式抽帧会话，暂停/离开播放页时按 id 取消。 */
-    private static volatile long streamSessionId = -1;
+    /** 正在跑的后台流式抽帧会话，暂停/离开播放页时关掉它，让 IO 立刻让出来。 */
+    private static volatile Extractor backgroundExtractor;
 
     private TrickplayStore() {
     }
@@ -88,9 +82,57 @@ public final class TrickplayStore {
     }
 
     /**
+     * 抽帧会话：一个片源打开一次（探测 + 建解码器），之后每格只 seek+解一帧。
+     * 不是线程安全的，只在单个抽帧线程里用。
+     */
+    public static final class Extractor implements AutoCloseable {
+        private final Context context;
+        private final String media;
+        private final String[] headers;
+        private long handle;
+        private volatile boolean closed;
+
+        private Extractor(Context context, String media, Map<String, String> headers) {
+            this.context = context.getApplicationContext();
+            this.media = media;
+            this.headers = headerArray(headers);
+            this.handle = TrickplayNative.ensureLoaded(this.context)
+                    ? TrickplayNative.nativeOpen(media, this.headers) : 0;
+        }
+
+        public boolean isValid() {
+            return handle != 0 && !closed;
+        }
+
+        public Bitmap grab(long positionMs, int width) {
+            if (!isValid()) return null;
+            int[] frame = TrickplayNative.nativeGrab(handle, Math.max(0, positionMs), width);
+            return TrickplayNative.bitmapOf(frame);
+        }
+
+        @Override
+        public void close() {
+            if (closed) return;
+            closed = true;
+            long value = handle;
+            handle = 0;
+            if (value != 0) {
+                try {
+                    TrickplayNative.nativeClose(value);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
+
+    public static Extractor open(Context context, String media, Map<String, String> headers) {
+        if (context == null || TextUtils.isEmpty(media)) return null;
+        return new Extractor(context, media, headers);
+    }
+
+    /**
      * 播放一开始就在后台把整部片子的缩略图抽出来，不用等第一次快进。
-     * 只在播放器 READY 时推进；缓冲时由 {@link #setPlayerBusy(boolean)} 挂起，
-     * 有前台窗口在抽帧时也会让路。
+     * 抽一格写一格，前面几格几秒内就能用。缓冲时由 {@link #setPlayerBusy(boolean)} 挂起。
      */
     public static void startBackground(Context context, String media, Map<String, String> headers, long durationMs) {
         if (context == null || TextUtils.isEmpty(media)) return;
@@ -109,7 +151,13 @@ public final class TrickplayStore {
     public static void stopBackground() {
         backgroundKey = null;
         backgroundThread = null;
-        cancelStream();
+        closeBackgroundExtractor();
+    }
+
+    private static void closeBackgroundExtractor() {
+        Extractor extractor = backgroundExtractor;
+        backgroundExtractor = null;
+        if (extractor != null) extractor.close();
     }
 
     /** 播放器缓冲 / 卡顿时挂起后台抽帧，READY 后继续。 */
@@ -124,125 +172,37 @@ public final class TrickplayStore {
         } catch (Throwable ignored) {
         }
         if (durationMs <= 0) return;
+        Extractor extractor = null;
         int failures = 0;
-        while (key.equals(backgroundKey)) {
-            if (!waitWhileBusy(key)) return;
-            int next = lastCompleteIndex(context, key) + 1;
-            if ((next - 1) * STEP_MS >= durationMs) return;
-            String pattern = new File(dir(context, key), "%06d.jpg").getAbsolutePath();
-            String[] args = streamArgs(media, headers, next, pattern);
-            FFmpegSession session;
-            try {
-                session = FFmpegKit.executeWithArgumentsAsync(args, (FFmpegSessionCompleteCallback) result -> {
-                });
-            } catch (Throwable error) {
-                return;
-            }
-            if (session == null) return;
-            streamSessionId = sessionIdOf(session);
-            boolean cancelled = false;
-            // 流式抽帧一边解一边落盘，帧是一格一格冒出来的；读取端有多少读多少。
-            while (session.getState() == SessionState.RUNNING) {
-                if (!key.equals(backgroundKey)) {
-                    cancelStream();
-                    return;
-                }
-                // 播放卡了/在缓冲：先停下，等 READY 再从断点续跑，别和播放抢带宽。
-                if (playerBusy) {
-                    cancelled = true;
-                    cancelStream();
-                }
-                sleep(STREAM_POLL_MS);
-            }
-            streamSessionId = -1;
-            if (cancelled) {
-                // 缓冲挂起导致的中断不算失败，等 READY 后从断点续跑。
-                failures = 0;
-                sleep(STREAM_POLL_MS);
-                continue;
-            }
-            boolean success = session.getReturnCode() != null
-                    && ReturnCode.isSuccess(session.getReturnCode());
-            if (success) return;
-            int written = lastCompleteIndex(context, key);
-            if (written >= next) {
-                failures = 0;
-            } else if (++failures >= MAX_STREAM_FAILURES) {
-                return;
-            } else {
-                sleep(2_000L);
-            }
-        }
-    }
-
-    private static long sessionIdOf(FFmpegSession session) {
         try {
-            return session.getSessionId();
-        } catch (Throwable ignored) {
-            return -1;
-        }
-    }
-
-    /** 缓冲中或有前台窗口在抽帧时歇一会儿；返回 false 表示任务已被取消。 */
-    private static boolean waitWhileBusy(String key) {
-        while (playerBusy || RUNNING.contains(key)) {
-            if (!key.equals(backgroundKey)) return false;
-            sleep(500);
-        }
-        return key.equals(backgroundKey);
-    }
-
-    private static void cancelStream() {
-        long id = streamSessionId;
-        if (id <= 0) return;
-        try {
-            FFmpegKit.cancel(id);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    /** 流式抽帧参数：从第 {@code firstIndex} 格对应的时间点开始，一路解到片尾。 */
-    private static String[] streamArgs(String media, Map<String, String> headers, int firstIndex, String pattern) {
-        String headerLine = headerLine(headers);
-        String[] base = new String[]{
-                "-y",
-                "-ss", String.format(Locale.ROOT, "%.3f", Math.max(0, firstIndex - 1) * STEP_MS / 1000.0),
-                "-skip_frame", "nokey",
-                "-i", media,
-                "-vf", String.format(Locale.ROOT, "fps=1/%d,scale=%d:-2", STEP_MS / 1000, FRAME_WIDTH),
-                "-q:v", String.valueOf(FRAME_QUALITY),
-                "-f", "image2",
-                "-start_number", String.valueOf(firstIndex),
-                pattern
-        };
-        if (TextUtils.isEmpty(headerLine)) return base;
-        String[] withHeaders = new String[base.length + 2];
-        withHeaders[0] = "-y";
-        withHeaders[1] = "-ss";
-        withHeaders[2] = base[2];
-        withHeaders[3] = "-headers";
-        withHeaders[4] = headerLine;
-        System.arraycopy(base, 3, withHeaders, 5, base.length - 3);
-        return withHeaders;
-    }
-
-    /** 已经写完整（长度大于 0）的最大格号；半截文件顺手删掉，续跑时重写这一格。 */
-    private static int lastCompleteIndex(Context context, String key) {
-        File dir = dir(context, key);
-        String[] names = dir.list();
-        if (names == null) return 0;
-        int max = 0;
-        for (String name : names) {
-            if (!name.endsWith(".jpg") || name.length() < 6) continue;
-            try {
-                int index = Integer.parseInt(name.substring(0, 6));
-                File file = new File(dir, name);
-                if (file.length() > 0) max = Math.max(max, index);
-                else file.delete();
-            } catch (Throwable ignored) {
+            while (key.equals(backgroundKey)) {
+                if (playerBusy || RUNNING.contains(key)) {
+                    sleep(500);
+                    continue;
+                }
+                int index = lastCompleteIndex(context, key) + 1;
+                if ((index - 1) * STEP_MS >= durationMs) return;
+                if (extractor == null) {
+                    extractor = open(context, media, headers);
+                    backgroundExtractor = extractor;
+                    if (extractor == null || !extractor.isValid()) return;
+                }
+                Bitmap bitmap = extractor.grab((index - 1) * STEP_MS, FRAME_WIDTH);
+                if (!key.equals(backgroundKey)) return;
+                if (bitmap == null) {
+                    // 网络抖动之类：同一格重试几次，仍然不行就放弃后台，别空转。
+                    if (++failures >= MAX_STREAM_FAILURES) return;
+                    sleep(1_000L);
+                    continue;
+                }
+                failures = 0;
+                writeFrame(frameFile(context, key, index), bitmap);
+                trim(context);
             }
+        } finally {
+            if (extractor != null) extractor.close();
+            if (backgroundExtractor == extractor) backgroundExtractor = null;
         }
-        return max;
     }
 
     private static void sleep(long millis) {
@@ -263,7 +223,7 @@ public final class TrickplayStore {
         return dir;
     }
 
-    /** 某位置对应的帧文件序号（1 起，和 ffmpeg image2 的 %06d 对齐）。 */
+    /** 某位置对应的帧文件序号（1 起，第 1 格 = 片头 0 秒）。 */
     private static int frameIndex(long positionMs) {
         return (int) (Math.max(0, positionMs) / STEP_MS) + 1;
     }
@@ -277,7 +237,7 @@ public final class TrickplayStore {
         ATTEMPTED.clear();
     }
 
-    /** 读一帧：内存 → 磁盘（精确格，其次前后邻格）。返回 null 表示这一窗还没抽到。 */
+    /** 读一帧：内存 → 磁盘（精确格，其次前后邻格）。返回 null 表示这一格还没抽到。 */
     public static Bitmap read(Context context, String media, long positionMs, int width, int height) {
         if (context == null || TextUtils.isEmpty(media)) return null;
         String key = keyFor(media);
@@ -306,7 +266,7 @@ public final class TrickplayStore {
 
     /**
      * 补一窗：{@code count} 格，从 {@code firstMs} 起。同一次预览重复打开只跑一次，
-     * 已经在跑的窗口会被后来的请求替换成最新位置。
+     * 已经在跑的窗口会被后来的请求替换成最新位置。每抽到一格就落盘，调用方随时可读。
      */
     public static void prepareWindow(Context context, String media, Map<String, String> headers,
                                      long firstMs, int count, Runnable onDone) {
@@ -315,10 +275,9 @@ public final class TrickplayStore {
             return;
         }
         String key = keyFor(media);
-        int start = (int) (Math.max(0, firstMs) / STEP_MS) + 1;
+        int start = frameIndex(firstMs);
         String token = key + "@" + start + "+" + count;
         if (!ATTEMPTED.add(token)) {
-            // 这个窗口已经试过（成功或失败），不再重复跑；再由调用方决定兜底。
             if (onDone != null) MAIN.post(onDone);
             return;
         }
@@ -345,62 +304,78 @@ public final class TrickplayStore {
 
     private static void executeWindow(Window window) {
         if (window.count <= 0) return;
-        File outDir = dir(window.context, window.key);
-        String pattern = new File(outDir, "%06d.jpg").getAbsolutePath();
-        String[] args = windowArgs(window, pattern);
-        try {
-            FFmpegSession session = FFmpegKit.executeWithArguments(args);
-            if (session == null || !ReturnCode.isSuccess(session.getReturnCode())) {
-                // 失败时清掉半成品，避免把黑帧/空文件当命中。
-                for (int i = 0; i < window.count; i++) {
-                    File file = frameFile(window.context, window.key, window.start + i);
-                    if (file.isFile() && file.length() == 0) file.delete();
-                }
+        try (Extractor extractor = open(window.context, window.media, window.headers)) {
+            if (extractor == null || !extractor.isValid()) return;
+            for (int i = 0; i < window.count; i++) {
+                int index = window.start + i;
+                File file = frameFile(window.context, window.key, index);
+                if (file.isFile() && file.length() > 0) continue;
+                Bitmap bitmap = extractor.grab((index - 1) * STEP_MS, FRAME_WIDTH);
+                if (bitmap == null) continue;
+                writeFrame(file, bitmap);
             }
-        } catch (Throwable ignored) {
+        } finally {
+            trim(window.context);
         }
-        trim(window.context);
     }
 
-    private static String[] windowArgs(Window window, String pattern) {
-        double startSec = Math.max(0, (window.start - 1)) * STEP_MS / 1000.0;
-        String[] base = new String[]{
-                "-y",
-                "-ss", String.format(Locale.ROOT, "%.3f", startSec),
-                "-skip_frame", "nokey",
-                "-i", window.media,
-                "-vf", String.format(Locale.ROOT, "fps=1/%d,scale=%d:-2", STEP_MS / 1000, FRAME_WIDTH),
-                "-frames:v", String.valueOf(window.count),
-                "-q:v", String.valueOf(FRAME_QUALITY),
-                "-f", "image2",
-                "-start_number", String.valueOf(window.start),
-                pattern
-        };
-        String headerLine = headerLine(window.headers);
-        if (TextUtils.isEmpty(headerLine)) return base;
-        String[] withHeaders = new String[base.length + 2];
-        withHeaders[0] = "-y";
-        withHeaders[1] = "-ss";
-        withHeaders[2] = base[2];
-        withHeaders[3] = "-headers";
-        withHeaders[4] = headerLine;
-        // base 去掉前三个（-y/-ss/值）后接上
-        System.arraycopy(base, 3, withHeaders, 5, base.length - 3);
-        return withHeaders;
+    /** 写一格 jpg：先写 .tmp 再改名，读端永远不会看到半张图。 */
+    private static boolean writeFrame(File target, Bitmap bitmap) {
+        if (bitmap == null || bitmap.isRecycled()) return false;
+        File parent = target.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            bitmap.recycle();
+            return false;
+        }
+        File tmp = new File(target.getAbsolutePath() + ".tmp");
+        boolean ok = false;
+        try (FileOutputStream output = new FileOutputStream(tmp)) {
+            ok = bitmap.compress(Bitmap.CompressFormat.JPEG, FRAME_JPEG_QUALITY, output);
+        } catch (Throwable ignored) {
+        } finally {
+            bitmap.recycle();
+        }
+        if (!ok) {
+            tmp.delete();
+            return false;
+        }
+        if (tmp.renameTo(target)) return true;
+        target.delete();
+        return tmp.renameTo(target);
     }
 
-    /** 把播放器用的请求头转成 ffmpeg 的 -headers 格式（CRLF 分隔）。 */
-    private static String headerLine(Map<String, String> headers) {
+    /** 已经写完整（长度大于 0）的最大格号；半截文件顺手删掉，续跑时重写这一格。 */
+    private static int lastCompleteIndex(Context context, String key) {
+        File dir = dir(context, key);
+        String[] names = dir.list();
+        if (names == null) return 0;
+        int max = 0;
+        for (String name : names) {
+            if (!name.endsWith(".jpg") || name.length() < 6) continue;
+            try {
+                int index = Integer.parseInt(name.substring(0, 6));
+                File file = new File(dir, name);
+                if (file.length() > 0) max = Math.max(max, index);
+                else file.delete();
+            } catch (Throwable ignored) {
+            }
+        }
+        return max;
+    }
+
+    /** 把播放器用的请求头转成 [name, value, name, value...]，交给 JNI 拼 ffmpeg headers。 */
+    private static String[] headerArray(Map<String, String> headers) {
         if (headers == null || headers.isEmpty()) return null;
-        StringBuilder builder = new StringBuilder();
+        java.util.List<String> values = new java.util.ArrayList<>();
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             String name = entry.getKey();
             String value = entry.getValue();
             if (TextUtils.isEmpty(name) || value == null) continue;
             if ("Range".equalsIgnoreCase(name)) continue;
-            builder.append(name).append(": ").append(value).append("\r\n");
+            values.add(name);
+            values.add(value);
         }
-        return builder.length() == 0 ? null : builder.toString();
+        return values.isEmpty() ? null : values.toArray(new String[0]);
     }
 
     /**
@@ -438,7 +413,7 @@ public final class TrickplayStore {
             return false;
         }
         File tmp = new File(target.getAbsolutePath() + ".tmp");
-        try (java.io.FileOutputStream output = new java.io.FileOutputStream(tmp)) {
+        try (FileOutputStream output = new FileOutputStream(tmp)) {
             if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)) {
                 tmp.delete();
                 return false;
@@ -456,53 +431,12 @@ public final class TrickplayStore {
         return true;
     }
 
-    /** 抽一张：{@code -ss} 放输入端（关键帧快速定位），只解一帧。 */
+    /** 抽一张：一次打开 + 一次 seek + 解一帧（复用同一套 JNI）。 */
     public static Bitmap extractOne(Context context, String media, Map<String, String> headers,
                                     long positionMs, int width) {
         if (context == null || TextUtils.isEmpty(media)) return null;
-        File temp = new File(context.getCacheDir(), "trickplay_cover.jpg");
-        File parent = temp.getParentFile();
-        if (parent != null && !parent.exists()) parent.mkdirs();
-        temp.delete();
-        String[] args;
-        String headerLine = headerLine(headers);
-        if (TextUtils.isEmpty(headerLine)) {
-            args = new String[]{
-                    "-y",
-                    "-ss", String.format(Locale.ROOT, "%.3f", Math.max(0, positionMs) / 1000.0),
-                    "-skip_frame", "nokey",
-                    "-i", media,
-                    "-frames:v", "1",
-                    "-vf", String.format(Locale.ROOT, "scale=%d:-2", Math.max(64, width)),
-                    "-q:v", "3",
-                    "-f", "image2",
-                    temp.getAbsolutePath()
-            };
-        } else {
-            args = new String[]{
-                    "-y",
-                    "-ss", String.format(Locale.ROOT, "%.3f", Math.max(0, positionMs) / 1000.0),
-                    "-headers", headerLine,
-                    "-skip_frame", "nokey",
-                    "-i", media,
-                    "-frames:v", "1",
-                    "-vf", String.format(Locale.ROOT, "scale=%d:-2", Math.max(64, width)),
-                    "-q:v", "3",
-                    "-f", "image2",
-                    temp.getAbsolutePath()
-            };
-        }
-        try {
-            FFmpegSession session = FFmpegKit.executeWithArguments(args);
-            if (session == null || !ReturnCode.isSuccess(session.getReturnCode())) return null;
-            if (!temp.isFile() || temp.length() == 0) return null;
-            Bitmap bitmap = BitmapFactory.decodeFile(temp.getAbsolutePath());
-            return bitmap;
-        } catch (Throwable ignored) {
-            return null;
-        } finally {
-            temp.delete();
-        }
+        return TrickplayNative.grab(context, media, headerArray(headers), Math.max(0, positionMs),
+                Math.max(64, width));
     }
 
     private static Bitmap decode(File file, int width, int height) {

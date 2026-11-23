@@ -50,3 +50,18 @@ target_link_libraries(exo_dovi_renderer PRIVATE
         ${vulkan-lib}
         ${dl-lib}
         ${m-lib})
+
+# ---- Trickplay frame extractor -------------------------------------------------
+# Reuses the FFmpeg 7.1.4 build that already ships with the app for mpv
+# (isolated names libmvformat/libmvcodec/libmvutil/libmwscale, opened at runtime
+# with dlopen so nothing is baked into the linker namespace or DT_NEEDED).
+set(FFMPEG_HEADER_DIR
+        "${CMAKE_CURRENT_LIST_DIR}/../../../../third_party/ffmpeg-7.1.4/include")
+
+add_library(trickplay_extractor SHARED trickplay_extractor.cpp)
+target_compile_features(trickplay_extractor PRIVATE cxx_std_17)
+target_include_directories(trickplay_extractor PRIVATE "${FFMPEG_HEADER_DIR}")
+target_compile_options(trickplay_extractor PRIVATE -O2)
+target_link_options(trickplay_extractor PRIVATE -Wl,--no-undefined)
+
+target_link_libraries(trickplay_extractor PRIVATE ${log-lib} ${m-lib} ${dl-lib} ${android-lib})
