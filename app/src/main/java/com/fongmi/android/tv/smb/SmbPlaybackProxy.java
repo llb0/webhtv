@@ -73,6 +73,26 @@ public final class SmbPlaybackProxy {
     }
 
     /**
+     * 由代理地址反查缩略图缓存键：播放中的地址只带 token，缩略图要按 host/share/path 落盘，
+     * 播放时补图就靠这一步把两边对上。不是 SMB 代理地址时返回 null。
+     */
+    public static synchronized String keyForUrl(String url) {
+        if (url == null) return null;
+        String marker = "://";
+        int scheme = url.indexOf(marker);
+        int slash = url.indexOf('/', scheme + marker.length());
+        if (slash < 0) return null;
+        String rest = url.substring(slash + 1);
+        int cut = rest.indexOf('/');
+        if (cut <= 0) return null;
+        String token = rest.substring(0, cut);
+        FileRef ref = FILES.get(token);
+        if (ref == null) ref = THUMBS.get(token);
+        if (ref == null) return null;
+        return SmbThumbnailCache.key(ref.host, ref.share, ref.path);
+    }
+
+    /**
      * 外调播放器专用地址：内部 URL 已保留真实文件名后缀并带 smb=1；
      * 这里从 token 反查真实文件名，保证外部播放器按 AVI/WMV 等原后缀识别格式，
      * 不再出现补过 .mp4 导致打不开的问题。路径仍由代理按 SMB 原文件读取。

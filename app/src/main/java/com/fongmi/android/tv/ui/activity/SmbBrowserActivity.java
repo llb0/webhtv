@@ -1173,17 +1173,16 @@ public class SmbBrowserActivity extends AppCompatActivity {
                             // 视频行给缩略图：取帧走缩略图专用 token 池，不会挤掉正在播放的直链。
                             // 只有 IJK 能播的老容器（avi/wmv/rmvb 等）系统取帧器解不出来，直接按小图标显示。
                             String thumbUrl = null;
-                            if (!PlayerSetting.isLegacyContainer(entry.name)) {
-                                try {
-                                    thumbUrl = SmbPlaybackProxy.createThumbUrl(host, share, remotePath, username, password, domain);
-                                } catch (IOException ignored) {
-                                    thumbUrl = null;
-                                }
+                            try {
+                                thumbUrl = SmbPlaybackProxy.createThumbUrl(host, share, remotePath, username, password, domain);
+                            } catch (IOException ignored) {
+                                thumbUrl = null;
                             }
+                            boolean legacy = PlayerSetting.isLegacyContainer(entry.name);
                             rows.add(thumbUrl == null
                                     ? SmbRowAdapter.Row.icon(entry.name, "", "▶")
                                     : SmbRowAdapter.Row.video(entry.name, "",
-                                    SmbThumbnailCache.key(host, share, remotePath), thumbUrl));
+                                    SmbThumbnailCache.key(host, share, remotePath), thumbUrl, !legacy));
                         } else if (SmbClient.isAudio(entry.name)) {
                             rows.add(SmbRowAdapter.Row.icon(entry.name, "", "♫"));
                         } else if (SmbClient.isImage(entry.name)) {

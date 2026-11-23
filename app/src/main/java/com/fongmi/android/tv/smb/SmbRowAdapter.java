@@ -37,13 +37,16 @@ public class SmbRowAdapter extends BaseAdapter {
         public final String glyph;
         public final String thumbKey;
         public final String thumbUrl;
+        public final boolean allowGenerate;
 
-        private Row(String title, String subtitle, String glyph, String thumbKey, String thumbUrl) {
+        private Row(String title, String subtitle, String glyph, String thumbKey, String thumbUrl,
+                    boolean allowGenerate) {
             this.title = title;
             this.subtitle = subtitle;
             this.glyph = glyph;
             this.thumbKey = thumbKey;
             this.thumbUrl = thumbUrl;
+            this.allowGenerate = allowGenerate;
         }
 
         /**
@@ -64,17 +67,21 @@ public class SmbRowAdapter extends BaseAdapter {
 
         /** 只有标题的普通行。 */
         public static Row text(String title) {
-            return new Row(title, "", "", null, null);
+            return new Row(title, "", "", null, null, false);
         }
 
         /** 带小图标、没有缩略图的行。 */
         public static Row icon(String title, String subtitle, String glyph) {
-            return new Row(title, subtitle, glyph == null ? "" : glyph, null, null);
+            return new Row(title, subtitle, glyph == null ? "" : glyph, null, null, false);
         }
 
-        /** 视频行：缩略图取到之前仍按小图标显示，取到后由适配器自己换成截图。 */
-        public static Row video(String title, String subtitle, String thumbKey, String thumbUrl) {
-            return new Row(title, subtitle, "▶", thumbKey, thumbUrl);
+        /**
+         * 视频行：缩略图取到之前仍按小图标显示，取到后由适配器自己换成截图。
+         * {@code allowGenerate=false} 用于只有 IJK 能解的老容器：只认播放时补进来的截图。
+         */
+        public static Row video(String title, String subtitle, String thumbKey, String thumbUrl,
+                                boolean allowGenerate) {
+            return new Row(title, subtitle, "▶", thumbKey, thumbUrl, allowGenerate);
         }
     }
 
@@ -215,7 +222,8 @@ public class SmbRowAdapter extends BaseAdapter {
         if (!hasThumb) return;
 
         // 截图回来之前保持紧凑的小图标行；回来后才把左侧换成缩略图并让整行重新量一次高度。
-        SmbThumbnailCache.load(context, row.thumbKey, row.thumbUrl, holder.thumb, thumbWidth, thumbHeight, () -> {
+        SmbThumbnailCache.load(context, row.thumbKey, row.thumbUrl, holder.thumb, thumbWidth, thumbHeight,
+                row.allowGenerate, () -> {
             if (row.thumbKey == null || !row.thumbKey.equals(holder.thumbKey)) return;
             holder.icon.setVisibility(View.GONE);
             holder.thumbBox.setVisibility(View.VISIBLE);

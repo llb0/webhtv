@@ -74,12 +74,15 @@ public final class SmbThumbnailCache {
      * 复用的行会在回来时校验 tag，避免图片落到别的条目上。
      */
     public static void load(Context context, String key, String url, ImageView view, int width, int height) {
-        load(context, key, url, view, width, height, null);
+        load(context, key, url, view, width, height, true, null);
     }
 
-    /** {@code onReady} 在主线程、图片真正贴上之后回调，供列表在缩略图就绪时再撑开左侧格子。 */
+    /**
+     * {@code onReady} 在主线程、图片真正贴上之后回调，供列表在缩略图就绪时再撑开左侧格子。
+     * {@code allowGenerate=false} 时只查内存和磁盘（老容器只能用播放时截的图，不去白白取帧）。
+     */
     public static void load(Context context, String key, String url, ImageView view, int width, int height,
-                            Runnable onReady) {
+                            boolean allowGenerate, Runnable onReady) {
         if (context == null || key == null || view == null) return;
         if (FAILED.contains(key)) return;
         view.setTag(key);
@@ -95,7 +98,7 @@ public final class SmbThumbnailCache {
             try {
                 File file = file(app, key);
                 if (file.isFile()) bitmap = readDisk(file, width, height);
-                if (bitmap == null && url != null) bitmap = generate(app, key, url, file);
+                if (bitmap == null && allowGenerate && url != null) bitmap = generate(app, key, url, file);
             } catch (Throwable ignored) {
                 bitmap = null;
             }
@@ -109,6 +112,36 @@ public final class SmbThumbnailCache {
                 if (onReady != null) onReady.run();
             });
         });
+    }
+
+    /** 列表阶段是否已经有这个文件的缩略图（播放时补图的逻辑据此决定要不要再截）。 */
+    public static boolean hasThumb(Context context, String key) {
+        return context != null && key != null && file(context, key).isFile();
+    }
+
+    /**
+     * 用播放时截下的一帧补缩略图：只有 IJK 能解的老容器列表阶段取不到帧，
+     * 播过一次就能把画面存成缩略图。位图归调用方回收，这里自己留一份缩过的小图。
+     */
+    public static void saveFromPlayback(Context context, String key, Bitmap source) {
+        if (context == null || key == null || source == null || source.isRecycled()) return;
+        Context app = context.getApplicationContext();
+        Bitmap scaled = null;
+        try {
+            scaled = source.getWidth() > TARGET_WIDTH
+                    ? Bitmap.createScaledBitmap(source, TARGET_WIDTH,
+                    Math.max(1, Math.round(source.getHeight() * TARGET_WIDTH / (float) source.getWidth())), true)
+                    : source.copy(Bitmap.Config.ARGB_8888, false);
+            write(scaled, file(app, key));
+            MEMORY.put(key, scaled);
+            FAILED.remove(key);
+            trim(app);
+            scaled = null;
+        } catch (Throwable ignored) {
+        } finally {
+            // scaled 已经交给内存缓存时不能再回收。
+            if (scaled != null) scaled.recycle();
+        }
     }
 
     /** 图片缓存被清理后调用：把内存里的引用一起放掉，避免删了盘还占着。 */

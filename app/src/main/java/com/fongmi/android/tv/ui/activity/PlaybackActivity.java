@@ -118,6 +118,13 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private int webHomeSnapshotAttempt;
     private boolean webHomeSnapshotRunning;
     private boolean webHomeSnapshotDone;
+    /** SMB 视频缩略图补图：只有 IJK 能解的老容器列表阶段取不到帧，播过一次再补。 */
+    private static final long[] SMB_THUMB_DELAYS = {4000L, 8000L, 16000L};
+    private final Handler smbThumbHandler = new Handler(Looper.getMainLooper());
+    private String smbThumbKey;
+    private int smbThumbAttempt;
+    private boolean smbThumbRunning;
+    private boolean smbThumbDone;
 
     protected MediaController controller() {
         return mController;
@@ -525,6 +532,64 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (webHomeSnapshotDone || webHomeSnapshotAttempt >= WEBHOME_SNAPSHOT_DELAYS.length) return;
         long delay = WEBHOME_SNAPSHOT_DELAYS[webHomeSnapshotAttempt++];
         webHomeSnapshotHandler.postDelayed(this::captureWebHomeSnapshot, delay);
+    }
+
+    /**
+     * 播放中的 SMB 视频如果列表里还没有缩略图（典型是只有 IJK 能解的 avi/rmvb），
+     * 在出画面后隔几个时间点各截一帧，取到非黑屏的就落进 smb_thumbs 并提前收工。
+     */
+    protected void scheduleSmbThumbnail() {
+        String key = smbThumbnailKey();
+        if (key == null) return;
+        if (!key.equals(smbThumbKey)) {
+            smbThumbKey = key;
+            smbThumbAttempt = 0;
+            smbThumbDone = false;
+        }
+        if (smbThumbDone || smbThumbAttempt >= SMB_THUMB_DELAYS.length) return;
+        boolean already = com.fongmi.android.tv.smb.SmbThumbnailCache.hasThumb(this, key);
+        if (already) {
+            smbThumbDone = true;
+            return;
+        }
+        smbThumbHandler.removeCallbacksAndMessages(null);
+        long delay = SMB_THUMB_DELAYS[smbThumbAttempt++];
+        smbThumbHandler.postDelayed(this::captureSmbThumbnail, delay);
+    }
+
+    private String smbThumbnailKey() {
+        try {
+            androidx.media3.common.MediaItem item = player().getCurrentMediaItem();
+            if (item == null || item.localConfiguration == null || item.localConfiguration.uri == null) return null;
+            return com.fongmi.android.tv.smb.SmbPlaybackProxy.keyForUrl(item.localConfiguration.uri.toString());
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private void captureSmbThumbnail() {
+        if (smbThumbDone || smbThumbRunning || isFinishing() || isDestroyed()) return;
+        final String key = smbThumbnailKey();
+        if (key == null || !key.equals(smbThumbKey)) return;
+        smbThumbRunning = true;
+        com.fongmi.android.tv.player.PlaybackFrameSnapshot.captureBitmap(this, getExoView(), bitmap -> {
+            smbThumbRunning = false;
+            if (bitmap == null) {
+                scheduleSmbThumbnail();
+                return;
+            }
+            final String target = key;
+            Task.execute(() -> {
+                try {
+                    com.fongmi.android.tv.smb.SmbThumbnailCache.saveFromPlayback(App.get(), target, bitmap);
+                } catch (Throwable ignored) {
+                } finally {
+                    bitmap.recycle();
+                }
+            });
+            smbThumbDone = true;
+            smbThumbHandler.removeCallbacksAndMessages(null);
+        });
     }
 
     private void captureWebHomeSnapshot() {
@@ -1544,6 +1609,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
         if (!isOwner()) return;
         onFirstFrameRendered();
         scheduleWebHomeSnapshot();
+        scheduleSmbThumbnail();
     }
 
     @Override
@@ -1634,6 +1700,7 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
     @Override
     protected void onDestroy() {
         webHomeSnapshotHandler.removeCallbacksAndMessages(null);
+        smbThumbHandler.removeCallbacksAndMessages(null);
         surfaceDiagnostics.unbind();
         detachAssSurface();
         if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-lifecycle", "activity destroy beforeRelease %s", lifecycleState());
