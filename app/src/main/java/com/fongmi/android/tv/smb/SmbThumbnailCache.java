@@ -92,6 +92,9 @@ public final class SmbThumbnailCache {
         Bitmap memory = MEMORY.get(key);
         if (memory != null && !memory.isRecycled()) {
             view.setImageBitmap(memory);
+            // 内存命中也要回调，否则列表把行的高度/缩略图格收回后再滑回来，
+            // 图已经贴上了但格子还藏着，看起来就是“有截图却不显示”。
+            if (onReady != null) onReady.run();
             return;
         }
         view.setImageDrawable(null);
@@ -113,9 +116,11 @@ public final class SmbThumbnailCache {
             if (bitmap == null && tried) FAILED.put(key, System.currentTimeMillis());
             Bitmap result = bitmap;
             MAIN.post(() -> {
-                Object tag = view.getTag();
-                if (result == null || tag == null || !tag.equals(key)) return;
+                if (result == null) return;
+                // 先入内存再校验 tag：行滑出屏幕被复用时不贴图，但图本身留着，滑回来直接命中。
                 MEMORY.put(key, result);
+                Object tag = view.getTag();
+                if (tag == null || !tag.equals(key)) return;
                 view.setImageBitmap(result);
                 if (onReady != null) onReady.run();
             });
