@@ -22,9 +22,7 @@ public class FallbackDecodeLabelSyncTest {
                 "binding.decode.setVisibility(controls.decode.getVisibility());");
         assertMethodContains(read(dialog("leanback")), "public void setPlayer()",
                 "binding.decode.setText(parent.control.action.decode.getText());",
-                "setActionRowVisible();");
-        assertMethodContains(read(dialog("leanback")), "private void setActionRowVisible()",
-                "PlayerButtonSetting.apply(binding.decode, PlayerButtonSetting.DECODE, true);");
+                "binding.decode.setVisibility(parent.control.action.decode.getVisibility());");
     }
 
     /** 两个 flavor 的原生播放页都必须刷主控制栏，并且把设置弹窗一起带上。 */

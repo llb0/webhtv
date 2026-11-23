@@ -2310,8 +2310,8 @@ private boolean runtimeSourceOnly;
     }
 
     private void setVideoView() {
-        PlayerButtonSetting.apply(mBinding.control.action.danmaku, PlayerButtonSetting.DANMAKU, DanmakuSetting.isLoad());
-        PlayerButtonSetting.apply(mBinding.control.action.adFeedback, PlayerButtonSetting.AD_FEEDBACK, isAdFeedbackEnabled());
+        mBinding.control.action.danmaku.setVisibility(DanmakuSetting.isLoad() ? View.VISIBLE : View.GONE);
+        mBinding.control.action.adFeedback.setVisibility(isAdFeedbackActionVisible() ? View.VISIBLE : View.GONE);
         applyDanmakuState();
         mBinding.control.action.reset.setText(ResUtil.getStringArray(R.array.select_reset)[Setting.getReset()]);
         setupActionButtons();
@@ -2419,7 +2419,7 @@ private boolean runtimeSourceOnly;
 
     private void applyActionButtonVisibility() {
         updateCustomButtonVisibility();
-        PlayerButtonSetting.apply(mBinding.control.action.cast, PlayerButtonSetting.CAST, !isFullscreen());
+        mBinding.control.action.cast.setVisibility(isFullscreen() ? View.GONE : View.VISIBLE);
         updateImmersiveAudioAction();
         updatePanDiagnosticAction();
         updateDiscMenuButton();
@@ -2428,7 +2428,7 @@ private boolean runtimeSourceOnly;
 
     private void updatePanDiagnosticAction() {
         if (mBinding == null) return;
-        PlayerButtonSetting.apply(mBinding.control.action.panDiagnostic, PlayerButtonSetting.PAN_DIAGNOSTIC, isFullscreen() && canRunPanDiagnostic());
+        mBinding.control.action.panDiagnostic.setVisibility(isFullscreen() && canRunPanDiagnostic() ? View.VISIBLE : View.GONE);
     }
 
     private void setPlayerButton() {
@@ -2462,7 +2462,7 @@ private boolean runtimeSourceOnly;
     private void updateImmersiveAudioAction() {
         if (mBinding == null) return;
         boolean audioContent = isAudioOnly() || isMusicLike();
-        PlayerButtonSetting.apply(mBinding.control.action.immersiveAudio, PlayerButtonSetting.IMMERSIVE_AUDIO, isFullscreen() && audioContent);
+        mBinding.control.action.immersiveAudio.setVisibility(isFullscreen() && audioContent ? View.VISIBLE : View.GONE);
         mBinding.control.action.immersiveAudio.setSelected(shouldUseImmersiveAudio());
     }
 
@@ -2489,11 +2489,22 @@ private boolean runtimeSourceOnly;
 
     /**
      * 起播前把内核切到本剧记住的选择，并返回该内核给取址用——取播放地址要按内核区分线路。
-     * 记住的内核只对当前线路自己的记录生效；跨源聚合来的记录回落到设置页的全局默认。
+     * 没有记录时 getPlayerOrDefault 会退回设置页的全局默认。
      * 播放服务还没连上时先只记会话内核（取址在工作线程上读它），引擎由 onServiceConnected 补齐。
      */
-    private int applyHistoryPlayerKernel(boolean forcePrepare) {
-        int kernel = mHistory == null ? PlayerSetting.getPlayer() : mHistory.getPlaybackPlayerOrDefault(kernelFlag());
+    private int applyHistoryPlayerKernel(String sourceUrl, boolean forcePrepare) {
+        int kernel = mHistory == null ? PlayerSetting.getPlayer() : mHistory.getPlayerOrDefault();
+        // 老容器（AVI/WMV/RMVB 等）Exo 没有解复用器；即使历史里存的是 EXO（旧版本默认值
+        // 或此前误选），也不能让 EXO 接住，自动改走带 FFmpeg 的 IJK，避免总时长 0/黑屏。
+        // 本地 /file 代理地址正常带原后缀；若被编码/截断丢了后缀，再用当前文件名兜底判断。
+        boolean legacyContainer = PlayerSetting.isLegacyContainer(sourceUrl)
+                || PlayerSetting.isLegacyContainer(getName());
+        if (kernel == PlayerSetting.EXO && legacyContainer) {
+            kernel = PlayerSetting.IJK;
+            // 只有 SMB 入口先前把会话覆盖成 EXO 时才需要反向覆盖；本地文件没有 EXO 覆盖，
+            // 不要把 IJK 写进全局运行期覆盖，否则退出后会影响后续普通播放，看起来像被锁死。
+            if (isSmbSource()) PlayerSetting.setRuntimePlayerOverride(PlayerSetting.IJK);
+        }
         PlayerSetting.putActivePlayer(kernel);
         if (service() == null) {
             mPendingPlayerKernel = kernel;
@@ -2510,15 +2521,12 @@ private boolean runtimeSourceOnly;
         return kernel;
     }
 
-    /** 兼容重载：调用方手上只有 URL，不再参与内核判断。 */
-    private int applyHistoryPlayerKernel(String sourceUrl) {
-        return applyHistoryPlayerKernel(false);
+    private int applyHistoryPlayerKernel(boolean forcePrepare) {
+        return applyHistoryPlayerKernel(null, forcePrepare);
     }
 
-    /** 当前线路名：内核记忆按线路存，读写都必须带它。 */
-    private String kernelFlag() {
-        Flag flag = getFlag();
-        return flag == null ? "" : flag.getFlag();
+    private int applyHistoryPlayerKernel(String sourceUrl) {
+        return applyHistoryPlayerKernel(sourceUrl, false);
     }
 
     /**
@@ -2542,9 +2550,9 @@ private boolean runtimeSourceOnly;
      * 上一部剧的收尾存档会用别人的会话内核覆盖本剧记住的选择；
      * 而引擎类型还会被播放失败后的自动回退改掉，也不代表用户改了选择。
      */
-    private void rememberPlayerKernel(String flag, int type) {
+    private void rememberPlayerKernel(int type) {
         if (mHistory == null || !PlayerSetting.isPlayer(type)) return;
-        mHistory.setKernelForFlag(flag, type);
+        mHistory.setPlayer(type);
         syncHistory();
     }
 
@@ -4261,7 +4269,7 @@ private boolean runtimeSourceOnly;
     }
 
     private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent) {
-        PlayerButtonSetting.apply(mBinding.control.action.episodes, PlayerButtonSetting.EPISODES, items.size() >= 2);
+        mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         applyActionButtonVisibility();
         setEpisodeAdapter(items, scrollToCurrent, true);
     }
@@ -4285,7 +4293,7 @@ private boolean runtimeSourceOnly;
         boolean showTmdbEpisodeChrome = EpisodeDisplayPolicy.shouldShowTmdbEpisodeChrome(tmdbMode, tmdbEpisodeEnrichmentPending, items);
         boolean useTmdbCards = EpisodeDisplayPolicy.shouldUseTmdbEpisodeCards(tmdbMode, items);
         mBinding.episodeContainer.setVisibility(isEmpty ? View.GONE : View.VISIBLE);
-        PlayerButtonSetting.apply(mBinding.control.action.episodes, PlayerButtonSetting.EPISODES, items.size() >= 2);
+        mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         applyActionButtonVisibility();
 
         if (shouldUseUpstreamNativeEpisodeModule()) {
@@ -4477,7 +4485,7 @@ private boolean runtimeSourceOnly;
 
     private void setQualityVisible(boolean visible) {
         mBinding.quality.setVisibility(visible ? View.VISIBLE : View.GONE);
-        PlayerButtonSetting.apply(mBinding.control.action.actionQuality, PlayerButtonSetting.QUALITY, visible);
+        mBinding.control.action.actionQuality.setVisibility(visible ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
         updateActionQuality(mViewModel.getPlayer().getValue());
         updateFocus();
@@ -4998,13 +5006,13 @@ private boolean runtimeSourceOnly;
     }
 
     /**
-     * 分段行中真正持有焦点的子项适配器位置，焦点不在分段行时返回 -1。
+     * 分段行中真正持有焦点的子项位置（按子视图下标），焦点不在分段行时返回 -1。
      */
     private int focusedArrayPosition() {
         View focus = getCurrentFocus();
         while (focus != null) {
             ViewParent parent = focus.getParent();
-            if (parent == mBinding.array) return mBinding.array.getChildAdapterPosition(focus);
+            if (parent == mBinding.array) return mBinding.array.indexOfChild(focus);
             focus = parent instanceof View ? (View) parent : null;
         }
         return -1;
@@ -5036,13 +5044,12 @@ private boolean runtimeSourceOnly;
     private void applyArrayFocus(int position) {
         mArrayAdapter.setSelectedPosition(position);
         mBinding.array.setSelectedPosition(position);
-        RecyclerView.ViewHolder holder = mBinding.array.findViewHolderForAdapterPosition(position);
-        if (holder != null && holder.itemView.requestFocus()) return;
+        View child = mBinding.array.getChildAt(position);
+        if (child != null && child.requestFocus()) return;
         mBinding.array.post(() -> {
             if (isFinishing() || isDestroyed()) return;
-            if (!isFocusInside(mBinding.array) || mBinding.array.getSelectedPosition() != position) return;
-            RecyclerView.ViewHolder next = mBinding.array.findViewHolderForAdapterPosition(position);
-            if (next != null) next.itemView.requestFocus();
+            View next = mBinding.array.getChildAt(position);
+            if (next != null) next.requestFocus();
         });
     }
 
@@ -5487,12 +5494,6 @@ private boolean runtimeSourceOnly;
 
     private void onKeep() {
         Keep keep = Keep.find(getHistoryKey());
-        // 详情回调（setDetail -> checkHistory）之前 mHistory 还是 null，此时新增收藏会拿空历史当对象用。
-        // 取消收藏只依赖 key，与详情是否就绪无关，因此只挡新增这一支。
-        if (keep == null && !isKeepReady()) {
-            Notify.show(R.string.keep_not_ready);
-            return;
-        }
         Notify.show(keep != null ? R.string.keep_del : R.string.keep_add);
         if (keep != null) keep.delete();
         else createKeep();
@@ -5982,7 +5983,7 @@ private boolean runtimeSourceOnly;
         player().switchPlayer(type);
         setPlayerKernel();
         setDecode();
-        rememberPlayerKernel(kernelFlag(), type);
+        rememberPlayerKernel(type);
     }
 
     private boolean onPlayerKernelLong() {
@@ -6040,7 +6041,7 @@ private boolean runtimeSourceOnly;
             PlayerManager danmakuManager = player();
             String beforeTrace = danmakuManager.getPlaybackTraceId();
             player().switchPlayer(type, result, activePlaybackKey(), metadata, isUseParse(), position, speed, repeat);
-            rememberPlayerKernel(flag, type);
+            rememberPlayerKernel(type);
             searchAutoDanmaku(result, danmakuManager, beforeTrace);
         }
         setPlayerKernel();
@@ -6458,8 +6459,7 @@ private boolean runtimeSourceOnly;
                 : isOriginSession() ? resumeHistory : resumeHistory.forPlaybackKey(getHistoryKey(), VodConfig.getCid());
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getWallPic())) mHistory.setWallPic(getWallPic());
-        // 文件夹点选需保留旧集身份，交给显式选集链路判断是否重置进度。
-        if (!TextUtils.isEmpty(getMark()) && findFolderPlaybackEpisode(item) == null) mHistory.setVodRemarks(getMark());
+        if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
         applyIntentPlaybackSelection(item);
         if (resumeHistory == null && Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
         setOpeningEndingText();
@@ -6702,12 +6702,7 @@ private boolean runtimeSourceOnly;
         String playName = getIntentPlaybackEpisodeName();
         String playUrl = getIntentPlaybackEpisodeUrl();
         if (TextUtils.isEmpty(playFlag) && TextUtils.isEmpty(playFlagKey)
-                && TextUtils.isEmpty(playName) && TextUtils.isEmpty(playUrl)) {
-            Episode folderEpisode = findFolderPlaybackEpisode(item);
-            if (folderEpisode == null) return;
-            playName = folderEpisode.getName();
-            playUrl = folderEpisode.getUrl();
-        }
+                && TextUtils.isEmpty(playName) && TextUtils.isEmpty(playUrl)) return;
         Flag flag = findIntentPlaybackFlag(item.getFlags(), playFlagKey, playFlag, playUrl);
         if (flag == null) return;
         Episode episode = findIntentPlaybackEpisode(flag, playName, playUrl);
@@ -6730,20 +6725,6 @@ private boolean runtimeSourceOnly;
         mHistory.setVodRemarks(getHistoryEpisodeName(historyEpisode));
         mHistory.setEpisodeUrl(episode.getUrl());
         if (historyEpisode.getTmdbEpisode() != null || !sameEpisode) mHistory.setTmdbEpisodePosition(historyEpisode);
-    }
-
-    private Episode findFolderPlaybackEpisode(Vod item) {
-        String mark = getMark();
-        if (isResumeFromHistory() || TextUtils.isEmpty(mark)) return null;
-        Episode matched = null;
-        for (Flag flag : item.getFlags()) {
-            for (Episode episode : flag.getEpisodes()) {
-                if (!mark.equalsIgnoreCase(episode.getName())) continue;
-                if (matched != null && !TextUtils.equals(matched.getUrl(), episode.getUrl())) return null;
-                matched = episode;
-            }
-        }
-        return matched;
     }
 
     private Flag findIntentPlaybackFlag(List<Flag> flags, String playFlagKey, String playFlag, String playUrl) {
@@ -6873,15 +6854,7 @@ private boolean runtimeSourceOnly;
         mBinding.keep.setCompoundDrawablesWithIntrinsicBounds(Keep.find(getHistoryKey()) == null ? R.drawable.ic_detail_keep_off : R.drawable.ic_detail_keep_on, 0, 0, 0);
     }
 
-    /**
-     * 就绪 = 详情已给出历史，且站点仍可解析（接口刷新后站点可能消失，getSite() 会返回 null）。
-     */
-    private boolean isKeepReady() {
-        return mHistory != null && getSite() != null;
-    }
-
     private void createKeep() {
-        if (!isKeepReady()) return;
         Keep keep = new Keep();
         keep.setKey(getHistoryKey());
         keep.setCid(VodConfig.getCid());
@@ -9239,14 +9212,14 @@ private boolean runtimeSourceOnly;
     }
 
     private void setTrackVisible() {
-        PlayerButtonSetting.apply(mBinding.control.action.text, PlayerButtonSetting.TEXT, player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod());
-        PlayerButtonSetting.apply(mBinding.control.action.audio, PlayerButtonSetting.AUDIO, player().haveTrack(C.TRACK_TYPE_AUDIO));
-        PlayerButtonSetting.apply(mBinding.control.action.video, PlayerButtonSetting.VIDEO, player().haveTrack(C.TRACK_TYPE_VIDEO));
+        mBinding.control.action.text.setVisibility(player().haveTrack(C.TRACK_TYPE_TEXT) || player().isVod() ? View.VISIBLE : View.GONE);
+        mBinding.control.action.audio.setVisibility(player().haveTrack(C.TRACK_TYPE_AUDIO) ? View.VISIBLE : View.GONE);
+        mBinding.control.action.video.setVisibility(player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
     }
 
     private void setTitleVisible() {
-        PlayerButtonSetting.apply(mBinding.control.action.title, PlayerButtonSetting.TITLE, player().haveTitle());
+        mBinding.control.action.title.setVisibility(player().haveTitle() ? View.VISIBLE : View.GONE);
         applyActionButtonVisibility();
     }
 
@@ -9437,7 +9410,7 @@ private boolean runtimeSourceOnly;
 
     private void setFullscreen(boolean fullscreen) {
         this.fullscreen = fullscreen;
-        PlayerButtonSetting.apply(mBinding.control.action.fullscreen, PlayerButtonSetting.FULLSCREEN, !fullscreen);
+        mBinding.control.action.fullscreen.setVisibility(fullscreen ? View.GONE : View.VISIBLE);
         mBinding.control.action.fullscreen.setText(R.string.play_fullscreen);
         applyActionButtonVisibility();
     }

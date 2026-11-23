@@ -512,12 +512,11 @@ public class TmdbDetailActivityLayoutTest {
 
         int update = source.indexOf("private void updateInlineButtons(boolean playing)");
         int apply = source.indexOf("applyInlinePlayerButtonSettings();", update);
-        int adFeedback = source.indexOf("PlayerButtonSetting.apply(binding.playerAdFeedback, PlayerButtonSetting.AD_FEEDBACK, inlineAdFeedback);", update);
         assertTrue("inline ad feedback visibility must be recalculated before rebuilding the action focus chain",
                 update >= 0
-                        && adFeedback > update
+                        && source.indexOf("binding.playerAdFeedback.setVisibility(inlineAdFeedback ? View.VISIBLE : View.GONE);", update) > update
                         && source.indexOf("detailActionView(R.id.adFeedback, View.class).setVisibility(inlineAdFeedback ? View.VISIBLE : View.GONE);", update) > update
-                        && apply > adFeedback);
+                        && apply > source.indexOf("binding.playerAdFeedback.setVisibility", update));
         assertTrue("wide and mobile inline controls must dispatch the ad feedback action",
                 source.contains("binding.playerAdFeedback.setOnClickListener(guarded(this::onInlineAdFeedback));")
                         && source.contains("detailActionView(R.id.adFeedback, View.class).setOnClickListener(guarded(this::onInlineAdFeedback));"));
@@ -818,7 +817,7 @@ public class TmdbDetailActivityLayoutTest {
                         && source.indexOf("TrackDialog.create().type(C.TRACK_TYPE_VIDEO)", showQuality) < 0);
         assertTrue("fusion video-track button must stay independent from URL quality on TV",
                 updateButtons >= 0
-                        && source.indexOf("PlayerButtonSetting.apply(binding.playerVideoTrack, PlayerButtonSetting.VIDEO, hasPlayer && player().haveTrack(C.TRACK_TYPE_VIDEO));", updateButtons) > updateButtons);
+                        && source.indexOf("binding.playerVideoTrack.setVisibility(hasPlayer && player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE)", updateButtons) > updateButtons);
         assertTrue("fusion video-track button must stay independent from URL quality on mobile",
                 updateMobileButtons >= 0
                         && source.indexOf("detailActionView(R.id.video, View.class).setVisibility(hasPlayer && player().haveTrack(C.TRACK_TYPE_VIDEO) ? View.VISIBLE : View.GONE)", updateMobileButtons) > updateMobileButtons);
