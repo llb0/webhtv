@@ -1,10 +1,14 @@
 package com.fongmi.android.tv.smb;
 
 import android.content.Context;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.text.TextUtils;
+import android.text.style.LeadingMarginSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -12,7 +16,6 @@ import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.fongmi.android.tv.setting.Setting;
@@ -25,9 +28,10 @@ import java.util.List;
  * SMB 浏览页的卡片式列表：所有视图（主机、共享、目录、收藏夹、隐藏项）共用这一个适配器，
  * 长按菜单与点击仍按 {@code mode + position} 取数据，显示层改版不影响它们。
  *
- * <p>非视频行只有一个小图标加标题；视频行同样先显示小图标，等缩略图真的取到了
- * 才把左侧换成 16:9 截图，避免大部分取不到截图的视频白白撑开一行大黑底。
- * 标题显示遵循设置里的「标题换行」：单行跑马灯，或按设置的 2/3/不限行换行。</p>
+ * <p>非视频行只有一个小图标加标题；视频行先显示小图标，缩略图取到后才把左上角换成截图。
+ * 截图贴在左上角当“嵌入图”，标题前几行从图右侧开始，超出的行回到图的左边继续排，
+ * 长标题就不会在图片上下留出大片空白。标题显示遵循设置里的「标题换行」：
+ * 单行跑马灯，或按设置的 2/3/不限行换行。</p>
  */
 public class SmbRowAdapter extends BaseAdapter {
 
@@ -76,7 +80,7 @@ public class SmbRowAdapter extends BaseAdapter {
         }
 
         /**
-         * 视频行：缩略图取到之前仍按小图标显示，取到后由适配器自己换成截图。
+         * 视频行：缩略图取到之前仍按小图标显示，取到后由适配器换成左上角截图。
          * {@code allowGenerate=false} 用于只有 IJK 能解的老容器：只认播放时补进来的截图。
          */
         public static Row video(String title, String subtitle, String thumbKey, String thumbUrl,
@@ -86,23 +90,107 @@ public class SmbRowAdapter extends BaseAdapter {
     }
 
     private static final class Holder {
+        WrapTitle title;
         TextView icon;
         FrameLayout thumbBox;
         ImageView thumb;
-        TextView title;
-        TextView subtitle;
         String thumbKey;
+    }
+
+    /**
+     * 标题视图：图片当左上角嵌入图时，前几行按图宽缩进，超出的行回到左侧继续排。
+     * 手工按测量结果断行（每行一个段落），再用 {@link LeadingMarginSpan.Standard} 只给
+     * 图旁边的那几行加左边距，TextView 本身无法按行做这件事。
+     */
+    private static final class WrapTitle extends TextView {
+
+        private String raw = "";
+        private int indentPx;
+        private int besideHeightPx;
+
+        WrapTitle(Context context) {
+            super(context);
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            setTextColor(MaterialColors.getColor(context,
+                    com.google.android.material.R.attr.colorOnSurface, 0xFFFFFFFF));
+            setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            setGravity(Gravity.TOP | Gravity.START);
+            setIncludeFontPadding(false);
+        }
+
+        void setContent(String text, int indent, int besideHeight) {
+            raw = text == null ? "" : text;
+            indentPx = indent;
+            besideHeightPx = besideHeight;
+            rebuild();
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            if (oldw != w) rebuild();
+        }
+
+        private void rebuild() {
+            int maxLines = Setting.resolveTitleMaxLines();
+            if (maxLines <= 1) {
+                setSingleLine(true);
+                setEllipsize(TextUtils.TruncateAt.MARQUEE);
+                setMarqueeRepeatLimit(-1);
+                setText(raw);
+                setSelected(true);
+                return;
+            }
+            setSingleLine(false);
+            setMaxLines(maxLines);
+            setEllipsize(TextUtils.TruncateAt.END);
+            setSelected(false);
+
+            int available = getWidth() - getPaddingLeft() - getPaddingRight();
+            if (available <= 0 || indentPx <= 0) {
+                setText(raw);
+                return;
+            }
+            int lineHeight = Math.max(1, getLineHeight());
+            // 图旁边能排几行：向上取整，保证下一行是从图片底边以下开始，不会压到图上。
+            int besideLines = Math.max(1, (besideHeightPx + lineHeight - 1) / lineHeight);
+            Paint paint = getPaint();
+            SpannableStringBuilder out = new SpannableStringBuilder();
+            int index = 0;
+            int line = 0;
+            while (index < raw.length() && line < maxLines) {
+                int indent = line < besideLines ? indentPx : 0;
+                int width = Math.max(1, available - indent);
+                int count = paint.breakText(raw, index, raw.length(), true, width, null);
+                if (count <= 0) count = 1;
+                int start = out.length();
+                out.append(raw, index, index + count);
+                if (indent > 0) {
+                    out.setSpan(new LeadingMarginSpan.Standard(indent, 0), start, out.length(),
+                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
+                index += count;
+                line++;
+                if (index < raw.length() && line < maxLines) out.append('\n');
+            }
+            if (index < raw.length()) out.append('…');
+            setText(out);
+        }
     }
 
     private final Context context;
     private final List<Row> rows = new ArrayList<>();
     private final int thumbWidth;
     private final int thumbHeight;
+    private final int iconWidth;
+    private final int iconGap;
 
     public SmbRowAdapter(Context context) {
         this.context = context;
         this.thumbWidth = dp(132);
         this.thumbHeight = dp(74);
+        this.iconWidth = dp(28);
+        this.iconGap = dp(10);
     }
 
     public void setRows(List<Row> values) {
@@ -146,12 +234,10 @@ public class SmbRowAdapter extends BaseAdapter {
     }
 
     private View build(Holder holder) {
-        int onSurface = MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0xFFFFFFFF);
-        int variant = MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFFB8C4D8);
+        int variant = MaterialColors.getColor(context,
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFFB8C4D8);
 
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout row = new FrameLayout(context);
         row.setPadding(dp(10), dp(8), dp(12), dp(8));
         // 默认透明，让 ListView 自己的选中/焦点背景透出来；电视焦点环仍落在整行上。
         StateListDrawable background = new StateListDrawable();
@@ -161,75 +247,73 @@ public class SmbRowAdapter extends BaseAdapter {
         background.addState(new int[]{}, new ColorDrawable(0x00000000));
         row.setBackground(background);
 
+        holder.title = new WrapTitle(context);
+        row.addView(holder.title, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         holder.icon = new TextView(context);
         holder.icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         holder.icon.setTextColor(variant);
         holder.icon.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(28), dp(28));
-        iconParams.setMarginEnd(dp(10));
+        FrameLayout.LayoutParams iconParams = new FrameLayout.LayoutParams(iconWidth, dp(28));
+        iconParams.gravity = Gravity.TOP | Gravity.START;
+        iconParams.topMargin = dp(1);
         row.addView(holder.icon, iconParams);
 
         holder.thumbBox = new FrameLayout(context);
         holder.thumbBox.setBackgroundColor(0xFF1A2130);
         holder.thumbBox.setVisibility(View.GONE);
-        LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(thumbWidth, thumbHeight);
-        boxParams.setMarginEnd(dp(10));
+        FrameLayout.LayoutParams boxParams = new FrameLayout.LayoutParams(thumbWidth, thumbHeight);
+        boxParams.gravity = Gravity.TOP | Gravity.START;
         row.addView(holder.thumbBox, boxParams);
 
         holder.thumb = new ImageView(context);
         holder.thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
         holder.thumbBox.addView(holder.thumb, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        LinearLayout text = new LinearLayout(context);
-        text.setOrientation(LinearLayout.VERTICAL);
-        text.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1f);
-        row.addView(text, textParams);
-
-        holder.title = new TextView(context);
-        holder.title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        holder.title.setTextColor(onSurface);
-        holder.title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        text.addView(holder.title, new LinearLayout.LayoutParams(-1, -2));
-
-        holder.subtitle = new TextView(context);
-        holder.subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        holder.subtitle.setTextColor(variant);
-        holder.subtitle.setSingleLine(true);
-        holder.subtitle.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(-1, -2);
-        subtitleParams.topMargin = dp(3);
-        text.addView(holder.subtitle, subtitleParams);
         return row;
     }
 
     private void bind(Holder holder, Row row) {
-        holder.title.setText(row.title == null ? "" : row.title);
-        // 「标题换行」设置统一决定是单行跑马灯，还是按 2/3/不限行换行。
-        Setting.applyTitleMaxLines(holder.title);
-        holder.title.setSelected(true);
-        holder.subtitle.setText(row.subtitle == null ? "" : row.subtitle);
-        holder.subtitle.setVisibility(TextUtils.isEmpty(row.subtitle) ? View.GONE : View.VISIBLE);
-
         boolean hasThumb = !TextUtils.isEmpty(row.thumbKey) && !TextUtils.isEmpty(row.thumbUrl);
         holder.icon.setText(row.glyph == null ? "" : row.glyph);
-        holder.icon.setVisibility(TextUtils.isEmpty(row.glyph) ? View.GONE : View.VISIBLE);
+        boolean hasIcon = !TextUtils.isEmpty(row.glyph);
+        holder.icon.setVisibility(hasIcon ? View.VISIBLE : View.GONE);
         holder.thumbBox.setVisibility(View.GONE);
         holder.thumb.setImageDrawable(null);
         holder.thumb.setTag(null);
         holder.thumbKey = row.thumbKey;
+
+        // 还没有截图：小图标占位，标题整体避开图标。
+        setTitle(holder, row.title, hasIcon ? iconWidth + iconGap : 0, false);
         if (!hasThumb) return;
 
-        // 截图回来之前保持紧凑的小图标行；回来后才把左侧换成缩略图并让整行重新量一次高度。
         SmbThumbnailCache.load(context, row.thumbKey, row.thumbUrl, holder.thumb, thumbWidth, thumbHeight,
                 row.allowGenerate, () -> {
             if (row.thumbKey == null || !row.thumbKey.equals(holder.thumbKey)) return;
+            // 截图就位：图占左上角，标题前几行缩进到图的右侧，超出的行回到图的左边。
             holder.icon.setVisibility(View.GONE);
             holder.thumbBox.setVisibility(View.VISIBLE);
+            setTitle(holder, row.title, thumbWidth + iconGap, true);
             View parent = (View) holder.thumbBox.getParent();
             if (parent != null) parent.requestLayout();
         });
+    }
+
+    private void setTitle(Holder holder, String text, int indent, boolean besideThumb) {
+        // 单行跑马灯：只靠 padding 把标题挤到图标/图片右侧；多行时把图片当嵌入图，
+        // 前几行用 span 缩进，超出的行回到最左边，padding 必须为 0 否则会一直缩进。
+        boolean marquee = Setting.resolveTitleMaxLines() <= 1;
+        if (marquee) {
+            holder.title.setPadding(indent, 0, 0, 0);
+            holder.title.setContent(text, 0, 0);
+        } else if (besideThumb) {
+            holder.title.setPadding(0, 0, 0, 0);
+            holder.title.setContent(text, indent, thumbHeight);
+        } else {
+            holder.title.setPadding(indent, 0, 0, 0);
+            holder.title.setContent(text, 0, 0);
+        }
     }
 
     private int dp(int value) {
