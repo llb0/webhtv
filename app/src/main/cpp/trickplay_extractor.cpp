@@ -430,6 +430,16 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeClose(JNIEnv*, jclass, j
     if (gBound) releaseExtractor(ex);
 }
 
+// 视频显示宽高比（w/h），用于预览条按片源比例排版。
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_fongmi_android_tv_player_TrickplayNative_nativeAspect(JNIEnv*, jclass, jlong handle) {
+    Extractor* ex = reinterpret_cast<Extractor*>(handle);
+    if (ex == nullptr || ex->streamIndex < 0) return 0;
+    AVCodecParameters* par = ex->fmt->streams[ex->streamIndex]->codecpar;
+    if (par->width <= 0 || par->height <= 0) return 0;
+    return (jfloat) par->width / (jfloat) par->height;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_fongmi_android_tv_player_TrickplayNative_nativeRestart(JNIEnv*, jclass, jlong handle,
                                                                  jlong positionMs) {

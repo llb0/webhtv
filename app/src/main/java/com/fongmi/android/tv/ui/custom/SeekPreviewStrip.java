@@ -70,7 +70,7 @@ public class SeekPreviewStrip extends FrameLayout {
     private final List<Bitmap> recentFrames = new ArrayList<>();
     private final int cellCount;
     private final int cellWidth;
-    private final int cellHeight;
+    private int cellHeight;
 
     private Listener listener;
     private String media;
@@ -165,6 +165,9 @@ public class SeekPreviewStrip extends FrameLayout {
         this.media = mediaUrl;
         this.headers = mediaHeaders;
         if (!sameMedia) recentFrames.clear();
+        if (getContext() != null) {
+            applyAspect(TrickplayStore.aspect(getContext().getApplicationContext(), mediaUrl));
+        }
         focus = FOCUS_NONE;
         active = true;
         handler.removeCallbacks(holdRunner);
@@ -476,6 +479,7 @@ public class SeekPreviewStrip extends FrameLayout {
      */
     private void applyFallback(Cell cell, Bitmap bitmap) {
         if (bitmap != null && !bitmap.isRecycled()) {
+            applyAspect(bitmap.getWidth() / (float) Math.max(1, bitmap.getHeight()));
             cell.image.setImageBitmap(bitmap);
             cell.image.setAlpha(1f);
             remember(bitmap);
@@ -489,6 +493,24 @@ public class SeekPreviewStrip extends FrameLayout {
             cell.image.setImageDrawable(null);
             cell.image.setAlpha(1f);
         }
+    }
+
+    /**
+     * 按片源比例排版：格宽仍按可用宽度等分（8 格铺满），格高跟随视频宽高比，
+     * 手机竖拍、4:3 老片、2.35:1 电影都不会被硬拉成 16:9。
+     */
+    private void applyAspect(float aspect) {
+        if (aspect <= 0.2f || aspect > 4f) aspect = 16f / 9f;
+        int height = Math.max(1, Math.round(cellWidth / aspect));
+        if (height == cellHeight) return;
+        cellHeight = height;
+        int gap = dp(CELL_GAP_DP);
+        for (int i = 0; i < cells.size(); i++) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(cellWidth, cellHeight);
+            if (i > 0) params.leftMargin = gap;
+            cells.get(i).root.setLayoutParams(params);
+        }
+        requestLayout();
     }
 
     private void remember(Bitmap bitmap) {

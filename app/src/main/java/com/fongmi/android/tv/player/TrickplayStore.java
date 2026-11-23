@@ -64,6 +64,8 @@ public final class TrickplayStore {
             return value == null || value.isRecycled() ? 0 : value.getByteCount();
         }
     };
+    /** 每部片子的显示宽高比（w/h），预览条按片源比例排版，不再写死 16:9。 */
+    private static final Map<String, Float> ASPECT = new ConcurrentHashMap<>();
     private static final Set<String> RUNNING = ConcurrentHashMap.newKeySet();
     private static final Map<String, Window> PENDING = new ConcurrentHashMap<>();
     private static final Set<String> ATTEMPTED = ConcurrentHashMap.newKeySet();
@@ -99,6 +101,9 @@ public final class TrickplayStore {
             this.headers = headerArray(headers);
             this.handle = TrickplayNative.ensureLoaded(this.context)
                     ? TrickplayNative.nativeOpen(media, this.headers) : 0;
+            if (handle != 0) {
+                rememberAspect(TrickplayStore.keyFor(media), TrickplayNative.nativeAspect(handle));
+            }
         }
 
         public boolean isValid() {
@@ -120,7 +125,9 @@ public final class TrickplayStore {
         public synchronized Bitmap advance(long targetMs, int width) {
             if (!isValid()) return null;
             int[] frame = TrickplayNative.nativeAdvance(handle, Math.max(0, targetMs), width);
-            return TrickplayNative.bitmapOf(frame);
+            Bitmap bitmap = TrickplayNative.bitmapOf(frame);
+            if (bitmap != null) rememberAspect(TrickplayStore.keyFor(media), bitmap.getWidth() / (float) bitmap.getHeight());
+            return bitmap;
         }
 
         @Override
@@ -232,6 +239,17 @@ public final class TrickplayStore {
         }
     }
 
+    public static float aspect(Context context, String media) {
+        if (TextUtils.isEmpty(media)) return 16f / 9f;
+        Float value = ASPECT.get(keyFor(media));
+        return value == null || value <= 0 ? 16f / 9f : value;
+    }
+
+    private static void rememberAspect(String key, float ratio) {
+        if (TextUtils.isEmpty(key) || ratio <= 0.1f || ratio > 4f) return;
+        ASPECT.put(key, ratio);
+    }
+
     public static String keyFor(String media) {
         return digest(media == null ? "" : media);
     }
@@ -267,7 +285,10 @@ public final class TrickplayStore {
         File file = findFile(context, key, index);
         if (file == null) return null;
         Bitmap bitmap = decode(file, width, height);
-        if (bitmap != null) MEMORY.put(memKey, bitmap);
+        if (bitmap != null) {
+            MEMORY.put(memKey, bitmap);
+            rememberAspect(key, bitmap.getWidth() / (float) bitmap.getHeight());
+        }
         return bitmap;
     }
 

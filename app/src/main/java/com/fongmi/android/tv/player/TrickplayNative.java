@@ -160,6 +160,9 @@ public final class TrickplayNative {
 
     static native long nativeOpen(String url, String[] headers);
 
+    /** 片源显示宽高比（w/h），拿不到返回 0。 */
+    static native float nativeAspect(long handle);
+
     /** 顺序抽帧前定位一次；之后一路往前解，不再每格 seek。 */
     static native boolean nativeRestart(long handle, long positionMs);
 
