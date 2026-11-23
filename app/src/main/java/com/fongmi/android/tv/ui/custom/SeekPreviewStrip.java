@@ -69,8 +69,9 @@ public class SeekPreviewStrip extends FrameLayout {
     private final List<Cell> cells = new ArrayList<>();
     private final List<Bitmap> recentFrames = new ArrayList<>();
     private final int cellCount;
-    private final int cellWidth;
+    private int cellWidth;
     private int cellHeight;
+    private float aspect = 16f / 9f;
 
     private Listener listener;
     private String media;
@@ -124,7 +125,8 @@ public class SeekPreviewStrip extends FrameLayout {
             final int index = i;
             cell.root.setOnClickListener(view -> onCellClicked(index));
             cells.add(cell);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(cellWidth, cellHeight);
+            // 宽度给权重，由父容器实际宽度均分，手机横屏不会再按竖屏宽度算窄。
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, cellHeight, 1f);
             if (i > 0) params.leftMargin = gap;
             rowView.addView(cell.root, params);
         }
@@ -142,6 +144,28 @@ public class SeekPreviewStrip extends FrameLayout {
         containerParams.rightMargin = dp(20);
         containerParams.bottomMargin = dp(26);
         addView(container, containerParams);
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        layoutCells(w);
+    }
+
+    /** 按真实宽度均分 8 格，格高跟随片源比例。 */
+    private void layoutCells(int width) {
+        int gap = dp(CELL_GAP_DP);
+        int containerPadding = dp(12) * 2;
+        int usable = width - containerPadding - dp(20) * 2;
+        if (usable <= 0) usable = width - containerPadding;
+        if (usable <= 0) return;
+        cellWidth = Math.max(1, (usable - gap * (cellCount - 1)) / cellCount);
+        cellHeight = Math.max(1, Math.round(cellWidth / aspect));
+        for (int i = 0; i < cells.size(); i++) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, cellHeight, 1f);
+            if (i > 0) params.leftMargin = gap;
+            cells.get(i).root.setLayoutParams(params);
+        }
     }
 
     public void setListener(Listener listener) {
@@ -375,7 +399,8 @@ public class SeekPreviewStrip extends FrameLayout {
                         }
                     }),
                     () -> handler.post(() -> {
-                        if (!TrickplayNative.isReady()) reportUnavailableOnce(context);
+                        String error = TrickplayNative.lastError();
+                        if (!TextUtils.isEmpty(error)) reportOnce(context, error);
                         loadFallbackFrames(positions);
                     }));
         });
@@ -392,11 +417,10 @@ public class SeekPreviewStrip extends FrameLayout {
         }
     }
 
-    /** 抽帧不可用时提示一次原因，省得用户只能靠猜。 */
-    private void reportUnavailableOnce(android.content.Context context) {
+    /** 抽帧失败时提示一次原因，省得用户只能靠猜。 */
+    private void reportOnce(android.content.Context context, String reason) {
         if (reportedUnavailable) return;
         reportedUnavailable = true;
-        String reason = TrickplayNative.lastError();
         if (TextUtils.isEmpty(reason)) reason = "内置 FFmpeg 未加载";
         try {
             android.widget.Toast.makeText(context,
@@ -499,17 +523,11 @@ public class SeekPreviewStrip extends FrameLayout {
      * 按片源比例排版：格宽仍按可用宽度等分（8 格铺满），格高跟随视频宽高比，
      * 手机竖拍、4:3 老片、2.35:1 电影都不会被硬拉成 16:9。
      */
-    private void applyAspect(float aspect) {
-        if (aspect <= 0.2f || aspect > 4f) aspect = 16f / 9f;
-        int height = Math.max(1, Math.round(cellWidth / aspect));
-        if (height == cellHeight) return;
-        cellHeight = height;
-        int gap = dp(CELL_GAP_DP);
-        for (int i = 0; i < cells.size(); i++) {
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(cellWidth, cellHeight);
-            if (i > 0) params.leftMargin = gap;
-            cells.get(i).root.setLayoutParams(params);
-        }
+    private void applyAspect(float value) {
+        if (value <= 0.2f || value > 4f) value = 16f / 9f;
+        if (Math.abs(value - aspect) < 0.01f) return;
+        aspect = value;
+        layoutCells(getWidth());
         requestLayout();
     }
 

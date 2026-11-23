@@ -60,6 +60,7 @@ decltype(&av_frame_alloc) p_av_frame_alloc;
 decltype(&av_frame_free) p_av_frame_free;
 decltype(&av_frame_unref) p_av_frame_unref;
 decltype(&av_seek_frame) p_av_seek_frame;
+decltype(&avformat_seek_file) p_avformat_seek_file;
 decltype(&av_read_frame) p_av_read_frame;
 decltype(&av_rescale_q) p_av_rescale_q;
 decltype(&av_dict_set) p_av_dict_set;
@@ -124,6 +125,7 @@ bool bindSymbols() {
     BIND(av_frame_free);
     BIND(av_frame_unref);
     BIND(av_seek_frame);
+    BIND(avformat_seek_file);
     BIND(av_read_frame);
     BIND(av_rescale_q);
     BIND(av_dict_set);
@@ -227,12 +229,31 @@ bool nextDecodedFrame(Extractor* ex) {
     return p_avcodec_receive_frame(ex->dec, ex->frame) == 0;
 }
 
-// Decode the first frame at (or right before) the requested position.
-bool decodeAt(Extractor* ex, int64_t positionMs) {
+// 定位：HLS 这类流用 av_seek_frame 常失败，再退到全文件时间轴和 avformat_seek_file 各试一次。
+int seekTo(Extractor* ex, int64_t positionMs) {
     AVStream* stream = ex->fmt->streams[ex->streamIndex];
     int64_t ts = p_av_rescale_q(positionMs, AVRational{1, 1000}, stream->time_base);
+    int result = p_av_seek_frame(ex->fmt, ex->streamIndex, ts, AVSEEK_FLAG_BACKWARD);
+    if (result >= 0) return result;
+    result = p_av_seek_frame(ex->fmt, -1, positionMs * 1000, AVSEEK_FLAG_BACKWARD);
+    if (result >= 0) {
+        LOGI("seek by global timeline ok at %lld", (long long) positionMs);
+        return result;
+    }
+    if (p_avformat_seek_file != nullptr) {
+        result = p_avformat_seek_file(ex->fmt, ex->streamIndex, INT64_MIN, ts, ts, 0);
+        if (result >= 0) {
+            LOGI("seek_file ok at %lld", (long long) positionMs);
+            return result;
+        }
+    }
+    return result;
+}
+
+// Decode the first frame at (or right before) the requested position.
+bool decodeAt(Extractor* ex, int64_t positionMs) {
     ex->deadlineMs.store(nowMs() + kReadTimeoutMs, std::memory_order_relaxed);
-    int seekResult = p_av_seek_frame(ex->fmt, ex->streamIndex, ts, AVSEEK_FLAG_BACKWARD);
+    int seekResult = seekTo(ex, positionMs);
     if (seekResult < 0) {
         // 定位不了就别硬解第一帧冒充这一格（例如部分直播型 m3u8）。
         LOGW("seek failed at %lld: %d", (long long) positionMs, seekResult);
@@ -372,10 +393,9 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeOpen(JNIEnv* env, jclass
     int infoResult = p_avformat_find_stream_info(ex->fmt, nullptr);
     ex->deadlineMs.store(0, std::memory_order_relaxed);
     if (infoResult < 0) {
-        LOGW("find_stream_info failed: %d", infoResult);
+        // HLS 有时候探测会失败，但流信息已经拿到；这时继续试，拿不到视频流再放弃。
+        LOGW("find_stream_info failed: %d (continue anyway)", infoResult);
         setLastError("读取片源信息失败(" + std::to_string(infoResult) + ")");
-        releaseExtractor(ex);
-        return 0;
     }
     ex->streamIndex = p_av_find_best_stream(ex->fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
     if (ex->streamIndex < 0) {
@@ -445,16 +465,19 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeRestart(JNIEnv*, jclass,
                                                                  jlong positionMs) {
     Extractor* ex = reinterpret_cast<Extractor*>(handle);
     if (ex == nullptr || !gBound) return JNI_FALSE;
-    AVStream* stream = ex->fmt->streams[ex->streamIndex];
-    int64_t ts = p_av_rescale_q(positionMs, AVRational{1, 1000}, stream->time_base);
     ex->deadlineMs.store(nowMs() + kReadTimeoutMs, std::memory_order_relaxed);
-    bool ok = p_av_seek_frame(ex->fmt, ex->streamIndex, ts, AVSEEK_FLAG_BACKWARD) >= 0;
+    bool ok = seekTo(ex, positionMs) >= 0;
     p_avcodec_flush_buffers(ex->dec);
     p_av_frame_unref(ex->frame);
     p_av_packet_unref(ex->pkt);
     ex->deadlineMs.store(0, std::memory_order_relaxed);
-    if (!ok) setLastError("定位失败");
-    return ok ? JNI_TRUE : JNI_FALSE;
+    if (!ok && positionMs > 1000) {
+        setLastError("定位失败");
+        return JNI_FALSE;
+    }
+    // 片头不用定位：HLS 在起点 seek 常返回失败，但本来就在开头，照样能顺序往前解。
+    setLastError("");
+    return JNI_TRUE;
 }
 
 // 顺序往前解，直到落在 targetMs 或之后的第一个关键帧；到片尾返回 null。
