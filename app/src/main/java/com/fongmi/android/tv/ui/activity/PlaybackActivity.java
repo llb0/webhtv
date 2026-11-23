@@ -545,7 +545,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     private long currentPlaybackPosition() {
         try {
-            return Math.max(0L, player().getCurrentPosition());
+            return Math.max(0L, player().getPosition());
         } catch (Throwable ignored) {
             return 0L;
         }
