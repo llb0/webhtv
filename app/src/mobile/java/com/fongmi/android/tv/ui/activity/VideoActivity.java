@@ -154,6 +154,7 @@ import com.fongmi.android.tv.ui.adapter.TmdbRecommendationAdapter;
 import com.fongmi.android.tv.ui.audio.AudioPlaybackResolver;
 import com.fongmi.android.tv.ui.base.ViewType;
 import com.fongmi.android.tv.ui.custom.CustomKeyDown;
+import com.fongmi.android.tv.ui.custom.SeekPreviewStrip;
 import com.fongmi.android.tv.ui.custom.CustomMovement;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
@@ -461,6 +462,14 @@ private int mAudioBackgroundRandomNonce;
     private androidx.appcompat.app.AlertDialog mIntroSkipConfirmDialog;
     private ValueAnimator mAnimator;
     private CustomKeyDown mKeyDown;
+    /** 横滑快进/快退时的缩略图预览层（与电视端同一实现）。 */
+    private SeekPreviewStrip mSeekPreview;
+    private long mSeekPreviewBase;
+    private long mSeekPreviewOffset;
+    private boolean mSeekPreviewPending;
+    private java.util.Map<String, String> mSeekPreviewHeaders;
+    private final android.os.Handler mSeekPreviewHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable mSeekPreviewShow = this::showPendingSeekPreview;
     private View mNightModeOverlay;
     private int mNightModeLevel = PlayerSetting.NIGHT_MODE_OFF;
     private List<String> mBroken;
@@ -1899,6 +1908,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mRestoringConfigurationPlayback = savedInstanceState != null;
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (v, insets) -> setStatusBar(insets));
         mKeyDown = CustomKeyDown.create(this, mBinding.exo);
+        setupSeekPreview();
         mFrameParams = mBinding.video.getLayoutParams();
         mFrameHeight = mFrameParams.height;
         if (mFrameParams instanceof RelativeLayout.LayoutParams params) mDefaultFrameParams = new RelativeLayout.LayoutParams(params);
@@ -2081,7 +2091,68 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         mBinding.swipeLayout.setOnRefreshListener(this::onSwipeRefresh);
     }
 
-    private WindowInsetsCompat setStatusBar(WindowInsetsCompat insets) {
+private void setupSeekPreview() {
+        if (mSeekPreview != null) return;
+        mSeekPreview = new SeekPreviewStrip(this);
+        mSeekPreview.setListener(new SeekPreviewStrip.Listener() {
+            @Override
+            public void onCommit(long positionMs) {
+                if (!canPreviewSeek()) return;
+                onSeekStarted();
+                controller().seekTo(positionMs);
+                controller().play();
+            }
+
+            @Override
+            public void onDismiss() {
+            }
+        });
+        mSeekPreview.setOnTouchListener((view, event) -> mSeekPreview.handleTouch(event));
+        android.view.ViewGroup content = findViewById(android.R.id.content);
+        if (content == null) return;
+        android.widget.FrameLayout.LayoutParams params = new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT);
+        content.addView(mSeekPreview, params);
+    }
+
+    /**
+     * 手机上也是「拖起来才出图」：位移超过一点距离或持续超过 450ms 才弹预览层，
+     * 轻点屏幕不会闪一排缩略图。
+     */
+    private void driveSeekPreview(long offsetMs) {
+        if (mSeekPreview == null) return;
+        mSeekPreviewOffset = offsetMs;
+        if (!mSeekPreview.isActive()) {
+            if (!mSeekPreviewPending) {
+                mSeekPreviewBase = Math.max(0, player().getPosition());
+                mSeekPreviewHeaders = player().getHeaders();
+                mSeekPreviewPending = true;
+                mSeekPreviewHandler.postDelayed(mSeekPreviewShow, 450L);
+            }
+            return;
+        }
+        mSeekPreview.update(mSeekPreviewBase + offsetMs);
+    }
+
+    private void showPendingSeekPreview() {
+        if (!mSeekPreviewPending || mSeekPreview == null) return;
+        mSeekPreviewPending = false;
+        if (!canPreviewSeek()) return;
+        mSeekPreview.begin(player().getDuration(), mSeekPreviewBase + mSeekPreviewOffset,
+                player().getUrl(), mSeekPreviewHeaders);
+    }
+
+    private boolean canPreviewSeek() {
+        return service() != null && !isFinishing() && !isDestroyed() && !player().isEmpty();
+    }
+
+    private void cancelPendingSeekPreview() {
+        mSeekPreviewHandler.removeCallbacks(mSeekPreviewShow);
+        mSeekPreviewPending = false;
+    }
+
+        private WindowInsetsCompat setStatusBar(WindowInsetsCompat insets) {
         int top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
         Insets nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
         int bottom = nav.bottom;
@@ -10476,6 +10547,7 @@ private void checkOrientation() {
 
     @Override
     public void onSeeking(long time) {
+        driveSeekPreview(time);
         mBinding.widget.action.setImageResource(time > 0 ? R.drawable.ic_widget_forward : R.drawable.ic_widget_rewind);
         mBinding.widget.time.setText(player().getPositionTime(time));
         mBinding.widget.seek.setVisibility(View.VISIBLE);
@@ -10485,6 +10557,8 @@ private void checkOrientation() {
     @Override
     public void onSeekEnd(long time) {
         seekTo(time);
+        cancelPendingSeekPreview();
+        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();
     }
 
     @Override
@@ -10728,6 +10802,9 @@ private void checkOrientation() {
 
     @Override
     protected void onDestroy() {
+        cancelPendingSeekPreview();
+        mSeekPreviewHandler.removeCallbacksAndMessages(null);
+        if (mSeekPreview != null) mSeekPreview.dismiss();
         mDanmakuRetired = true;
         invalidateAutoDanmaku();
         if (mCustomButtonPlayer != null) {

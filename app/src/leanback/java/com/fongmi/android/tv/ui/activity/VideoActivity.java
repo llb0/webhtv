@@ -133,6 +133,7 @@ import com.fongmi.android.tv.ui.adapter.QualityAdapter;
 import com.fongmi.android.tv.ui.adapter.QuickAdapter;
 import com.fongmi.android.tv.ui.audio.AudioPlaybackResolver;
 import com.fongmi.android.tv.ui.custom.CustomKeyDownVod;
+import com.fongmi.android.tv.ui.custom.SeekPreviewStrip;
 import com.fongmi.android.tv.ui.custom.CustomMovement;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
@@ -426,6 +427,14 @@ private boolean runtimeSourceOnly;
     private static final long TV_TOUCH_SEEK_SCALE = 50L;
 
     private CustomKeyDownVod mKeyDown;
+    /** 长按快进/快退时的缩略图预览层（与手机端同一实现）。 */
+    private SeekPreviewStrip mSeekPreview;
+    private long mSeekPreviewBase;
+    private long mSeekPreviewOffset;
+    private boolean mSeekPreviewPending;
+    private java.util.Map<String, String> mSeekPreviewHeaders;
+    private final android.os.Handler mSeekPreviewHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable mSeekPreviewShow = this::showPendingSeekPreview;
     private AudioManager mTvAudioManager;
     private int mTvTouchAxis;
     private boolean mTvTouchMulti;
@@ -1898,6 +1907,7 @@ private boolean runtimeSourceOnly;
         mPiP = mPlayerUi.pip();
         setupAudioStageOverlay();
         mKeyDown = CustomKeyDownVod.create(this);
+        setupSeekPreview();
         mTvAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         mObserveDetail = this::setDetail;
         mObservePlayer = this::setPlayer;
@@ -3772,6 +3782,8 @@ private boolean runtimeSourceOnly;
     private void setPlayer(Result result) {
         invalidateAutoDanmaku();
         cancelKeySeek();
+        cancelPendingSeekPreview();
+        if (mSeekPreview != null) mSeekPreview.dismiss();
         // null 结果表示这次取流请求已被作废（SiteViewModel.cancelPlayerContent 会向 PLAYER
         // LiveData 写入 null），不会再有结果回调来收圈。守卫若留在这里，onStateChanged 与
         // hidePlaybackProgressIfStale 两条清除路径会永久被挡下，圈再无任何清除路径。
@@ -9640,6 +9652,11 @@ private boolean runtimeSourceOnly;
                     || keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
                     || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) return true;
         }
+        if (mSeekPreview != null && mSeekPreview.isActive()
+                && mSeekPreview.handleKey(event.getKeyCode(), KeyUtil.isActionDown(event))) {
+            cancelKeySeek();
+            return true;
+        }
         if (KeyUtil.isActionDown(event) && (!isFullscreen() || isVisible(mBinding.control.getRoot()) || isVisible(mBinding.lutQuick) || (!KeyUtil.isLeftKey(event) && !KeyUtil.isRightKey(event) && !KeyUtil.isBackKey(event)))) cancelKeySeek();
         if (KeyUtil.isActionDown(event) && KeyUtil.isBackKey(event)) {
             boolean preview = isVisible(mBinding.widget.center);
@@ -9839,10 +9856,13 @@ private boolean runtimeSourceOnly;
     @Override
     public void onSeekCancel() {
         hideCenter();
+        cancelPendingSeekPreview();
+        if (mSeekPreview != null) mSeekPreview.dismiss();
     }
 
     @Override
     public void onSeeking(long time) {
+        driveSeekPreview(time);
         mBinding.widget.center.setVisibility(View.VISIBLE);
         mBinding.widget.duration.setText(getTimelineDurationTime());
         mBinding.widget.position.setText(player().getPositionTime(time));
@@ -9854,6 +9874,9 @@ private boolean runtimeSourceOnly;
     public void onSeekEnd(long time) {
         if (seekTo(time)) hideCenter();
         mKeyDown.reset();
+        // 松手不立刻收起：留 3 秒让用户按上键进缩略图排挑图；单次点按没弹层的直接结束。
+        cancelPendingSeekPreview();
+        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();
     }
 
     @Override
@@ -10442,7 +10465,68 @@ private void disableLeanbackDesktopLyrics() {
         if (PlayerSetting.isDesktopLyrics()) PlayerSetting.putDesktopLyrics(false);
     }
 
-private void setupAudioStageOverlay() {
+private void setupSeekPreview() {
+        if (mSeekPreview != null) return;
+        mSeekPreview = new SeekPreviewStrip(this);
+        mSeekPreview.setListener(new SeekPreviewStrip.Listener() {
+            @Override
+            public void onCommit(long positionMs) {
+                if (!canSeek()) return;
+                onSeekStarted();
+                controller().seekTo(positionMs);
+                controller().play();
+                hideCenter();
+            }
+
+            @Override
+            public void onDismiss() {
+            }
+        });
+        android.view.ViewGroup content = findViewById(android.R.id.content);
+        if (content == null) return;
+        android.widget.FrameLayout.LayoutParams params = new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT);
+        content.addView(mSeekPreview, params);
+    }
+
+    /**
+     * 长按期间按偏移量驱动游标。起始位置只取一次：进度条跟的是「原位置 + 累计步进」，
+     * 不是引擎已经跳过的位置。
+     */
+    /**
+     * 单次点按不弹预览层（否则每次快进 10 秒都会闪一排图）；按住超过 450ms 才展示，
+     * 也就是等遥控器出重复键之后，露出「游标 + 缩略图」。
+     */
+    private void driveSeekPreview(long offsetMs) {
+        if (mSeekPreview == null) return;
+        mSeekPreviewOffset = offsetMs;
+        if (!mSeekPreview.isActive()) {
+            if (!mSeekPreviewPending) {
+                mSeekPreviewBase = Math.max(0, player().getPosition());
+                mSeekPreviewHeaders = player().getHeaders();
+                mSeekPreviewPending = true;
+                mSeekPreviewHandler.postDelayed(mSeekPreviewShow, 450L);
+            }
+            return;
+        }
+        mSeekPreview.update(mSeekPreviewBase + offsetMs);
+    }
+
+    private void showPendingSeekPreview() {
+        if (!mSeekPreviewPending || mSeekPreview == null) return;
+        mSeekPreviewPending = false;
+        if (!canSeek()) return;
+        mSeekPreview.begin(player().getDuration(), mSeekPreviewBase + mSeekPreviewOffset,
+                player().getUrl(), mSeekPreviewHeaders);
+    }
+
+    private void cancelPendingSeekPreview() {
+        mSeekPreviewHandler.removeCallbacks(mSeekPreviewShow);
+        mSeekPreviewPending = false;
+    }
+
+    private void setupAudioStageOverlay() {
         mBinding.audioStage.setSaveFromParentEnabled(false);
         ViewGroup parent = (ViewGroup) mBinding.audioStage.getParent();
         if (parent != null) parent.removeView(mBinding.audioStage);
