@@ -376,14 +376,8 @@ public final class TrickplayStore {
         }
     }
 
+    /** 关键信息只走调试日志，不落文件。 */
     private static void logFailure(Context context, String message) {
-        if (context == null) return;
-        File marker = new File(context.getCacheDir(), "trickplay.log");
-        if (marker.length() > 64 * 1024) marker.delete();
-        try (FileOutputStream output = new FileOutputStream(marker, true)) {
-            output.write((System.currentTimeMillis() + " " + message + "\n").getBytes(StandardCharsets.UTF_8));
-        } catch (Throwable ignored) {
-        }
         Log.w("Trickplay", message);
     }
 
