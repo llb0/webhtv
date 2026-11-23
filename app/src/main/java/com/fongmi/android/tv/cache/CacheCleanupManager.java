@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.cache;
 
+import com.fongmi.android.tv.smb.SmbThumbnailCache;
 import androidx.media3.mpvplayer.MpvHlsCacheCoordinator;
 
 import com.bumptech.glide.Glide;
@@ -379,7 +380,10 @@ public final class CacheCleanupManager {
                     Math.min(retention, 6L * 60L * 60L * 1000L), System::currentTimeMillis, Set.of()));
             case GLIDE -> {
                 Glide.get(App.get()).clearDiskCache();
-                yield new Outcome(true, List.of());
+                // SMB 视频缩略图目录不属于 Glide 的磁盘缓存，得连目录和内存层一起清，
+                // 否则清完缓存列表里仍留着缩略图文件，重建目录时也拿不到新帧。
+                SmbThumbnailCache.clearMemory();
+                yield clearTrees(new File(cache, SmbThumbnailCache.DIR));
             }
             case PLUGIN_SCRIPTS -> clearPluginCache(explicitRetention(mode, retention),
                     Set.copyOf(BaseLoader.get().activePluginKeys()));

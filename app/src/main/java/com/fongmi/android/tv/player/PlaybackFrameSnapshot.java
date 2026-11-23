@@ -42,14 +42,40 @@ public final class PlaybackFrameSnapshot {
         void onCaptured(@NonNull String uri);
     }
 
+    public interface BitmapCallback {
+        /** 成功返回非黑屏的一帧（调用方负责回收），失败返回 null；回调在主线程。 */
+        void onCaptured(@Nullable Bitmap bitmap);
+    }
+
     public static void capture(@NonNull Activity activity, @Nullable PlayerView playerView, @NonNull Callback callback) {
+        captureBitmap(activity, playerView, bitmap -> {
+            if (bitmap == null) {
+                callback.onCaptured("");
+                return;
+            }
+            Task.execute(() -> {
+                String uri = "";
+                try {
+                    uri = save(activity, bitmap);
+                } catch (Throwable ignored) {
+                } finally {
+                    bitmap.recycle();
+                }
+                final String result = uri;
+                App.post(() -> callback.onCaptured(result));
+            });
+        });
+    }
+
+    /** 只取一帧交回调用方，落盘方式由调用方决定（SMB 缩略图就走这里）。 */
+    public static void captureBitmap(@NonNull Activity activity, @Nullable PlayerView playerView, @NonNull BitmapCallback callback) {
         if (playerView == null) {
-            callback.onCaptured("");
+            callback.onCaptured(null);
             return;
         }
         View surface = playerView.getVideoSurfaceView();
         if (!playerView.isAttachedToWindow() || surface == null || surface.getWidth() <= 0 || surface.getHeight() <= 0) {
-            callback.onCaptured("");
+            callback.onCaptured(null);
             return;
         }
         int[] size = targetSize(surface.getWidth(), surface.getHeight());
@@ -57,10 +83,10 @@ public final class PlaybackFrameSnapshot {
         if (surface instanceof SurfaceView surfaceView) {
             Bitmap bitmap = Bitmap.createBitmap(size[0], size[1], Bitmap.Config.ARGB_8888);
             try {
-                PixelCopy.request(surfaceView, bitmap, result -> finish(activity, bitmap, result == PixelCopy.SUCCESS, callback), handler);
+                PixelCopy.request(surfaceView, bitmap, result -> finishBitmap(bitmap, result == PixelCopy.SUCCESS, callback), handler);
             } catch (RuntimeException error) {
                 bitmap.recycle();
-                callback.onCaptured("");
+                callback.onCaptured(null);
             }
             return;
         }
@@ -70,29 +96,19 @@ public final class PlaybackFrameSnapshot {
                 bitmap = textureView.getBitmap(size[0], size[1]);
             } catch (RuntimeException ignored) {
             }
-            finish(activity, bitmap, bitmap != null, callback);
+            finishBitmap(bitmap, bitmap != null, callback);
             return;
         }
-        callback.onCaptured("");
+        callback.onCaptured(null);
     }
 
-    private static void finish(Activity activity, Bitmap bitmap, boolean success, Callback callback) {
+    private static void finishBitmap(Bitmap bitmap, boolean success, BitmapCallback callback) {
         if (!success || bitmap == null || isMostlyBlack(bitmap)) {
             if (bitmap != null) bitmap.recycle();
-            callback.onCaptured("");
+            callback.onCaptured(null);
             return;
         }
-        Task.execute(() -> {
-            String uri = "";
-            try {
-                uri = save(activity, bitmap);
-            } catch (Throwable ignored) {
-            } finally {
-                bitmap.recycle();
-            }
-            final String result = uri;
-            App.post(() -> callback.onCaptured(result));
-        });
+        callback.onCaptured(bitmap);
     }
 
     private static boolean isMostlyBlack(Bitmap bitmap) {
