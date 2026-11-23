@@ -177,10 +177,19 @@ public final class TrickplayStore {
 
     private static long sessionIdOf(FFmpegSession session) {
         try {
-            return Long.parseLong(session.getSessionId());
+            return session.getSessionId();
         } catch (Throwable ignored) {
             return -1;
         }
+    }
+
+    /** 缓冲中或有前台窗口在抽帧时歇一会儿；返回 false 表示任务已被取消。 */
+    private static boolean waitWhileBusy(String key) {
+        while (playerBusy || RUNNING.contains(key)) {
+            if (!key.equals(backgroundKey)) return false;
+            sleep(500);
+        }
+        return key.equals(backgroundKey);
     }
 
     private static void cancelStream() {
