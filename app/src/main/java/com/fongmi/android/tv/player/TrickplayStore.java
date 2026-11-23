@@ -5,12 +5,15 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.LruCache;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import com.github.catvod.crawler.SpiderDebug;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HashMap;
@@ -99,8 +102,16 @@ public final class TrickplayStore {
             this.context = context.getApplicationContext();
             this.media = media;
             this.headers = headerArray(headers);
+            long startedAt = SystemClock.elapsedRealtime();
             this.handle = TrickplayNative.ensureLoaded(this.context)
                     ? TrickplayNative.nativeOpen(media, this.headers) : 0;
+            long cost = SystemClock.elapsedRealtime() - startedAt;
+            if (handle == 0) {
+                trace("open fail cost=%dms error=%s url=%s", cost, TrickplayNative.lastError(), media);
+            } else {
+                trace("open ok cost=%dms aspect=%.3f url=%s", cost,
+                        TrickplayNative.nativeAspect(handle), media);
+            }
             if (handle != 0) {
                 rememberAspect(TrickplayStore.keyFor(media), TrickplayNative.nativeAspect(handle));
             }
@@ -112,8 +123,12 @@ public final class TrickplayStore {
 
         public synchronized Bitmap grab(long positionMs, int width) {
             if (!isValid()) return null;
+            long startedAt = SystemClock.elapsedRealtime();
             int[] frame = TrickplayNative.nativeGrab(handle, Math.max(0, positionMs), width);
-            return TrickplayNative.bitmapOf(frame);
+            Bitmap bitmap = TrickplayNative.bitmapOf(frame);
+            trace("grab at=%s cost=%dms ok=%b error=%s", time(positionMs),
+                    SystemClock.elapsedRealtime() - startedAt, bitmap != null, TrickplayNative.lastError());
+            return bitmap;
         }
 
         /** 顺序模式：先定位一次，之后用 {@link #advance} 一路往前，避免逐格 seek 把盘扫死。 */
@@ -124,8 +139,11 @@ public final class TrickplayStore {
 
         public synchronized Bitmap advance(long targetMs, int width) {
             if (!isValid()) return null;
+            long startedAt = SystemClock.elapsedRealtime();
             int[] frame = TrickplayNative.nativeAdvance(handle, Math.max(0, targetMs), width);
             Bitmap bitmap = TrickplayNative.bitmapOf(frame);
+            trace("advance at=%s cost=%dms ok=%b error=%s", time(targetMs),
+                    SystemClock.elapsedRealtime() - startedAt, bitmap != null, TrickplayNative.lastError());
             if (bitmap != null) rememberAspect(TrickplayStore.keyFor(media), bitmap.getWidth() / (float) bitmap.getHeight());
             return bitmap;
         }
@@ -194,7 +212,11 @@ public final class TrickplayStore {
         Extractor extractor = null;
         try {
             int index = lastCompleteIndex(context, key) + 1;
-            if ((index - 1) * STEP_MS >= durationMs) return;
+            trace("bg start key=%s from=%s duration=%s", key.substring(0, 8), time((index - 1) * STEP_MS), time(durationMs));
+            if ((index - 1) * STEP_MS >= durationMs) {
+                trace("bg skip reason=already-complete");
+                return;
+            }
             extractor = open(context, media, headers);
             if (extractor == null || !extractor.isValid()) {
                 logFailure(context, "后台抽帧打不开：" + TrickplayNative.lastError());
@@ -211,12 +233,19 @@ public final class TrickplayStore {
                 if (target >= durationMs) return;
                 if (playerBusy || RUNNING.contains(key)) {
                     // 缓冲 / 前台窗口在抽帧：先让路，位置不动，回来继续。
+                    trace("bg pause index=%d busy=%b window=%b", index, playerBusy, RUNNING.contains(key));
                     sleep(400);
                     continue;
                 }
                 Bitmap bitmap = extractor.advance(target, FRAME_WIDTH);
-                if (!key.equals(backgroundKey)) return;
-                if (bitmap == null) return;  // 到片尾或解不出来
+                if (!key.equals(backgroundKey)) {
+                    trace("bg stop reason=key-changed index=%d", index);
+                    return;
+                }
+                if (bitmap == null) {
+                    trace("bg stop reason=no-frame index=%d at=%s error=%s", index, time(target), TrickplayNative.lastError());
+                    return;
+                }
                 File file = frameFile(context, key, index);
                 if (!file.isFile() || file.length() == 0) writeFrame(file, bitmap);
                 else bitmap.recycle();
@@ -237,6 +266,19 @@ public final class TrickplayStore {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /** 关键步骤与耗时进应用自带调试日志（设置-调试日志，播放流程分类）。 */
+    private static void trace(String format, Object... args) {
+        try {
+            SpiderDebug.log("playback.trickplay", format, args);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String time(long millis) {
+        long total = Math.max(0, millis) / 1000;
+        return String.format(Locale.ROOT, "%d:%02d", total / 60, total % 60);
     }
 
     public static float aspect(Context context, String media) {
@@ -315,12 +357,15 @@ public final class TrickplayStore {
             return;
         }
         String key = keyFor(media);
+        trace("window request key=%s count=%d first=%s last=%s",
+                key.substring(0, 8), positions.size(), time(positions.get(0)), time(positions.get(positions.size() - 1)));
         String token = key + "#" + positions.hashCode();
         if (!ATTEMPTED.add(token)) {
             if (onDone != null) MAIN.post(onDone);
             return;
         }
         Window window = new Window(context.getApplicationContext(), media, headers, positions, onFrame, onDone);
+        window.startedAt = SystemClock.elapsedRealtime();
         if (RUNNING.add(key)) {
             IO.execute(() -> runWindow(window));
         } else {
@@ -332,6 +377,14 @@ public final class TrickplayStore {
         try {
             executeWindow(window);
         } finally {
+            int missing = 0;
+            for (Long position : window.positions) {
+                File file = frameFile(window.context, window.key, frameIndex(position));
+                if (!file.isFile() || file.length() == 0) missing++;
+            }
+            trace("window done key=%s cost=%dms missing=%d/%d error=%s",
+                    window.key.substring(0, 8), SystemClock.elapsedRealtime() - window.startedAt,
+                    missing, window.positions.size(), TrickplayNative.lastError());
             MAIN.post(() -> {
                 if (window.onDone != null) window.onDone.run();
             });
@@ -619,6 +672,7 @@ public final class TrickplayStore {
         final java.util.List<Long> positions;
         final Runnable onFrame;
         final Runnable onDone;
+        long startedAt;
 
         Window(Context context, String media, Map<String, String> headers,
                java.util.List<Long> positions, Runnable onFrame, Runnable onDone) {

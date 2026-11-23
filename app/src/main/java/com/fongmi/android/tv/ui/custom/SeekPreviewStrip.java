@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 
+import com.github.catvod.crawler.SpiderDebug;
 import com.fongmi.android.tv.player.TrickplayNative;
 import android.util.AttributeSet;
 import android.view.Gravity;
@@ -382,6 +383,8 @@ public class SeekPreviewStrip extends FrameLayout {
                     handler.post(() -> applyAt(positions, at, found));
                 }
             }
+            trace("preview cells=%d missing=%d ready=%b error=%s", positions.size(), missing.size(),
+                    TrickplayNative.isReady(), TrickplayNative.lastError());
             if (missing.isEmpty() || TextUtils.isEmpty(mediaUrl)) return;
             if (!allowPrepare) {
                 handler.post(() -> loadFallbackFrames(positions));
@@ -404,6 +407,13 @@ public class SeekPreviewStrip extends FrameLayout {
                         loadFallbackFrames(positions);
                     }));
         });
+    }
+
+    private void trace(String format, Object... args) {
+        try {
+            SpiderDebug.log("playback.trickplay", format, args);
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 只在“位置还没变”的格子上贴图，避免拖动后贴到错位。 */

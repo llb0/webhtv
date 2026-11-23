@@ -3,11 +3,14 @@ package com.fongmi.android.tv.player;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Build;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+
+import com.github.catvod.crawler.SpiderDebug;
 
 /**
  * JNI 抽帧桥：复用应用里已经随 mpv 打包的 FFmpeg 7.1.4（libmvformat / libmvcodec /
@@ -52,22 +55,29 @@ public final class TrickplayNative {
         if (context == null) return false;
         synchronized (LOCK) {
             if (ready) return true;
+            long startedAt = SystemClock.elapsedRealtime();
             try {
                 Context app = context.getApplicationContext();
                 String abi = loadBundledLibraries(app);
                 if (abi == null) {
                     failure = "找不到内置 FFmpeg 库";
+                    trace("load fail cost=%dms abi=none", SystemClock.elapsedRealtime() - startedAt);
                     return false;
                 }
+                long loadedAt = SystemClock.elapsedRealtime();
                 System.loadLibrary("trickplay_extractor");
                 File dir = new File(app.getDir("mpv-libs", Context.MODE_PRIVATE), abi);
                 ready = nativeSetup(dir.getAbsolutePath());
                 if (!ready) failure = "FFmpeg 符号绑定失败";
+                trace("load %s abi=%s libs=%dms bind=%dms total=%dms", ready ? "ok" : "fail", abi,
+                        loadedAt - startedAt, SystemClock.elapsedRealtime() - loadedAt,
+                        SystemClock.elapsedRealtime() - startedAt);
             } catch (Throwable error) {
                 failure = error.getClass().getSimpleName() + ": " + error.getMessage();
                 Log.e(TAG, "unable to load extractor", error);
                 ready = false;
             }
+            if (!ready) trace("load error %s", failure);
             if (ready) Log.i(TAG, "trickplay ready");
             else Log.e(TAG, "trickplay unavailable: " + failure);
             return ready;
@@ -107,6 +117,13 @@ public final class TrickplayNative {
             }
         }
         return abi;
+    }
+
+    private static void trace(String format, Object... args) {
+        try {
+            SpiderDebug.log("playback.trickplay", format, args);
+        } catch (Throwable ignored) {
+        }
     }
 
     private static boolean assetExists(Context app, String abi) {
