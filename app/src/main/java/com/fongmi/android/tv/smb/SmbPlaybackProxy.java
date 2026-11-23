@@ -28,7 +28,7 @@ public final class SmbPlaybackProxy {
     /** 缩略图专用 token 池：目录里逐行取帧不该把播放中的直链从 FILES 里挤掉。 */
     private static final Map<String, FileRef> THUMBS = new LinkedHashMap<>();
     private static final int MAX_FILES = 24;
-    private static final int MAX_THUMBS = 8;
+    private static final int MAX_THUMBS = 512;
     private static ProxyServer server;
 
     private SmbPlaybackProxy() {

@@ -18,7 +18,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -43,8 +42,13 @@ public final class SmbThumbnailCache {
     private static final double MIN_LUMA = 36;
     private static final int TARGET_WIDTH = 480;
 
-    /** 这一次会话里取帧失败过的文件不再重试：老容器大多只有 IJK 能解，重试只会白读网络。 */
-    private static final Set<String> FAILED = ConcurrentHashMap.newKeySet();
+    /**
+     * 取帧失败过的文件短期内不再重试（老容器大多只有 IJK 能解，重试只会白读网络）。
+     * 用时间戳做软过期：代理 token 被挤出、临时读失败之类的情况过几分钟还能再试，
+     * 不会像以前那样一次失败就把这个文件永久钉死。
+     */
+    private static final Map<String, Long> FAILED = new ConcurrentHashMap<>();
+    private static final long FAILED_TTL_MS = 5L * 60 * 1000;
     private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(3);
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final LruCache<String, Bitmap> MEMORY = new LruCache<String, Bitmap>(12 * 1024 * 1024) {
@@ -84,7 +88,6 @@ public final class SmbThumbnailCache {
     public static void load(Context context, String key, String url, ImageView view, int width, int height,
                             boolean allowGenerate, Runnable onReady) {
         if (context == null || key == null || view == null) return;
-        if (FAILED.contains(key)) return;
         view.setTag(key);
         Bitmap memory = MEMORY.get(key);
         if (memory != null && !memory.isRecycled()) {
@@ -95,14 +98,19 @@ public final class SmbThumbnailCache {
         Context app = context.getApplicationContext();
         EXECUTOR.execute(() -> {
             Bitmap bitmap = null;
+            boolean tried = false;
             try {
                 File file = file(app, key);
+                // 磁盘上的图永远先用：不管之前取帧失败没失败、列表是从哪个目录重新进来的。
                 if (file.isFile()) bitmap = readDisk(file, width, height);
-                if (bitmap == null && allowGenerate && url != null) bitmap = generate(app, key, url, file);
+                if (bitmap == null && allowGenerate && url != null && !recentlyFailed(key)) {
+                    tried = true;
+                    bitmap = generate(app, key, url, file);
+                }
             } catch (Throwable ignored) {
                 bitmap = null;
             }
-            if (bitmap == null) FAILED.add(key);
+            if (bitmap == null && tried) FAILED.put(key, System.currentTimeMillis());
             Bitmap result = bitmap;
             MAIN.post(() -> {
                 Object tag = view.getTag();
@@ -152,6 +160,14 @@ public final class SmbThumbnailCache {
 
     public static File file(Context context, String key) {
         return new File(dir(context), key + ".jpg");
+    }
+
+    private static boolean recentlyFailed(String key) {
+        Long at = FAILED.get(key);
+        if (at == null) return false;
+        if (System.currentTimeMillis() - at < FAILED_TTL_MS) return true;
+        FAILED.remove(key);
+        return false;
     }
 
     private static Bitmap readDisk(File file, int width, int height) {

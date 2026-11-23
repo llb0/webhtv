@@ -1195,8 +1195,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
                     }
                     adapter.setRows(rows);
                     title.setText(host + " / " + share + (path.isEmpty() ? "" : " / " + path));
+                    // 顶部注释直接显示当前路径，不再拿玩法提示占位。
                     setStatus(found.isEmpty() ? getString(R.string.smb_no_files)
-                            : "卡片列表：视频/音乐可播放，图片可查看，APK 可安装");
+                            : host + " / " + share + (path.isEmpty() ? "" : " / " + path));
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> setStatus(getString(R.string.smb_connect_failed) + "：" + shortError(e)));
