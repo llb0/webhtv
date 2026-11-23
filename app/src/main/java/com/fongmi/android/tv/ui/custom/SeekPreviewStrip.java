@@ -41,7 +41,10 @@ import java.util.Map;
  */
 public class SeekPreviewStrip extends FrameLayout {
 
-    private static final int CELL_COUNT = 7;
+    /** 缩略图目标高度；实际格数与格宽按可用宽度算，保持 16:9 紧挨，不强行平分也不拉伸。 */
+    private static final int TARGET_CELL_HEIGHT_DP = 64;
+    private static final int CELL_GAP_DP = 5;
+    private static final int MIN_CELL_COUNT = 3;
     private static final long HOLD_MS = 3000L;
     private static final long MIN_SPACING_MS = 30L * 1000L;
     private static final long MAX_SPACING_MS = 5L * 60L * 1000L;
@@ -63,6 +66,7 @@ public class SeekPreviewStrip extends FrameLayout {
     private final BarView barView;
     private final List<Cell> cells = new ArrayList<>();
     private final List<Bitmap> recentFrames = new ArrayList<>();
+    private final int cellCount;
     private final int cellWidth;
     private final int cellHeight;
 
@@ -84,8 +88,12 @@ public class SeekPreviewStrip extends FrameLayout {
         setVisibility(GONE);
         setClipChildren(false);
 
-        cellWidth = computeCellWidth();
-        cellHeight = Math.max(dp(44), cellWidth * 9 / 16);
+        int usable = usableWidth();
+        int gap = dp(CELL_GAP_DP);
+        int targetWidth = Math.round(dp(TARGET_CELL_HEIGHT_DP) * 16f / 9f);
+        cellCount = Math.max(MIN_CELL_COUNT, Math.round((usable + gap) / (float) (targetWidth + gap)));
+        cellWidth = Math.max(dp(48), (usable - gap * (cellCount - 1)) / cellCount);
+        cellHeight = Math.max(dp(27), Math.round(cellWidth * 9f / 16f));
 
         container = new LinearLayout(context);
         container.setOrientation(LinearLayout.VERTICAL);
@@ -108,13 +116,13 @@ public class SeekPreviewStrip extends FrameLayout {
         container.addView(rowView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        for (int i = 0; i < CELL_COUNT; i++) {
+        for (int i = 0; i < cellCount; i++) {
             Cell cell = new Cell(context);
             final int index = i;
             cell.root.setOnClickListener(view -> onCellClicked(index));
             cells.add(cell);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, cellHeight, 1f);
-            if (i > 0) params.leftMargin = dp(5);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(cellWidth, cellHeight);
+            if (i > 0) params.leftMargin = gap;
             rowView.addView(cell.root, params);
         }
 
@@ -219,7 +227,7 @@ public class SeekPreviewStrip extends FrameLayout {
         if (focus == FOCUS_NONE) {
             if (keyCode != KeyEvent.KEYCODE_DPAD_UP) return false;
             if (!actionDown) return true;
-            focus = CELL_COUNT / 2;
+            focus = cellCount / 2;
             render();
             scheduleHold();
             return true;
@@ -239,7 +247,7 @@ public class SeekPreviewStrip extends FrameLayout {
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 if (!actionDown) return true;
-                focus = Math.min(CELL_COUNT - 1, focus + 1);
+                focus = Math.min(cellCount - 1, focus + 1);
                 render();
                 scheduleHold();
                 return true;
@@ -338,9 +346,9 @@ public class SeekPreviewStrip extends FrameLayout {
 
     private List<Long> cellPositions() {
         long spacing = spacing();
-        List<Long> positions = new ArrayList<>(CELL_COUNT);
-        long half = CELL_COUNT / 2;
-        for (int i = 0; i < CELL_COUNT; i++) {
+        List<Long> positions = new ArrayList<>(cellCount);
+        long half = cellCount / 2;
+        for (int i = 0; i < cellCount; i++) {
             positions.add(clamp(cursor + (i - half) * spacing));
         }
         return positions;
@@ -421,10 +429,9 @@ public class SeekPreviewStrip extends FrameLayout {
         return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
     }
 
-    private int computeCellWidth() {
-        int width = ResUtil.getScreenWidth();
-        int usable = width - dp(20 + 20 + 12 + 12);
-        return Math.max(dp(56), (usable - dp(5) * (CELL_COUNT - 1)) / CELL_COUNT);
+    /** 可用宽度：屏幕宽减去浮层左右外边距与容器内边距。 */
+    private int usableWidth() {
+        return Math.max(dp(120), ResUtil.getScreenWidth() - dp(20 + 20 + 12 + 12));
     }
 
     private int dp(int value) {
