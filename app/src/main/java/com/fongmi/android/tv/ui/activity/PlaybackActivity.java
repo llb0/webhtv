@@ -995,7 +995,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (!SpiderDebug.isEnabled()) return;
         App.post(() -> {
             try {
-                Player p = player();
+                PlayerManager p = player();
                 if (p == null || isFinishing() || isDestroyed()) return;
                 long actual = p.getPosition();
                 SpiderDebug.log("playback", "seek-verify target=%d actual=%d duration=%d state=%d", targetMs, actual, p.getDuration(), p.getPlaybackState());
