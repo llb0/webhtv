@@ -12,7 +12,6 @@ import android.util.LruCache;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import com.github.catvod.crawler.SpiderDebug;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -72,6 +71,11 @@ public final class TrickplayStore {
     private static final Set<String> RUNNING = ConcurrentHashMap.newKeySet();
     private static final Map<String, Window> PENDING = new ConcurrentHashMap<>();
     private static final Set<String> ATTEMPTED = ConcurrentHashMap.newKeySet();
+    /** 打不开的片源：同一部片子 5 分钟内不再反复重开（预览每次拖动都会重新请求）。 */
+    private static final Map<String, Long> FAILED_AT = new ConcurrentHashMap<>();
+    private static final long FAILED_RETRY_MS = 5L * 60 * 1000;
+    /** 拿不到时长时（部分 HLS 首帧前 duration=0）最多抽到这里，约 6 小时。 */
+    private static final long UNKNOWN_DURATION_CAP_MS = 6L * 60 * 60 * 1000;
     private static final AtomicLong LAST_TRIM = new AtomicLong(0);
 
     private static volatile boolean playerBusy;
@@ -104,12 +108,15 @@ public final class TrickplayStore {
             this.headers = headerArray(headers);
             long startedAt = SystemClock.elapsedRealtime();
             this.handle = TrickplayNative.ensureLoaded(this.context)
-                    ? TrickplayNative.nativeOpen(media, this.headers) : 0;
+                    ? TrickplayNative.open(media, this.headers, TrickplayNative.caFile(this.context))
+                    : 0;
             long cost = SystemClock.elapsedRealtime() - startedAt;
             if (handle == 0) {
-                trace("open fail cost=%dms error=%s url=%s", cost, TrickplayNative.lastError(), media);
+                traceOnce("open fail cost=%dms error=%s headers=%d keys=%s url=%s", cost,
+                        TrickplayNative.lastError(), headerCount(), headerKeys(), media);
+                if (!TrickplayNative.isReady()) return;
             } else {
-                trace("open ok cost=%dms aspect=%.3f url=%s", cost,
+                traceOnce("open ok cost=%dms aspect=%.3f url=%s", cost,
                         TrickplayNative.nativeAspect(handle), media);
             }
             if (handle != 0) {
@@ -121,10 +128,24 @@ public final class TrickplayStore {
             return handle != 0 && !closed;
         }
 
+        int headerCount() {
+            return headers == null ? 0 : headers.length / 2;
+        }
+
+        /** 只记键名，不记值（值里可能带 auth/cookie）。 */
+        String headerKeys() {
+            if (headers == null || headers.length == 0) return "none";
+            java.util.List<String> keys = new java.util.ArrayList<>();
+            for (int i = 0; i < headers.length; i += 2) {
+                if (headers[i] != null) keys.add(headers[i]);
+            }
+            return keys.isEmpty() ? "none" : String.join(",", keys);
+        }
+
         public synchronized Bitmap grab(long positionMs, int width) {
             if (!isValid()) return null;
             long startedAt = SystemClock.elapsedRealtime();
-            int[] frame = TrickplayNative.nativeGrab(handle, Math.max(0, positionMs), width);
+            int[] frame = TrickplayNative.grab(handle, Math.max(0, positionMs), width);
             Bitmap bitmap = TrickplayNative.bitmapOf(frame);
             trace("grab at=%s cost=%dms ok=%b error=%s", time(positionMs),
                     SystemClock.elapsedRealtime() - startedAt, bitmap != null, TrickplayNative.lastError());
@@ -134,13 +155,15 @@ public final class TrickplayStore {
         /** 顺序模式：先定位一次，之后用 {@link #advance} 一路往前，避免逐格 seek 把盘扫死。 */
         public synchronized boolean restart(long positionMs) {
             if (!isValid()) return false;
-            return TrickplayNative.nativeRestart(handle, Math.max(0, positionMs));
+            boolean ok = TrickplayNative.restart(handle, Math.max(0, positionMs));
+            if (!ok) traceOnce("restart fail at=%s error=%s", time(positionMs), TrickplayNative.lastError());
+            return ok;
         }
 
         public synchronized Bitmap advance(long targetMs, int width) {
             if (!isValid()) return null;
             long startedAt = SystemClock.elapsedRealtime();
-            int[] frame = TrickplayNative.nativeAdvance(handle, Math.max(0, targetMs), width);
+            int[] frame = TrickplayNative.advance(handle, Math.max(0, targetMs), width);
             Bitmap bitmap = TrickplayNative.bitmapOf(frame);
             trace("advance at=%s cost=%dms ok=%b error=%s", time(targetMs),
                     SystemClock.elapsedRealtime() - startedAt, bitmap != null, TrickplayNative.lastError());
@@ -165,7 +188,20 @@ public final class TrickplayStore {
 
     public static Extractor open(Context context, String media, Map<String, String> headers) {
         if (context == null || TextUtils.isEmpty(media)) return null;
-        return new Extractor(context, media, headers);
+        String key = keyFor(media);
+        Long failedAt = FAILED_AT.get(key);
+        if (failedAt != null) {
+            if (SystemClock.elapsedRealtime() - failedAt < FAILED_RETRY_MS) {
+                traceOnce("open skip reason=prev-failed key=%s error=%s", key.substring(0, 8),
+                        TrickplayNative.lastError());
+                return null;
+            }
+            FAILED_AT.remove(key);
+        }
+        Extractor extractor = new Extractor(context, media, headers);
+        if (extractor.isValid()) FAILED_AT.remove(key);
+        else FAILED_AT.put(key, SystemClock.elapsedRealtime());
+        return extractor;
     }
 
     /**
@@ -208,29 +244,34 @@ public final class TrickplayStore {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
         } catch (Throwable ignored) {
         }
-        if (durationMs <= 0) return;
+        // 有些 HLS/直播型片源首帧前拿不到时长；照样抽，用上限收口，别静默不动。
+        long limit = durationMs > 0 ? durationMs : UNKNOWN_DURATION_CAP_MS;
         Extractor extractor = null;
         try {
             int index = lastCompleteIndex(context, key) + 1;
-            trace("bg start key=%s from=%s duration=%s", key.substring(0, 8), time((index - 1) * STEP_MS), time(durationMs));
-            if ((index - 1) * STEP_MS >= durationMs) {
-                trace("bg skip reason=already-complete");
+            trace("bg start key=%s from=%s duration=%s%s", key.substring(0, 8), time((index - 1) * STEP_MS),
+                    time(limit), durationMs > 0 ? "" : "（未知，按上限跑）");
+            if ((index - 1) * STEP_MS >= limit) {
+                traceOnce("bg skip reason=already-complete");
                 return;
             }
             extractor = open(context, media, headers);
             if (extractor == null || !extractor.isValid()) {
-                logFailure(context, "后台抽帧打不开：" + TrickplayNative.lastError());
+                traceOnce("bg fail reason=open error=%s", TrickplayNative.lastError());
                 return;
             }
             backgroundExtractor = extractor;
             // 只在开头定位一次，之后一路顺序解码，不再每格 seek（本地 avi 这种没索引的尤其明显）。
             if (!extractor.restart((index - 1) * STEP_MS)) {
-                logFailure(context, "后台抽帧定位失败：" + TrickplayNative.lastError());
+                traceOnce("bg fail reason=seek error=%s", TrickplayNative.lastError());
                 return;
             }
             while (key.equals(backgroundKey)) {
                 long target = (index - 1) * STEP_MS;
-                if (target >= durationMs) return;
+                if (target >= limit) {
+                    traceOnce("bg done index=%d at=%s", index, time(target));
+                    return;
+                }
                 if (playerBusy || RUNNING.contains(key)) {
                     // 缓冲 / 前台窗口在抽帧：先让路，位置不动，回来继续。
                     trace("bg pause index=%d busy=%b window=%b", index, playerBusy, RUNNING.contains(key));
@@ -239,11 +280,11 @@ public final class TrickplayStore {
                 }
                 Bitmap bitmap = extractor.advance(target, FRAME_WIDTH);
                 if (!key.equals(backgroundKey)) {
-                    trace("bg stop reason=key-changed index=%d", index);
+                    traceOnce("bg stop reason=key-changed index=%d", index);
                     return;
                 }
                 if (bitmap == null) {
-                    trace("bg stop reason=no-frame index=%d at=%s error=%s", index, time(target), TrickplayNative.lastError());
+                    traceOnce("bg stop reason=no-frame index=%d at=%s error=%s", index, time(target), TrickplayNative.lastError());
                     return;
                 }
                 File file = frameFile(context, key, index);
@@ -270,10 +311,12 @@ public final class TrickplayStore {
 
     /** 关键步骤与耗时进应用自带调试日志（设置-调试日志，播放流程分类）。 */
     private static void trace(String format, Object... args) {
-        try {
-            SpiderDebug.log("playback.trickplay", format, args);
-        } catch (Throwable ignored) {
-        }
+        TrickplayLog.log(TrickplayLog.keyOf(format), format, args);
+    }
+
+    /** 失败/关键节点：同类内容 5 秒内只记一次。 */
+    private static void traceOnce(String format, Object... args) {
+        TrickplayLog.once(TrickplayLog.keyOf(format), format, args);
     }
 
     private static String time(long millis) {
@@ -382,7 +425,7 @@ public final class TrickplayStore {
                 File file = frameFile(window.context, window.key, frameIndex(position));
                 if (!file.isFile() || file.length() == 0) missing++;
             }
-            trace("window done key=%s cost=%dms missing=%d/%d error=%s",
+            traceOnce("window done key=%s cost=%dms missing=%d/%d error=%s",
                     window.key.substring(0, 8), SystemClock.elapsedRealtime() - window.startedAt,
                     missing, window.positions.size(), TrickplayNative.lastError());
             MAIN.post(() -> {
@@ -432,6 +475,7 @@ public final class TrickplayStore {
     /** 关键信息只走调试日志，不落文件。 */
     private static void logFailure(Context context, String message) {
         Log.w("Trickplay", message);
+        traceOnce("fail %s", message);
     }
 
     /** 写一格 jpg：先写 .tmp 再改名，读端永远不会看到半张图。 */

@@ -11,7 +11,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 
-import com.github.catvod.crawler.SpiderDebug;
+import com.fongmi.android.tv.player.TrickplayLog;
 import com.fongmi.android.tv.player.TrickplayNative;
 import android.util.AttributeSet;
 import android.view.Gravity;
@@ -411,7 +411,7 @@ public class SeekPreviewStrip extends FrameLayout {
 
     private void trace(String format, Object... args) {
         try {
-            SpiderDebug.log("playback.trickplay", format, args);
+            TrickplayLog.log(TrickplayLog.keyOf(format), format, args);
         } catch (Throwable ignored) {
         }
     }

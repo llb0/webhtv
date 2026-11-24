@@ -10,7 +10,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 
-import com.github.catvod.crawler.SpiderDebug;
 
 /**
  * JNI 抽帧桥：复用应用里已经随 mpv 打包的 FFmpeg 7.1.4（libmvformat / libmvcodec /
@@ -42,6 +41,95 @@ public final class TrickplayNative {
 
     public static String failureReason() {
         return failure;
+    }
+
+    /**
+     * 打开片源。失败时把原生侧的原因读回来，{@link #lastError()} 才有内容
+     * （以前这个字段从来没人赋值，日志里永远是 error=null）。
+     */
+    public static long open(String url, String[] headers, String caFile) {
+        long handle = nativeOpen(url, headers, caFile);
+        if (handle == 0) refreshError();
+        return handle;
+    }
+
+    public static boolean restart(long handle, long positionMs) {
+        boolean ok = nativeRestart(handle, positionMs);
+        if (!ok) refreshError();
+        return ok;
+    }
+
+    public static int[] grab(long handle, long positionMs, int width) {
+        int[] frame = nativeGrab(handle, positionMs, width);
+        if (frame == null) refreshError();
+        return frame;
+    }
+
+    public static int[] advance(long handle, long targetMs, int width) {
+        int[] frame = nativeAdvance(handle, targetMs, width);
+        if (frame == null) refreshError();
+        return frame;
+    }
+
+    private static void refreshError() {
+        try {
+            String value = nativeLastError();
+            if (value != null && !value.isEmpty()) nativeError = value;
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Android 没有单一 CA 包（{@code /system/etc/security/cacerts} 是散装的 PEM），
+     * 内置 FFmpeg 走 mbedtls，不传 CA 就会在 https 握手时报 "got no CA chain"。
+     * 这里把系统证书拼成一个 PEM 放到应用目录，交给 ffmpeg 的 ca_file。
+     */
+    public static String caFile(Context context) {
+        if (context == null) return null;
+        File dir = new File(context.getApplicationContext().getFilesDir(), "tls");
+        File bundle = new File(dir, "cacerts.pem");
+        if (bundle.isFile() && bundle.length() > 1024) return bundle.getAbsolutePath();
+        if (!dir.isDirectory() && !dir.mkdirs()) return null;
+        File tmp = new File(bundle.getAbsolutePath() + ".tmp");
+        int count = 0;
+        try (FileOutputStream output = new FileOutputStream(tmp)) {
+            File[] certs = new File("/system/etc/security/cacerts").listFiles();
+            if (certs != null) {
+                for (File cert : certs) {
+                    if (cert == null || !cert.isFile() || cert.length() == 0) continue;
+                    byte[] bytes = readAll(cert);
+                    if (bytes == null || bytes.length == 0) continue;
+                    output.write(bytes);
+                    output.write('\n');
+                    count++;
+                }
+            }
+        } catch (Throwable error) {
+            Log.w(TAG, "build ca bundle failed: " + error.getMessage());
+        }
+        if (count <= 0) {
+            tmp.delete();
+            return null;
+        }
+        bundle.delete();
+        if (!tmp.renameTo(bundle)) {
+            tmp.delete();
+            return null;
+        }
+        traceOnce("ca bundle certs=%d path=%s", count, bundle.getName());
+        return bundle.getAbsolutePath();
+    }
+
+    private static byte[] readAll(File file) {
+        try (InputStream input = new java.io.FileInputStream(file)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = input.read(buffer)) > 0) out.write(buffer, 0, read);
+            return out.toByteArray();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     /** 原生侧最近一次失败原因（打开失败、无视频流、解不出来等），没有则为 null。 */
@@ -120,10 +208,11 @@ public final class TrickplayNative {
     }
 
     private static void trace(String format, Object... args) {
-        try {
-            SpiderDebug.log("playback.trickplay", format, args);
-        } catch (Throwable ignored) {
-        }
+        TrickplayLog.log(TrickplayLog.keyOf(format), format, args);
+    }
+
+    private static void traceOnce(String format, Object... args) {
+        TrickplayLog.once(TrickplayLog.keyOf(format), format, args);
     }
 
     private static boolean assetExists(Context app, String abi) {
@@ -153,10 +242,10 @@ public final class TrickplayNative {
 
     public static Bitmap grab(Context context, String url, String[] headers, long positionMs, int width) {
         if (!ensureLoaded(context)) return null;
-        long handle = nativeOpen(url, headers);
+        long handle = open(url, headers, caFile(context));
         if (handle == 0) return null;
         try {
-            return bitmapOf(nativeGrab(handle, Math.max(0, positionMs), width));
+            return bitmapOf(grab(handle, Math.max(0, positionMs), width));
         } finally {
             nativeClose(handle);
         }
@@ -175,7 +264,7 @@ public final class TrickplayNative {
 
     private static native boolean nativeSetup(String libDir);
 
-    static native long nativeOpen(String url, String[] headers);
+    static native long nativeOpen(String url, String[] headers, String caFile);
 
     /** 片源显示宽高比（w/h），拿不到返回 0。 */
     static native float nativeAspect(long handle);
