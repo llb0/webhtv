@@ -73,9 +73,12 @@ public final class TrickplayStore {
     private static final Set<String> ATTEMPTED = ConcurrentHashMap.newKeySet();
     /** 打不开的片源：同一部片子 5 分钟内不再反复重开（预览每次拖动都会重新请求）。 */
     private static final Map<String, Long> FAILED_AT = new ConcurrentHashMap<>();
-    /** 网络源延后多久才开抽：起播那几秒最脆弱，先让播放器把缓冲站稳。 */
-    private static final long NETWORK_DELAY_MS = 20000L;
-    private static final long BUSY_RETRY_MS = 5000L;
+    /**
+     * 网络源不在起播瞬间开抽，等播放真的稳住（不处于缓冲）再开始；
+     * 不再固定等 20 秒——播放稳定了立刻抽，还在缓冲就每 2 秒再看一次。
+     */
+    private static final long NETWORK_GRACE_MS = 1500L;
+    private static final long BUSY_RETRY_MS = 2000L;
     private static Runnable backgroundPending;
     private static final long FAILED_RETRY_MS = 5L * 60 * 1000;
     /** 拿不到时长时（部分 HLS 首帧前 duration=0）最多抽到这里，约 6 小时。 */
@@ -246,8 +249,8 @@ public final class TrickplayStore {
         backgroundKey = key;
         final Context app = context.getApplicationContext();
         if (isNetworkSource(media)) {
-            traceOnce("bg defer key=%s delay=%dms reason=network-source", key.substring(0, 8), NETWORK_DELAY_MS);
-            schedule(app, media, headers, durationMs, key, NETWORK_DELAY_MS);
+            traceOnce("bg wait key=%s reason=network-source（等播放稳定）", key.substring(0, 8));
+            schedule(app, media, headers, durationMs, key, NETWORK_GRACE_MS);
             return;
         }
         launch(app, media, headers, durationMs, key);
@@ -269,12 +272,12 @@ public final class TrickplayStore {
             if (backgroundPending != holder[0]) return;
             if (!key.equals(backgroundKey)) return;
             if (playerBusy) {
-                traceOnce("bg defer key=%s reason=player-busy", key.substring(0, 8));
+                // 还在缓冲/卡顿，先别插进去，过两秒再看一眼。
                 schedule(context, media, headers, durationMs, key, BUSY_RETRY_MS);
                 return;
             }
             backgroundPending = null;
-            traceOnce("bg deferred start key=%s", key.substring(0, 8));
+            traceOnce("bg start-stable key=%s", key.substring(0, 8));
             launch(context, media, headers, durationMs, key);
         };
         backgroundPending = holder[0];

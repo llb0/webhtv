@@ -16,6 +16,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdarg>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -73,7 +75,6 @@ decltype(&av_freep) p_av_freep;
 decltype(&av_strerror) p_av_strerror;
 decltype(&av_log_set_level) p_av_log_set_level;
 decltype(&av_log_set_callback) p_av_log_set_callback;
-decltype(&av_log_format_line2) p_av_log_format_line2;
 
 bool gBound = false;
 // ffmpeg 内部的最近几条输出（tls 握手、http 状态、hls 取片失败都在这里），失败时拼进错误里。
@@ -118,18 +119,18 @@ std::string errorText(int code) {
 }
 
 void ffmpegLogCallback(void* avcl, int level, const char* fmt, va_list args) {
+    (void) avcl;
     if (level > AV_LOG_INFO) return;
+    // 自己 vsnprintf 拼字符串。之前用 av_log_format_line2 并且把 print_prefix 传了 nullptr，
+    // 它会往那个指针里写，直接空指针崩溃。
     char line[512];
     line[0] = '\0';
-    if (p_av_log_format_line2 != nullptr) {
-        p_av_log_format_line2(avcl, level, fmt, args, line, sizeof(line), nullptr);
-    }
+    vsnprintf(line, sizeof(line), fmt, args);
     std::string text(line);
     // 去掉换行和多余空白，免得一条记录被切成好几行
     for (char& c : text) if (c == '\n' || c == '\r') c = ' ';
     while (!text.empty() && text.back() == ' ') text.pop_back();
     if (text.empty()) return;
-    LOGW("ffmpeg: %s", text.c_str());
     appendFfmpegLog(text);
 }
 
@@ -192,7 +193,6 @@ bool bindSymbols() {
     BIND(av_strerror);
     BIND(av_log_set_level);
     BIND(av_log_set_callback);
-    BIND(av_log_format_line2);
 #undef BIND
     gBound = p_avformat_open_input != nullptr && p_avcodec_open2 != nullptr &&
              p_avcodec_send_packet != nullptr && p_sws_scale != nullptr &&
