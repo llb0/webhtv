@@ -7580,6 +7580,10 @@ private boolean runtimeSourceOnly;
     @Override
     protected void onSeekStarted() {
         App.removeCallbacks(mSeekProgressFallback);
+        // 用户自己拖/点了跳转，就取消启动时的「续播位置」：以前这条在 READY 后仍会再跳一次，
+        // 把刚跳好的位置拉回原处（屏显到了、画面却还在原位）。
+        pendingResumeSeekMs = C.TIME_UNSET;
+        tmdbHistoryResumePending = false;
         // 窗口必须在 showProgress() 之前打开：它内部会立刻投递网速 ticker，
         // 那个 ticker 的兜底收口会读到尚未开始 seek 的 READY。
         mSeekProgressPending = true;
@@ -9232,6 +9236,7 @@ private boolean runtimeSourceOnly;
         pendingResumeSeekMs = C.TIME_UNSET;
         tmdbHistoryResumePending = false;
         if (Math.abs(player().getPosition() - target) < 1500) return false;
+        SpiderDebug.log("playback", "resume-seek apply target=%d pos=%d", target, player().getPosition());
         controller().seekTo(target);
         return true;
     }

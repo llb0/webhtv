@@ -134,6 +134,8 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             new com.fongmi.android.tv.player.PlaybackDiagnosticCollector("ijk", "packaged-IjkMediaPlayer");
     private String diagnosticTrace = "none";
     private long lastDiagnosticMs;
+    private String inputOpenKey;
+    private long inputOpenAtMs;
 
     void setDiagnosticTrace(String trace) { diagnosticTrace = trace; }
 
@@ -705,9 +707,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             lastNativeOffset = offset;
         }
         if (SpiderDebug.isEnabled()) {
-            diagnostics.emit("input.open", "ijk-native-invoke", e -> e.observed("value", event)
-                    .observed("stage", openStage.label()).observed("httpCode", httpStatus > 0 ? httpStatus : null)
-                    .observed("errorCode", nativeError).observed("rangeStart", offset < 0 ? null : offset));
+            emitInputOpen(event, httpStatus, nativeError, offset);
             SpiderDebug.log("ijk",
                     "native event=%d stage=%s http=%d error=%d offset=%d retry=%d",
                     event,
@@ -718,6 +718,26 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
                     retry);
         }
         return false;
+    }
+
+    /**
+     * ijk 的 native 回调一秒能来上百次，每次都写一条完整 JSON 会把调试日志刷成几兆十几兆
+     * （实测 65 秒 1 万多条 input.open、近 6MB/分钟）。这里对同一「事件 + 阶段」组合做 2 秒
+     * 去重，只有跳转/开流这类关键事件照写，其余重复直接丢弃。
+     */
+    private void emitInputOpen(int event, int httpStatus, int nativeError, long offset) {
+        boolean critical = event == IjkMediaPlayer.OnNativeInvokeListener.EVENT_WILL_HTTP_OPEN
+                || event == IjkMediaPlayer.OnNativeInvokeListener.EVENT_DID_HTTP_OPEN
+                || event == IjkMediaPlayer.OnNativeInvokeListener.EVENT_WILL_HTTP_SEEK
+                || event == IjkMediaPlayer.OnNativeInvokeListener.EVENT_DID_HTTP_SEEK;
+        String key = event + "|" + openStage.label();
+        long now = SystemClock.elapsedRealtime();
+        if (!critical && key.equals(inputOpenKey) && now - inputOpenAtMs < 2000L) return;
+        inputOpenKey = key;
+        inputOpenAtMs = now;
+        diagnostics.emit("input.open", "ijk-native-invoke", e -> e.observed("value", event)
+                .observed("stage", openStage.label()).observed("httpCode", httpStatus > 0 ? httpStatus : null)
+                .observed("errorCode", nativeError).observed("rangeStart", offset < 0 ? null : offset));
     }
 
     @Override

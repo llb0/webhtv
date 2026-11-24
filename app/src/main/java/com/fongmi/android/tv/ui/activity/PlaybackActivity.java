@@ -982,7 +982,26 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         boolean seekToEnd = durationMs > 0 && targetMs >= durationMs;
         mController.seekTo(seekToEnd ? durationMs : targetMs);
         if (!seekToEnd) mController.play();
+        logSeekVerify(seekToEnd ? durationMs : targetMs);
         return seekToEnd;
+    }
+
+    /**
+     * 屏显上的时间是「请求值」，引擎没跳成功时它照样显示目标点位，过一会又被真实位置拉回去。
+     * 这里跳完 1.2 秒回读一次引擎位置，日志里 seek-verify 给出 target / actual / duration，
+     * 一眼就能分清「没跳成」和「跳成了只是播放慢」。
+     */
+    protected final void logSeekVerify(long targetMs) {
+        if (!SpiderDebug.isEnabled()) return;
+        App.post(() -> {
+            try {
+                Player p = player();
+                if (p == null || isFinishing() || isDestroyed()) return;
+                long actual = p.getPosition();
+                SpiderDebug.log("playback", "seek-verify target=%d actual=%d duration=%d state=%d", targetMs, actual, p.getDuration(), p.getPlaybackState());
+            } catch (Throwable ignored) {
+            }
+        }, 1200L);
     }
 
     protected void startPlayer(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata) {
