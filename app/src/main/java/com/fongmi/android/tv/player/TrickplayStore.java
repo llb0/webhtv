@@ -259,6 +259,13 @@ public final class TrickplayStore {
             traceOnce("bg skip reason=network-source url=%s", media);
             return;
         }
+        if (isSmbProxy(media)) {
+            // SMB 就一条连接、实测上限 20MB/s 左右，而整片顺序抽帧（2:33 的片子要抽 900 多格）
+            // 会把这 20MB/s 全吃掉，播放器缓冲一路掉到 0——卡顿就是这么来的。
+            // 播放期间不抽，等用户长按快进/快退时按需补当前那几格（SeekPreviewStrip 那条路）。
+            traceOnce("bg skip reason=smb-proxy url=%s", media);
+            return;
+        }
         final String key = keyFor(media);
         if (key.equals(backgroundKey)) {
             if (backgroundThread != null && backgroundThread.isAlive()) return;
@@ -322,6 +329,13 @@ public final class TrickplayStore {
         // 公网直链即使路径里出现 /file/ 也一律按网络源撤掉，避免被封。
         if (isLocalHost(lower) && (lower.contains("/file/") || lower.contains("smb=1"))) return false;
         return lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("rtmp");
+    }
+
+    /** SMB 播放代理（本机 http 服务上的 ?smb=1）：带宽只有一条，不能拿来抽帧。 */
+    private static boolean isSmbProxy(String media) {
+        if (media == null) return false;
+        String lower = media.toLowerCase(Locale.ROOT);
+        return lower.contains("smb=1") && isLocalHost(lower);
     }
 
     /** 地址的主机部分是不是本机 / 局域网（127.0.0.1、localhost、192.168.x.x、10.x.x.x、172.16~31.x.x、169.254.x.x）。 */

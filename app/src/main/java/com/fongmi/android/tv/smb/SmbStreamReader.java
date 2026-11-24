@@ -209,7 +209,8 @@ final class SmbStreamReader {
         if (window == null) {
             window = fill(position);
             if (window.length <= 0) throw new IOException("smb read returned 0 bytes at " + position);
-            if (!window.covers(position, count)) count = (int) Math.min((long) count, window.length);
+            // 读到的块可能不够 count（文件尾/块尾），只能给到这块的剩余部分，不能按块长算。
+            if (!window.covers(position, count)) count = (int) (window.start + window.length - position);
         }
         System.arraycopy(window.data, (int) (position - window.start), target, offset, count);
         return count;
