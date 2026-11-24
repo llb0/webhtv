@@ -27,9 +27,12 @@ final class SmbStreamReader {
 
     private static final long CHUNK_BYTES = 512L * 1024;
     private static final int MAX_WINDOWS = 16;
+    private static final int MAX_PINNED = 6;
     /** 片头与片尾索引区常驻：老容器每次定位都要回读这两段，512KB 一块读一次要 250ms 以上。 */
-    private static final long HEAD_BYTES = 1L * 1024 * 1024;
-    private static final long TAIL_BYTES = 4L * 1024 * 1024;
+    private static final long HEAD_BYTES = 2L * 1024 * 1024;
+    private static final long TAIL_BYTES = 8L * 1024 * 1024;
+    /** 常驻区一次读大块（2MB = 4 个 512KB），只付一次 1 秒左右，之后这盘片的定位全靠内存。 */
+    private static final long PIN_CHUNK_BYTES = 2L * 1024 * 1024;
     private static final int MAX_HANDLES = 3;
     private static final long IDLE_MS = 120_000L;
     private static final int MAX_ENTRIES = 4;
@@ -239,7 +242,10 @@ final class SmbStreamReader {
 
     /** 顺序读一整块挂到条目上；读不满也照实际长度挂，避免反复重读同一段。 */
     private Window fill(long position) throws IOException {
-        int want = (int) Math.min(CHUNK_BYTES, entry.length - position);
+        boolean pinZone = position < HEAD_BYTES || position + CHUNK_BYTES > entry.length - TAIL_BYTES;
+        int want = pinZone
+                ? (int) Math.min(PIN_CHUNK_BYTES, entry.length - position)
+                : (int) Math.min(CHUNK_BYTES, entry.length - position);
         long startedAt = System.currentTimeMillis();
         byte[] data = new byte[Math.max(want, 1)];
         int filled = 0;
@@ -272,8 +278,18 @@ final class SmbStreamReader {
             for (Window existing : entry.windows) {
                 if (existing.start == position && existing.length >= window.length) return existing;
             }
-            window.pinned = position < HEAD_BYTES || position + CHUNK_BYTES > entry.length - TAIL_BYTES;
+            window.pinned = pinZone;
             entry.windows.add(window);
+            // 常驻块也设上限：片尾区可能在多个偏移各读一次，不封顶会一直涨内存。
+            int pinned = 0;
+            for (Window item : entry.windows) if (item.pinned) pinned++;
+            for (Window item : entry.windows) {
+                if (pinned <= MAX_PINNED) break;
+                if (item.pinned && item.start != 0) {
+                    item.pinned = false;
+                    pinned--;
+                }
+            }
             // 片头/片尾索引区（pinned）不参与淘汰：这盘 avi 每次定位都要回读这两段，
             // 让它们跟正文抢窗口，等于每定位一次就重读一次 1MB，一次 500ms。
             while (entry.windows.size() > MAX_WINDOWS) {

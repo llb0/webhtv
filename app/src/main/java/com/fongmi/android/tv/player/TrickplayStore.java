@@ -84,6 +84,8 @@ public final class TrickplayStore {
     /** 拿不到时长时（部分 HLS 首帧前 duration=0）最多抽到这里，约 6 小时。 */
     private static final long UNKNOWN_DURATION_CAP_MS = 6L * 60 * 60 * 1000;
     private static final AtomicLong LAST_TRIM = new AtomicLong(0);
+    /** 播放忙时最多让路这么久，超过就这轮不抽了，别一直挂着打开的文件会话。 */
+    private static final long BUSY_GIVEUP_MS = 2000;
 
     private static volatile boolean playerBusy;
     private static volatile String backgroundKey;
@@ -591,6 +593,13 @@ public final class TrickplayStore {
 
     private static void executeWindow(Window window) {
         if (window.positions.isEmpty()) return;
+        // 播放端正在缓冲/正在真正跳转时不要开第二路读同一个文件：这盘 avi（OpenDML）
+        // 每次 open 都要回读片尾索引几 MB，和真正那次 seek 抢同一条 SMB 连接，
+        // 会把 seek 拖到播放器超时放弃（表现就是屏显到了、画面还在原位）。
+        if (waitWhileBusy()) {
+            traceOnce("window skip reason=player-busy key=%s", window.key.substring(0, 8));
+            return;
+        }
         try (Extractor extractor = open(window.context, window.media, window.headers)) {
             if (extractor == null || !extractor.isValid()) {
                 logFailure(window.context, "抽帧会话打不开：" + TrickplayNative.lastError());
@@ -600,6 +609,11 @@ public final class TrickplayStore {
             // 顺序推进一旦碰上损坏包或慢盘，会把整条窗口卡死（之前就是这样整排空图）。
             for (Long position : window.positions) {
                 if (!RUNNING.contains(window.key)) break;
+                // 补帧途中播放又卡住了：这一格先不抽，让带宽回到播放上。
+                if (waitWhileBusy()) {
+                    traceOnce("window pause reason=player-busy key=%s", window.key.substring(0, 8));
+                    break;
+                }
                 int index = frameIndex(position);
                 File file = frameFile(window.context, window.key, index);
                 if (file.isFile() && file.length() > 0) continue;
@@ -614,6 +628,16 @@ public final class TrickplayStore {
         } finally {
             trim(window.context);
         }
+    }
+
+    /** 播放忙（缓冲/跳转）时等一小会儿；仍忙就返回 true，表示这次补帧应该让路。 */
+    private static boolean waitWhileBusy() {
+        long waited = 0;
+        while (playerBusy && waited < BUSY_GIVEUP_MS) {
+            sleep(300);
+            waited += 300;
+        }
+        return playerBusy;
     }
 
     /** 关键信息只走调试日志，不落文件。 */
