@@ -19,7 +19,10 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.utils.Task;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 /**
  * 从当前播放视图抓一帧，作为历史缺失海报（推送占位/普通站源空图）时的兜底封面。
@@ -158,6 +161,29 @@ public final class PlaybackFrameSnapshot {
             return "";
         }
         return Uri.fromFile(file).toString();
+    }
+
+    /**
+     * 把已经抽好的图片复制进历史封面目录，返回 {@code file://} URI。
+     *
+     * <p>不直接引用原文件：缩略图缓存有容量上限和过期清理，历史封面若指着缓存目录，
+     * 清一次缓存历史图就集体失效。复制一份到 {@code webhome_snapshot}，生命周期就和其他
+     * 截图一致（删历史/清空历史时一起删），也不会反过来影响目录预览用的缓存。
+     */
+    public static String importArtwork(File source) {
+        if (source == null || !source.isFile() || source.length() <= 0) return "";
+        File directory = new File(App.get().getFilesDir(), "webhome_snapshot");
+        if (!directory.exists() && !directory.mkdirs()) return "";
+        File target = new File(directory, "snapshot-" + System.currentTimeMillis() + "-" + System.nanoTime() + ".jpg");
+        try (InputStream in = new FileInputStream(source); OutputStream out = new FileOutputStream(target)) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) > 0) out.write(buffer, 0, read);
+        } catch (Throwable e) {
+            target.delete();
+            return "";
+        }
+        return Uri.fromFile(target).toString();
     }
 
     /** 删除某条历史对应的截图缓存；只接受本站 webhome_snapshot 目录下的 file:// 地址。 */

@@ -602,7 +602,10 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (history == null || !History.isMissingArtwork(history.getVodPic())) return;
         java.io.File file = com.fongmi.android.tv.smb.SmbThumbnailCache.file(App.get(), key);
         if (!file.isFile() || file.length() <= 0) return;
-        String uri = android.net.Uri.fromFile(file).toString();
+        // 复制一份到历史封面目录，而不是直接引用缩略图缓存：缓存有上限和过期清理，
+        // 清掉之后历史图会全失效；复制也保证目录预览那份不受任何影响。
+        String uri = PlaybackFrameSnapshot.importArtwork(file);
+        if (TextUtils.isEmpty(uri)) return;
         history.setVodPic(uri);
         final int cid = history.getCid();
         final String historyKey = history.getKey();
