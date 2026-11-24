@@ -8,25 +8,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * SMB 播放/取帧用的读取器：跨请求共享「最近的几块数据」，每条 HTTP 流自己拿一个文件句柄。
+ * SMB 播放/取帧用的读取器：句柄池 + 跨请求共享的数据块。
  *
- * <p>背景：IJK 解 AVI 这类老容器时会发成百上千个小 range 请求（读一点就换一次连接）。
- * 如果每个请求都去 SMB 重新 connect + 认证 + tree connect + open，握手开销会把带宽彻底吃掉
- * （实测 95 秒内 2400 次打开、每次只前进 1~4KB）。所以这里：</p>
+ * <p>背景：IJK 解 AVI 这类老容器时会发成百上千个小 range 请求（读一点就换一次连接，
+ * 实测 95 秒内 2400 次打开、每次只前进 1~4KB）。如果每个请求都去 SMB 重新
+ * connect + 认证 + tree connect + open，光握手就会把时间吃光，带宽再高也用不上。</p>
  *
- * <p>1. 连接由 {@link SmbClient} 的连接池复用，每个请求只做一次「打开文件」；<br>
- * 2. 某个 offset 第一次被读时顺序预读一整块（{@link #CHUNK_BYTES}）挂在 token 上，后续
- * 小请求（哪怕来自新的 HTTP 连接）直接命中内存，SMB 只看到顺序大块读；<br>
- * 3. 缓冲按窗口保留最近 {@link #MAX_WINDOWS} 块而不是单块：拖动时新的 seek 位置和旧流位置
- * 能各自命中自己的窗口，不会互相挤掉来回重读。</p>
+ * <p>所以这里分两层：</p>
+ * <p>1. 连接由 {@link SmbClient} 的连接池复用；打开的文件句柄也按 token 留 {@link #MAX_HANDLES}
+ * 个在池里反复借还，不再每个请求 CREATE/CLOSE 一轮；<br>
+ * 2. 某个 offset 第一次被读时顺序预读一整块（{@link #CHUNK_BYTES}）挂在 token 上，保留最近
+ * {@link #MAX_WINDOWS} 块，后续小请求（哪怕来自新的 HTTP 连接）直接命中内存。</p>
  *
- * <p>句柄按流独立，避免多路并发读同一个 smbj File（它并不保证线程安全），也避免 seek 的首字节
- * 被另一条流的预读锁住、超时后播放器从 0 重新开始。</p>
+ * <p>多块窗口而不是单块：老容器同时会读片头、正文和片尾索引，只有一块会互相挤掉来回重读。
+ * 每个句柄同一时刻只借给一条流，避免并发读同一个 smbj File（它不保证线程安全）。</p>
  */
 final class SmbStreamReader {
 
-    private static final long CHUNK_BYTES = 2L * 1024 * 1024;
-    private static final int MAX_WINDOWS = 2;
+    private static final long CHUNK_BYTES = 512L * 1024;
+    private static final int MAX_WINDOWS = 4;
+    private static final int MAX_HANDLES = 3;
     private static final long IDLE_MS = 120_000L;
     private static final int MAX_ENTRIES = 8;
 
@@ -48,6 +49,17 @@ final class SmbStreamReader {
         }
     }
 
+    /** 借出的句柄：pooled 为 true 时归还到池里，否则用完就关（池满时的临时句柄）。 */
+    private static final class Lease {
+        final SmbClient.SharedFile file;
+        final boolean pooled;
+
+        Lease(SmbClient.SharedFile file, boolean pooled) {
+            this.file = file;
+            this.pooled = pooled;
+        }
+    }
+
     private static final class Entry {
         final String host;
         final String share;
@@ -56,6 +68,10 @@ final class SmbStreamReader {
         final String password;
         final String domain;
         final List<Window> windows = new ArrayList<>();
+        final List<SmbClient.SharedFile> idle = new ArrayList<>();
+        long length = -1;
+        boolean closed;
+        int handles;
         int active;
         long lastUsed = System.currentTimeMillis();
 
@@ -67,18 +83,62 @@ final class SmbStreamReader {
             this.password = password;
             this.domain = domain;
         }
+
+        SmbClient.SharedFile open() throws IOException {
+            try {
+                SmbClient.SharedFile file = SmbClient.openShared(host, share, path, username, password, domain);
+                length = file.length();
+                return file;
+            } catch (Exception e) {
+                throw new IOException("open " + host + "/" + share + "/" + path + " failed: " + e, e);
+            }
+        }
+
+        synchronized Lease borrow() throws IOException {
+            if (closed) throw new IOException("smb cache entry closed");
+            lastUsed = System.currentTimeMillis();
+            if (!idle.isEmpty()) return new Lease(idle.remove(idle.size() - 1), true);
+            if (handles < MAX_HANDLES) {
+                SmbClient.SharedFile file = open();
+                handles++;
+                return new Lease(file, true);
+            }
+            // 池已满：临时开一个，归还时直接关掉，避免把池撑大。
+            return new Lease(open(), false);
+        }
+
+        synchronized void giveBack(Lease lease) {
+            lastUsed = System.currentTimeMillis();
+            if (!closed && lease.pooled && idle.size() < MAX_HANDLES) idle.add(lease.file);
+            else closeQuietly(lease.file);
+        }
+
+        void discard(Lease lease) {
+            synchronized (this) {
+                if (lease.pooled) handles--;
+            }
+            closeQuietly(lease.file);
+        }
+
+        synchronized void closeIdle() {
+            closed = true;
+            for (SmbClient.SharedFile file : idle) closeQuietly(file);
+            idle.clear();
+            handles = 0;
+            windows.clear();
+            length = -1;
+        }
     }
 
     private final Entry entry;
-    private SmbClient.SharedFile file;
-    private long length = -1;
+    private Lease lease;
     private boolean closed;
 
     private SmbStreamReader(Entry entry) {
         this.entry = entry;
     }
 
-    /** 按 token 复用同一个缓存条目：同一场播放里的所有 range 请求共享已读的数据块。 */
+    /** 按 token 复用同一份缓存条目：同一场播放里的所有 range 请求共享已读的数据块与句柄。 */
     static SmbStreamReader open(String key, String host, String share, String path,
                                 String username, String password, String domain) {
         long now = System.currentTimeMillis();
@@ -91,7 +151,7 @@ final class SmbStreamReader {
                     long victimUsed = Long.MAX_VALUE;
                     for (Map.Entry<String, Entry> item : ENTRIES.entrySet()) {
                         Entry value = item.getValue();
-                        // 有活动流的条目优先保留：正在播的那一路不能因为我们腾地方而被丢掉缓冲。
+                        // 有活动流的条目优先保留：正在播的那一路不能被我们腾地方。
                         if (value.active > 0) continue;
                         if (value.lastUsed < victimUsed) {
                             victimUsed = value.lastUsed;
@@ -99,7 +159,7 @@ final class SmbStreamReader {
                         }
                     }
                     if (victim == null) break;
-                    ENTRIES.remove(victim);
+                    ENTRIES.remove(victim).closeIdle();
                 }
                 entry = new Entry(host, share, path, username, password, domain);
                 ENTRIES.put(key, entry);
@@ -114,13 +174,18 @@ final class SmbStreamReader {
         Iterator<Map.Entry<String, Entry>> it = ENTRIES.entrySet().iterator();
         while (it.hasNext()) {
             Entry value = it.next().getValue();
-            if (value.active == 0 && now - value.lastUsed > IDLE_MS) it.remove();
+            // 活动流每次读都会刷新 lastUsed，真正空闲才回收；这样句柄/内存不会因为
+            // 某个请求异常退出没归还而长期泄漏。
+            if (now - value.lastUsed > IDLE_MS) {
+                it.remove();
+                value.closeIdle();
+            }
         }
     }
 
     long length() throws IOException {
-        ensureFile();
-        return length;
+        ensureLease();
+        return entry.length;
     }
 
     /**
@@ -129,10 +194,10 @@ final class SmbStreamReader {
      */
     int read(long position, byte[] target, int offset, int len) throws IOException {
         if (len <= 0) return 0;
-        ensureFile();
+        ensureLease();
         if (position < 0) throw new IOException("negative offset " + position);
-        if (position >= length) return -1;
-        int count = (int) Math.min((long) len, length - position);
+        if (position >= entry.length) return -1;
+        int count = (int) Math.min((long) len, entry.length - position);
         Window window = find(position, count);
         if (window == null) {
             window = fill(position);
@@ -155,27 +220,27 @@ final class SmbStreamReader {
         }
     }
 
-    /** 顺序读完一整块再挂到条目上；读不满也照实际长度挂，避免重复读同一段。 */
+    /** 顺序读一整块挂到条目上；读不满也照实际长度挂，避免反复重读同一段。 */
     private Window fill(long position) throws IOException {
-        int want = (int) Math.min(CHUNK_BYTES, length - position);
+        int want = (int) Math.min(CHUNK_BYTES, entry.length - position);
         byte[] data = new byte[Math.max(want, 1)];
         int filled = 0;
         boolean retried = false;
         while (filled < want) {
             int read;
             try {
-                read = file.read(data, position + filled, filled, want - filled);
+                read = lease.file.read(data, position + filled, filled, want - filled);
             } catch (RuntimeException e) {
-                // 句柄被服务器回收或连接中断：重开一次再读。
+                // 句柄被服务器回收或连接中断：换一个句柄再读。
                 if (retried) throw new IOException("smb read failed at " + (position + filled) + ": " + e, e);
                 retried = true;
-                reopen();
+                recycleLease();
                 continue;
             }
             if (read <= 0) {
                 if (retried || filled > 0) break;
                 retried = true;
-                reopen();
+                recycleLease();
                 continue;
             }
             filled += read;
@@ -193,42 +258,39 @@ final class SmbStreamReader {
         return window;
     }
 
-    private void ensureFile() throws IOException {
-        if (file != null) return;
+    private void ensureLease() throws IOException {
+        if (lease != null) return;
         if (closed) throw new IOException("reader closed");
-        try {
-            file = SmbClient.openShared(entry.host, entry.share, entry.path,
-                    entry.username, entry.password, entry.domain);
-            length = file.length();
-        } catch (Exception e) {
-            file = null;
-            throw new IOException("open " + entry.host + "/" + entry.share + "/" + entry.path + " failed: " + e, e);
+        lease = entry.borrow();
+    }
+
+    private void recycleLease() throws IOException {
+        if (lease != null) {
+            entry.discard(lease);
+            lease = null;
         }
+        ensureLease();
     }
 
-    private void reopen() throws IOException {
-        closeFile();
-        ensureFile();
-    }
-
-    /** 关闭这条流的句柄；预读数据留给同一场播放的后续请求继续用。 */
+    /** 归还句柄，并把这条流计入结束；预读数据留给同一场播放的后续请求继续用。 */
     void close() {
         if (closed) return;
         closed = true;
-        closeFile();
+        if (lease != null) {
+            entry.giveBack(lease);
+            lease = null;
+        }
         synchronized (ENTRIES) {
             if (entry.active > 0) entry.active--;
             entry.lastUsed = System.currentTimeMillis();
         }
     }
 
-    private void closeFile() {
-        if (file != null) {
-            try {
-                file.close();
-            } catch (Exception ignored) {
-            }
-            file = null;
+    private static void closeQuietly(SmbClient.SharedFile file) {
+        if (file == null) return;
+        try {
+            file.close();
+        } catch (Exception ignored) {
         }
     }
 }

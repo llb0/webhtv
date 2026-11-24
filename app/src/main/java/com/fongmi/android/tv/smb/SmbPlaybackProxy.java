@@ -142,7 +142,7 @@ public final class SmbPlaybackProxy {
     private static long lastProblemAt;
 
     /** range 请求按窗口汇总，避免老容器逐块请求把日志刷爆。 */
-    private static void logRange(long start, long end, boolean partial) {
+    private static void logRange(long start, long end, boolean partial, String range) {
         if (!com.github.catvod.crawler.SpiderDebug.isEnabled()) return;
         long now = System.currentTimeMillis();
         synchronized (SmbPlaybackProxy.class) {
@@ -153,7 +153,7 @@ public final class SmbPlaybackProxy {
             rangeWindowCount = 0;
             rangeWindowStart = now;
             com.github.catvod.crawler.SpiderDebug.log("smb-proxy",
-                    "range-window count=%d last=%d-%d partial=%s", count, start, end, partial);
+                    "range-window count=%d last=%d-%d partial=%s range=%s", count, start, end, partial, range);
         }
     }
 
@@ -327,7 +327,7 @@ public final class SmbPlaybackProxy {
                 response.addHeader("Accept-Ranges", "bytes");
                 response.addHeader("Cache-Control", "no-store");
                 if (partial) response.addHeader("Content-Range", "bytes " + start + "-" + end + "/" + size);
-                logRange(start, end, partial);
+                logRange(start, end, partial, range);
                 return response;
             } catch (Exception e) {
                 if (stream != null) stream.close();
