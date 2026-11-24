@@ -584,9 +584,33 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         boolean already = com.fongmi.android.tv.smb.SmbThumbnailCache.hasThumb(this, key);
         if (already) {
             smbThumbDone = true;
+            applySmbThumbnailArtwork(key);
             return;
         }
         armSmbThumbnail(-1L);
+    }
+
+    /**
+     * 列表里已经有这张缩略图时，直接拿它当本集的历史封面（详情图）。
+     *
+     * <p>以前只有播放到 60 秒后截帧一条路，SMB 老容器在头一分钟里既没图也没法提前截图；
+     * 现在进目录抽的那张已经在盘上，开播就能用，也就不再需要播放时补截。
+     * 用原子 UPDATE 只在字段仍为空/占位时写，不会覆盖 TMDB 海报。
+     */
+    private void applySmbThumbnailArtwork(String key) {
+        History history = getPlaybackHistory();
+        if (history == null || !History.isMissingArtwork(history.getVodPic())) return;
+        java.io.File file = com.fongmi.android.tv.smb.SmbThumbnailCache.file(App.get(), key);
+        if (!file.isFile() || file.length() <= 0) return;
+        String uri = android.net.Uri.fromFile(file).toString();
+        history.setVodPic(uri);
+        final int cid = history.getCid();
+        final String historyKey = history.getKey();
+        Task.execute(() -> {
+            History.updateVodPicIfEmptyOrPlaceholder(cid, historyKey, uri, ResUtil.getString(R.string.push_image));
+            RefreshEvent.history();
+        });
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("smb-thumb", "action=artwork-from-thumb key=%s", key.substring(0, 8));
     }
 
     private void armSmbThumbnail(long delay) {
@@ -628,6 +652,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
                 } finally {
                     bitmap.recycle();
                 }
+                // 刚截到的这张同时当历史封面用，免得历史卡片还要再等下一次截图。
+                App.post(() -> applySmbThumbnailArtwork(target));
             });
             smbThumbDone = true;
             smbThumbHandler.removeCallbacksAndMessages(null);
