@@ -6509,15 +6509,22 @@ private void setupSeekPreview() {
     private String getContextWall() {
         if (!TextUtils.isEmpty(getWallPic())) return getWallPic();
         if (mHistory != null && !TextUtils.isEmpty(mHistory.getWallPic())) return mHistory.getWallPic();
-        if (mVod != null && !TextUtils.isEmpty(mVod.getPic())) return mVod.getPic();
+        // SMB 这类没有真实详情的条目，mVod.getPic() 一直是 push_image 占位（纸飞机）；
+        // 它排在 mHistory.getVodPic() 前面就会把真图挡住，所以占位图直接跳过。
+        if (mVod != null && !TextUtils.isEmpty(mVod.getPic()) && !History.isMissingArtwork(mVod.getPic())) {
+            return mVod.getPic();
+        }
         if (mHistory != null && !TextUtils.isEmpty(mHistory.getVodPic())) return mHistory.getVodPic();
         return getPic();
     }
 
     private String lockContextWall(String url) {
         String wall = Objects.toString(url, "");
-        if (mContextWallLockedUrl == null && !TextUtils.isEmpty(wall)) mContextWallLockedUrl = wall;
-        return mContextWallLockedUrl == null ? wall : mContextWallLockedUrl;
+        // 占位图（纸飞机）不算「已锁定」：它进页时先到，会把后面拿到的真图永远挡住。
+        if (History.isMissingArtwork(mContextWallLockedUrl)) mContextWallLockedUrl = null;
+        if (History.isMissingArtwork(wall)) return mContextWallLockedUrl == null ? wall : mContextWallLockedUrl;
+        if (mContextWallLockedUrl == null) mContextWallLockedUrl = wall;
+        return mContextWallLockedUrl;
     }
 
     private void setContextWall(String url) {

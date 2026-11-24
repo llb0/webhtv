@@ -599,7 +599,17 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
      */
     private void applySmbThumbnailArtwork(String key) {
         History history = getPlaybackHistory();
-        if (history == null || !History.isMissingArtwork(history.getVodPic())) return;
+        if (history == null) return;
+        String existing = history.getVodPic();
+        if (!History.isMissingArtwork(existing)) {
+            // 历史里已经有图（可能是之前写进去的、或来自别的来源）：不用落库，
+            // 但播放页背景还停在占位图上，得把这张直接用上。
+            applyThumbnailArtwork(existing);
+            if (SpiderDebug.isEnabled()) {
+                SpiderDebug.log("smb-thumb", "action=artwork-existing key=%s", key.substring(0, 8));
+            }
+            return;
+        }
         java.io.File file = com.fongmi.android.tv.smb.SmbThumbnailCache.file(App.get(), key);
         if (!file.isFile() || file.length() <= 0) return;
         // 复制一份到历史封面目录，而不是直接引用缩略图缓存：缓存有上限和过期清理，

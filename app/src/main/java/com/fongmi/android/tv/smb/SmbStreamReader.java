@@ -231,6 +231,7 @@ final class SmbStreamReader {
     /** 顺序读一整块挂到条目上；读不满也照实际长度挂，避免反复重读同一段。 */
     private Window fill(long position) throws IOException {
         int want = (int) Math.min(CHUNK_BYTES, entry.length - position);
+        long startedAt = System.currentTimeMillis();
         byte[] data = new byte[Math.max(want, 1)];
         int filled = 0;
         boolean retried = false;
@@ -254,6 +255,7 @@ final class SmbStreamReader {
             filled += read;
         }
         recordStat(true, filled);
+        logSlowFill(position, filled, System.currentTimeMillis() - startedAt);
         Window window = new Window(position, data, filled);
         synchronized (entry) {
             entry.lastUsed = System.currentTimeMillis();
@@ -278,6 +280,20 @@ final class SmbStreamReader {
         }
         return window;
     }
+
+    /** 单次预读超过 500ms 就记一条：这类慢读会直接卡住播放（也解释了 seek 为什么会超时放弃）。 */
+    private static void logSlowFill(long position, int bytes, long elapsedMs) {
+        if (elapsedMs < 500 || !com.github.catvod.crawler.SpiderDebug.isEnabled()) return;
+        long now = System.currentTimeMillis();
+        synchronized (SmbStreamReader.class) {
+            if (now - slowFillAt < 1000) return;
+            slowFillAt = now;
+            com.github.catvod.crawler.SpiderDebug.log("smb-proxy",
+                    "slow-fill pos=%d bytes=%d ms=%d", position, bytes, elapsedMs);
+        }
+    }
+
+    private static long slowFillAt;
 
     private static void recordStat(boolean fill, int bytes) {
         if (!com.github.catvod.crawler.SpiderDebug.isEnabled()) return;
