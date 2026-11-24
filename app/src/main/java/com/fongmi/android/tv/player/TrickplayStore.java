@@ -668,8 +668,9 @@ public final class TrickplayStore {
     public static Bitmap extractOne(Context context, String media, Map<String, String> headers,
                                     long positionMs, int width) {
         if (context == null || TextUtils.isEmpty(media)) return null;
-        return TrickplayNative.grab(context, media, headerArray(headers), Math.max(0, positionMs),
-                Math.max(64, width));
+        String source = resolveSource(media);
+        return TrickplayNative.grab(context, source, source.equals(media) ? headerArray(headers) : null,
+                Math.max(0, positionMs), Math.max(64, width));
     }
 
     private static Bitmap decode(File file, int width, int height) {
