@@ -73,6 +73,10 @@ public final class TrickplayStore {
     private static final Set<String> ATTEMPTED = ConcurrentHashMap.newKeySet();
     /** 打不开的片源：同一部片子 5 分钟内不再反复重开（预览每次拖动都会重新请求）。 */
     private static final Map<String, Long> FAILED_AT = new ConcurrentHashMap<>();
+    /** 网络源延后多久才开抽：起播那几秒最脆弱，先让播放器把缓冲站稳。 */
+    private static final long NETWORK_DELAY_MS = 20000L;
+    private static final long BUSY_RETRY_MS = 5000L;
+    private static Runnable backgroundPending;
     private static final long FAILED_RETRY_MS = 5L * 60 * 1000;
     /** 拿不到时长时（部分 HLS 首帧前 duration=0）最多抽到这里，约 6 小时。 */
     private static final long UNKNOWN_DURATION_CAP_MS = 6L * 60 * 60 * 1000;
@@ -198,10 +202,33 @@ public final class TrickplayStore {
             }
             FAILED_AT.remove(key);
         }
-        Extractor extractor = new Extractor(context, media, headers);
+        String source = resolveSource(media);
+        Extractor extractor = new Extractor(context, source, source.equals(media) ? headers : null);
         if (extractor.isValid()) FAILED_AT.remove(key);
         else FAILED_AT.put(key, SystemClock.elapsedRealtime());
         return extractor;
+    }
+
+    /**
+     * 本地文件播放走的是应用内的 http 服务（http://127.0.0.1:port/file/<path>），
+     * 抽帧再开一条连接去抢同一个服务会把播放和抽帧一起卡住（日志里 15 秒读不到任何数据就是它）。
+     * 这里把这种 URL 直接还原成真实文件路径，绕开本地服务。
+     */
+    static String resolveSource(String media) {
+        if (media == null) return media;
+        String lower = media.toLowerCase(Locale.ROOT);
+        if (!lower.startsWith("http://127.0.0.1") && !lower.startsWith("http://localhost")) return media;
+        int index = media.indexOf("/file/");
+        if (index < 0) return media;
+        try {
+            File file = com.github.catvod.utils.Path.local(media.substring(index + 5));
+            if (file != null && file.isFile()) {
+                traceOnce("source local-file name=%s size=%d", file.getName(), file.length());
+                return file.getAbsolutePath();
+            }
+        } catch (Throwable ignored) {
+        }
+        return media;
     }
 
     /**
@@ -211,15 +238,56 @@ public final class TrickplayStore {
     public static void startBackground(Context context, String media, Map<String, String> headers, long durationMs) {
         if (context == null || TextUtils.isEmpty(media)) return;
         final String key = keyFor(media);
-        if (key.equals(backgroundKey) && backgroundThread != null && backgroundThread.isAlive()) return;
+        if (key.equals(backgroundKey)) {
+            if (backgroundThread != null && backgroundThread.isAlive()) return;
+            if (backgroundPending != null) return;
+        }
         stopBackground();
         backgroundKey = key;
         final Context app = context.getApplicationContext();
-        Thread thread = new Thread(() -> runBackground(app, media, headers, durationMs, key), "trickplay-bg");
+        if (isNetworkSource(media)) {
+            traceOnce("bg defer key=%s delay=%dms reason=network-source", key.substring(0, 8), NETWORK_DELAY_MS);
+            schedule(app, media, headers, durationMs, key, NETWORK_DELAY_MS);
+            return;
+        }
+        launch(app, media, headers, durationMs, key);
+    }
+
+    private static void launch(Context context, String media, Map<String, String> headers, long durationMs, String key) {
+        Thread thread = new Thread(() -> runBackground(context, media, headers, durationMs, key), "trickplay-bg");
         thread.setDaemon(true);
         thread.setPriority(Thread.MIN_PRIORITY);
         backgroundThread = thread;
         thread.start();
+    }
+
+    /** 延后开抽；期间还在缓冲就再等一轮，别在播放最需要带宽的时候插进去。 */
+    private static void schedule(Context context, String media, Map<String, String> headers,
+                                 long durationMs, String key, long delayMs) {
+        Runnable[] holder = new Runnable[1];
+        holder[0] = () -> {
+            if (backgroundPending != holder[0]) return;
+            if (!key.equals(backgroundKey)) return;
+            if (playerBusy) {
+                traceOnce("bg defer key=%s reason=player-busy", key.substring(0, 8));
+                schedule(context, media, headers, durationMs, key, BUSY_RETRY_MS);
+                return;
+            }
+            backgroundPending = null;
+            traceOnce("bg deferred start key=%s", key.substring(0, 8));
+            launch(context, media, headers, durationMs, key);
+        };
+        backgroundPending = holder[0];
+        MAIN.postDelayed(holder[0], delayMs);
+    }
+
+    /** 网络源（HLS/直链）；本地文件和本地服务代理都不算。 */
+    private static boolean isNetworkSource(String media) {
+        if (media == null) return false;
+        String source = resolveSource(media);
+        if (!source.equals(media)) return false; // 本地服务 URL 已还原成本地路径
+        String lower = source.toLowerCase(Locale.ROOT);
+        return lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("rtmp");
     }
 
     /**
@@ -228,6 +296,9 @@ public final class TrickplayStore {
      */
     public static void stopBackground() {
         backgroundKey = null;
+        Runnable pending = backgroundPending;
+        backgroundPending = null;
+        if (pending != null) MAIN.removeCallbacks(pending);
         Thread thread = backgroundThread;
         backgroundThread = null;
         if (thread != null) thread.interrupt();
@@ -248,6 +319,7 @@ public final class TrickplayStore {
         long limit = durationMs > 0 ? durationMs : UNKNOWN_DURATION_CAP_MS;
         Extractor extractor = null;
         try {
+            TrickplayNative.resetError();
             int index = lastCompleteIndex(context, key) + 1;
             trace("bg start key=%s from=%s duration=%s%s", key.substring(0, 8), time((index - 1) * STEP_MS),
                     time(limit), durationMs > 0 ? "" : "（未知，按上限跑）");
@@ -431,6 +503,7 @@ public final class TrickplayStore {
             MAIN.post(() -> {
                 if (window.onDone != null) window.onDone.run();
             });
+            ATTEMPTED.remove(window.key + "#" + window.positions.hashCode());
             RUNNING.remove(window.key);
             Window next = PENDING.remove(window.key);
             if (next != null && RUNNING.add(window.key)) IO.execute(() -> runWindow(next));
@@ -543,6 +616,7 @@ public final class TrickplayStore {
      */
     public static Bitmap extractCover(Context context, String media, Map<String, String> headers) {
         if (context == null || TextUtils.isEmpty(media)) return null;
+        TrickplayNative.resetError();
         long[] positions = new long[]{60_000L, 15_000L, 180_000L, 600_000L, 1_500_000L};
         Bitmap chosen = null;
         double bestLuma = -1;

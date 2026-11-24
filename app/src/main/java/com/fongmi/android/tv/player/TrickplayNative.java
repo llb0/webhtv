@@ -71,6 +71,15 @@ public final class TrickplayNative {
         return frame;
     }
 
+    /** 开始一个新会话/新窗口时先把上次的错误清掉，免得日志里显示的是上一部片子的原因。 */
+    public static void resetError() {
+        nativeError = null;
+        try {
+            nativeClearError();
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static void refreshError() {
         try {
             String value = nativeLastError();
@@ -242,6 +251,7 @@ public final class TrickplayNative {
 
     public static Bitmap grab(Context context, String url, String[] headers, long positionMs, int width) {
         if (!ensureLoaded(context)) return null;
+        resetError();
         long handle = open(url, headers, caFile(context));
         if (handle == 0) return null;
         try {
@@ -263,6 +273,8 @@ public final class TrickplayNative {
     }
 
     private static native boolean nativeSetup(String libDir);
+
+    static native void nativeClearError();
 
     static native long nativeOpen(String url, String[] headers, String caFile);
 

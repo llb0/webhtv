@@ -35,8 +35,8 @@ extern "C" {
 
 namespace {
 
-constexpr int64_t kOpenTimeoutMs = 20000;
-constexpr int64_t kReadTimeoutMs = 15000;
+constexpr int64_t kOpenTimeoutMs = 8000;
+constexpr int64_t kReadTimeoutMs = 7000;
 
 // ---- runtime bindings ---------------------------------------------------------
 decltype(&avformat_network_init) p_avformat_network_init;
@@ -71,13 +71,40 @@ decltype(&sws_freeContext) p_sws_freeContext;
 decltype(&av_image_alloc) p_av_image_alloc;
 decltype(&av_freep) p_av_freep;
 decltype(&av_strerror) p_av_strerror;
+decltype(&av_log_set_level) p_av_log_set_level;
+decltype(&av_log_set_callback) p_av_log_set_callback;
+decltype(&av_log_format_line2) p_av_log_format_line2;
 
 bool gBound = false;
+// ffmpeg 内部的最近几条输出（tls 握手、http 状态、hls 取片失败都在这里），失败时拼进错误里。
+std::mutex gLogMutex;
+std::string gFfmpegLog;
+constexpr size_t kFfmpegLogLimit = 240;
 std::mutex gBindMutex;
 std::string gLastError;
 
 void setLastError(const std::string& error) {
-    gLastError = error;
+    std::string detail;
+    {
+        std::lock_guard<std::mutex> lock(gLogMutex);
+        detail = gFfmpegLog;
+    }
+    gLastError = detail.empty() ? error : error + "（ffmpeg：" + detail + "）";
+}
+
+void appendFfmpegLog(const std::string& text) {
+    if (text.empty()) return;
+    std::lock_guard<std::mutex> lock(gLogMutex);
+    if (!gFfmpegLog.empty()) gFfmpegLog += " | ";
+    gFfmpegLog += text;
+    if (gFfmpegLog.size() > kFfmpegLogLimit) {
+        gFfmpegLog.erase(0, gFfmpegLog.size() - kFfmpegLogLimit);
+    }
+}
+
+void clearFfmpegLog() {
+    std::lock_guard<std::mutex> lock(gLogMutex);
+    gFfmpegLog.clear();
 }
 
 /** 错误码 -> 可读文本（av_strerror 缺符号时退回数字）。 */
@@ -88,6 +115,22 @@ std::string errorText(int code) {
         return std::string(buffer);
     }
     return "错误码 " + std::to_string(code);
+}
+
+void ffmpegLogCallback(void* avcl, int level, const char* fmt, va_list args) {
+    if (level > AV_LOG_INFO) return;
+    char line[512];
+    line[0] = '\0';
+    if (p_av_log_format_line2 != nullptr) {
+        p_av_log_format_line2(avcl, level, fmt, args, line, sizeof(line), nullptr);
+    }
+    std::string text(line);
+    // 去掉换行和多余空白，免得一条记录被切成好几行
+    for (char& c : text) if (c == '\n' || c == '\r') c = ' ';
+    while (!text.empty() && text.back() == ' ') text.pop_back();
+    if (text.empty()) return;
+    LOGW("ffmpeg: %s", text.c_str());
+    appendFfmpegLog(text);
 }
 
 void* openLibrary(const char* dir, const char* name) {
@@ -147,12 +190,20 @@ bool bindSymbols() {
     BIND(av_image_alloc);
     BIND(av_freep);
     BIND(av_strerror);
+    BIND(av_log_set_level);
+    BIND(av_log_set_callback);
+    BIND(av_log_format_line2);
 #undef BIND
     gBound = p_avformat_open_input != nullptr && p_avcodec_open2 != nullptr &&
              p_avcodec_send_packet != nullptr && p_sws_scale != nullptr &&
              p_av_packet_alloc != nullptr && p_av_frame_alloc != nullptr;
-    if (!gBound) LOGW("FFmpeg symbols could not be bound");
-    else LOGI("FFmpeg symbols bound");
+    if (!gBound) {
+        LOGW("FFmpeg symbols could not be bound");
+    } else {
+        LOGI("FFmpeg symbols bound");
+        if (p_av_log_set_level != nullptr) p_av_log_set_level(AV_LOG_INFO);
+        if (p_av_log_set_callback != nullptr) p_av_log_set_callback(ffmpegLogCallback);
+    }
     return gBound;
 }
 
@@ -225,9 +276,10 @@ void releaseExtractor(Extractor* ex) {
 }
 
 // Read packets until one frame comes out of the decoder (or EOF).
-bool nextDecodedFrame(Extractor* ex) {
+bool nextDecodedFrame(Extractor* ex, int* lastRead) {
     p_av_frame_unref(ex->frame);
-    while (p_av_read_frame(ex->fmt, ex->pkt) >= 0) {
+    int readResult;
+    while ((readResult = p_av_read_frame(ex->fmt, ex->pkt)) >= 0) {
         if (ex->pkt->stream_index != ex->streamIndex) {
             p_av_packet_unref(ex->pkt);
             continue;
@@ -235,8 +287,13 @@ bool nextDecodedFrame(Extractor* ex) {
         int sendResult = p_avcodec_send_packet(ex->dec, ex->pkt);
         p_av_packet_unref(ex->pkt);
         if (sendResult < 0 && sendResult != AVERROR(EAGAIN)) continue;
-        if (p_avcodec_receive_frame(ex->dec, ex->frame) == 0) return true;
+        if (p_avcodec_receive_frame(ex->dec, ex->frame) == 0) {
+            if (lastRead != nullptr) *lastRead = 0;
+            return true;
+        }
     }
+    // 读失败的原因要带出去：以前这里直接吞掉，超时/断流全被说成"已到片尾"。
+    if (lastRead != nullptr) *lastRead = readResult;
     p_avcodec_send_packet(ex->dec, nullptr);
     return p_avcodec_receive_frame(ex->dec, ex->frame) == 0;
 }
@@ -392,7 +449,7 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeOpen(JNIEnv* env, jclass
     ex->fmt->interrupt_callback.opaque = ex;
 
     AVDictionary* options = nullptr;
-    p_av_dict_set(&options, "timeout", "20000000", 0);  // microseconds
+    p_av_dict_set(&options, "timeout", "8000000", 0);   // microseconds
     // 网络源（HLS 等）探测别太久：够拿 codec 参数即可，探慢了预览就等不及。
     p_av_dict_set(&options, "probesize", "2000000", 0);
     p_av_dict_set(&options, "analyzeduration", "3000000", 0);
@@ -404,6 +461,7 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeOpen(JNIEnv* env, jclass
         p_av_dict_set(&options, "ca_file", ca.c_str(), 0);
         p_av_dict_set(&options, "cafile", ca.c_str(), 0);
     }
+    clearFfmpegLog();
     ex->deadlineMs.store(nowMs() + kOpenTimeoutMs, std::memory_order_relaxed);
     int openResult = p_avformat_open_input(&ex->fmt, target.c_str(), nullptr, &options);
     p_av_dict_free(&options);
@@ -514,7 +572,8 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeAdvance(JNIEnv* env, jcl
     if (ex == nullptr || !gBound) return nullptr;
     AVStream* stream = ex->fmt->streams[ex->streamIndex];
     ex->deadlineMs.store(nowMs() + kReadTimeoutMs, std::memory_order_relaxed);
-    while (nextDecodedFrame(ex)) {
+    int lastRead = 0;
+    while (nextDecodedFrame(ex, &lastRead)) {
         int64_t stamp = ex->frame->best_effort_timestamp;
         if (stamp == AV_NOPTS_VALUE) stamp = ex->frame->pts;
         int64_t frameMs = stamp == AV_NOPTS_VALUE ? -1
@@ -526,8 +585,15 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeAdvance(JNIEnv* env, jcl
         }
     }
     ex->deadlineMs.store(0, std::memory_order_relaxed);
-    setLastError("已到片尾");
+    if (lastRead == AVERROR_EOF) setLastError("已到片尾");
+    else if (lastRead < 0) setLastError("读片源失败：" + errorText(lastRead));
+    else setLastError("解不出画面（解码器没有输出帧）");
     return nullptr;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_fongmi_android_tv_player_TrickplayNative_nativeClearError(JNIEnv*, jclass) {
+    gLastError.clear();
 }
 
 extern "C" JNIEXPORT jstring JNICALL
