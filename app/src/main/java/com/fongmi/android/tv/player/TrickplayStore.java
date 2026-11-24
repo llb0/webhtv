@@ -226,13 +226,22 @@ public final class TrickplayStore {
         String target = media.substring(index + 5);
         int query = target.indexOf('?');
         if (query >= 0) target = target.substring(0, query);
+        int hash = target.indexOf('#');
+        if (hash >= 0) target = target.substring(0, hash);
+        String decoded = target;
         try {
-            File file = com.github.catvod.utils.Path.local(target);
+            decoded = java.net.URLDecoder.decode(target, "UTF-8");
+        } catch (Throwable ignored) {
+        }
+        try {
+            File file = com.github.catvod.utils.Path.local(decoded);
             if (file != null && file.isFile()) {
                 traceOnce("source local-file name=%s size=%d", file.getName(), file.length());
                 return file.getAbsolutePath();
             }
-        } catch (Throwable ignored) {
+            traceOnce("source local-file missing path=%s", decoded);
+        } catch (Throwable e) {
+            traceOnce("source local-file fail path=%s error=%s", decoded, e);
         }
         return media;
     }
@@ -245,7 +254,7 @@ public final class TrickplayStore {
         if (context == null || TextUtils.isEmpty(media)) return;
         if (!supports(media)) {
             // 网络源不抽：同一 auth_key 再拉一路既费流量，也容易被 CDN 限速/封。
-            traceOnce("bg skip reason=network-source");
+            traceOnce("bg skip reason=network-source url=%s", media);
             return;
         }
         final String key = keyFor(media);
@@ -308,6 +317,8 @@ public final class TrickplayStore {
         String lower = source.toLowerCase(Locale.ROOT);
         // SMB 走本机代理（…?smb=1），它只是把局域网文件包成 http，不是外网源，仍然要抽。
         if (lower.contains("smb=1")) return false;
+        // 应用内本地服务的 /file/ 路由同样是本地文件，哪怕路径没还原成功也不能当外网源撤掉。
+        if (lower.contains("/file/")) return false;
         return lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("rtmp");
     }
 
