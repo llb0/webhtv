@@ -300,14 +300,26 @@ public final class SmbClient {
         }
     }
 
-    /** 复用池里的连接打开远程文件；连接失效时丢掉重连一次。 */
+    /** 复用池里的连接打开远程文件；只有连接真的断了才丢掉重连一次。 */
     public static SharedFile openShared(String host, String shareName, String path,
                                         String username, String password, String domain) throws Exception {
         try {
             return openSharedOnce(host, shareName, path, username, password, domain);
         } catch (Exception e) {
+            // 文件不存在之类的错误不能把池里那条连接一起丢掉：同一场播放/其它流的句柄还挂在上面。
+            if (pooledAlive(host, shareName, username, password, domain)) throw e;
             dropPooled(host, shareName, username, password, domain);
             return openSharedOnce(host, shareName, path, username, password, domain);
+        }
+    }
+
+    private static boolean pooledAlive(String host, String shareName,
+                                       String username, String password, String domain) {
+        String key = host + "|" + shareName + "|" + (username == null ? "" : username)
+                + "|" + (password == null ? "" : password) + "|" + (domain == null ? "" : domain);
+        synchronized (POOL) {
+            Pooled pooled = POOL.get(key);
+            return pooled != null && pooled.alive(System.currentTimeMillis());
         }
     }
 
