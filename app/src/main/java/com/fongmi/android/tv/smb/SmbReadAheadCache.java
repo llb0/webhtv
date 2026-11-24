@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.smb;
 
+import java.io.IOException;
+
 /**
  * SMB 播放/取帧的顺序预读缓存。
  *
