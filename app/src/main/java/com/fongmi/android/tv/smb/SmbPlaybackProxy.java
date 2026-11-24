@@ -141,6 +141,12 @@ public final class SmbPlaybackProxy {
     private static int rangeWindowCount;
     private static long lastProblemAt;
 
+    private static long streamWindowStart;
+    private static int streamCount;
+    private static long streamBytes;
+    private static long streamMaxMs;
+    private static int streamSlowCount;
+
     /** range 请求按窗口汇总，避免老容器逐块请求把日志刷爆。 */
     private static void logRange(long start, long end, boolean partial, String range) {
         if (!com.github.catvod.crawler.SpiderDebug.isEnabled()) return;
@@ -154,6 +160,35 @@ public final class SmbPlaybackProxy {
             rangeWindowStart = now;
             com.github.catvod.crawler.SpiderDebug.log("smb-proxy",
                     "range-window count=%d last=%d-%d partial=%s range=%s", count, start, end, partial, range);
+        }
+    }
+
+    /**
+     * 每条响应结束时记一次「服务端侧」的实际产出：发了多少字节、耗时多久。
+     * 卡顿到底是播放器自己一小口一小口要（每次几 KB、我们毫秒级发完），
+     * 还是我们这边响应本身就慢（几百毫秒），全看这组数。
+     */
+    private static void recordStream(long bytes, long elapsedMs) {
+        if (!com.github.catvod.crawler.SpiderDebug.isEnabled()) return;
+        long now = System.currentTimeMillis();
+        synchronized (SmbPlaybackProxy.class) {
+            streamCount++;
+            streamBytes += Math.max(0, bytes);
+            if (elapsedMs > streamMaxMs) streamMaxMs = elapsedMs;
+            if (elapsedMs >= 300) streamSlowCount++;
+            if (streamWindowStart == 0) streamWindowStart = now;
+            if (now - streamWindowStart < 3000) return;
+            int count = streamCount;
+            long bytesTotal = streamBytes;
+            long maxMs = streamMaxMs;
+            int slow = streamSlowCount;
+            streamCount = 0;
+            streamBytes = 0;
+            streamMaxMs = 0;
+            streamSlowCount = 0;
+            streamWindowStart = now;
+            com.github.catvod.crawler.SpiderDebug.log("smb-proxy",
+                    "stream-stat count=%d bytes=%d maxMs=%d slow=%d", count, bytesTotal, maxMs, slow);
         }
     }
 
@@ -291,6 +326,8 @@ public final class SmbPlaybackProxy {
                 final long contentLength = end - start + 1;
                 final InputStream input = new InputStream() {
                     private long position = streamStart;
+                    private final long startedAt = System.currentTimeMillis();
+                    private boolean reported;
 
                     @Override
                     public int read() throws IOException {
@@ -318,6 +355,10 @@ public final class SmbPlaybackProxy {
 
                     @Override
                     public void close() {
+                        if (!reported) {
+                            reported = true;
+                            recordStream(position - streamStart, System.currentTimeMillis() - startedAt);
+                        }
                         streamReader.close();
                     }
                 };

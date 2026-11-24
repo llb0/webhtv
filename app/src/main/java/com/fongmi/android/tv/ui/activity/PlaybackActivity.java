@@ -613,7 +613,14 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             History.updateVodPicIfEmptyOrPlaceholder(cid, historyKey, uri, ResUtil.getString(R.string.push_image));
             RefreshEvent.history();
         });
+        // 历史卡片刷新了不等于播放页背景会跟着换：详情背景是进页时按占位图加载好的，
+        // 不重新下发一次就一直是纸飞机。交给子类去套用（电视端/手机端的 setArtwork）。
+        applyThumbnailArtwork(uri);
         if (SpiderDebug.isEnabled()) SpiderDebug.log("smb-thumb", "action=artwork-from-thumb key=%s", key.substring(0, 8));
+    }
+
+    /** 子类覆盖：SMB 缩略图已写进历史后，把它同时套到播放页的详情背景上。 */
+    protected void applyThumbnailArtwork(String uri) {
     }
 
     private void armSmbThumbnail(long delay) {

@@ -25,13 +25,19 @@ import java.util.Map;
  */
 final class SmbStreamReader {
 
-    private static final long CHUNK_BYTES = 512L * 1024;
-    private static final int MAX_WINDOWS = 4;
+    private static final long CHUNK_BYTES = 1024L * 1024;
+    private static final int MAX_WINDOWS = 8;
     private static final int MAX_HANDLES = 3;
     private static final long IDLE_MS = 120_000L;
-    private static final int MAX_ENTRIES = 8;
+    private static final int MAX_ENTRIES = 4;
 
     private static final Map<String, Entry> ENTRIES = new LinkedHashMap<>();
+
+    /** 预读命中/未命中统计：卡顿到底是我们每次未命中就去 SMB 读，还是播放器自己要得太碎。 */
+    private static long statWindowStart;
+    private static int statFill;
+    private static int statHit;
+    private static long statFillBytes;
 
     private static final class Window {
         final long start;
@@ -199,6 +205,7 @@ final class SmbStreamReader {
         if (position >= entry.length) return -1;
         int count = (int) Math.min((long) len, entry.length - position);
         Window window = find(position, count);
+        if (window != null) recordStat(false, 0);
         if (window == null) {
             window = fill(position);
             if (window.length <= 0) throw new IOException("smb read returned 0 bytes at " + position);
@@ -245,6 +252,7 @@ final class SmbStreamReader {
             }
             filled += read;
         }
+        recordStat(true, filled);
         Window window = new Window(position, data, filled);
         synchronized (entry) {
             entry.lastUsed = System.currentTimeMillis();
@@ -253,9 +261,45 @@ final class SmbStreamReader {
                 if (existing.start == position && existing.length >= window.length) return existing;
             }
             entry.windows.add(window);
-            while (entry.windows.size() > MAX_WINDOWS) entry.windows.remove(0);
+            while (entry.windows.size() > MAX_WINDOWS) {
+                // 片头那块（start=0）常驻：老容器每读一段都要回跳片头取索引/关键帧头部，
+                // 让它参与 LRU 会被正文反复挤掉，等于每次都重读一遍。
+                int victim = -1;
+                for (int i = 0; i < entry.windows.size(); i++) {
+                    if (entry.windows.get(i).start != 0) {
+                        victim = i;
+                        break;
+                    }
+                }
+                if (victim < 0) break;
+                entry.windows.remove(victim);
+            }
         }
         return window;
+    }
+
+    private static void recordStat(boolean fill, int bytes) {
+        if (!com.github.catvod.crawler.SpiderDebug.isEnabled()) return;
+        long now = System.currentTimeMillis();
+        synchronized (SmbStreamReader.class) {
+            if (fill) {
+                statFill++;
+                statFillBytes += bytes;
+            } else {
+                statHit++;
+            }
+            if (statWindowStart == 0) statWindowStart = now;
+            if (now - statWindowStart < 3000) return;
+            int fills = statFill;
+            int hits = statHit;
+            long bytesTotal = statFillBytes;
+            statFill = 0;
+            statHit = 0;
+            statFillBytes = 0;
+            statWindowStart = now;
+            com.github.catvod.crawler.SpiderDebug.log("smb-proxy",
+                    "reader-stat fill=%d bytes=%d hit=%d", fills, bytesTotal, hits);
+        }
     }
 
     private void ensureLease() throws IOException {

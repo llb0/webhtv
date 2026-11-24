@@ -6343,6 +6343,14 @@ private boolean runtimeSourceOnly;
         setArtwork(mHistory.getVodPic());
     }
 
+    /** SMB 缩略图写进历史后，详情背景也立刻换成这张，不再停在纸飞机占位。 */
+    @Override
+    protected void applyThumbnailArtwork(String uri) {
+        if (TextUtils.isEmpty(uri)) return;
+        if (mHistory != null) mHistory.setVodPic(uri);
+        setArtwork(uri);
+    }
+
     private void loadArtwork(String url) {
         loadArtwork(url, mPlaybackEpisodeKey);
     }
