@@ -221,6 +221,8 @@ public final class TrickplayStore {
         if (media == null) return media;
         String lower = media.toLowerCase(Locale.ROOT);
         if (!lower.startsWith("http://") && !lower.startsWith("https://")) return media;
+        // 必须是本机/局域网地址：公网直链里也可能有 /file/，那不能当本地文件读盘。
+        if (!isLocalHost(lower)) return media;
         int index = media.indexOf("/file/");
         if (index < 0) return media;
         String target = media.substring(index + 5);
@@ -315,11 +317,38 @@ public final class TrickplayStore {
         String source = resolveSource(media);
         if (!source.equals(media)) return false; // 本地服务 URL 已还原成本地路径
         String lower = source.toLowerCase(Locale.ROOT);
-        // SMB 走本机代理（…?smb=1），它只是把局域网文件包成 http，不是外网源，仍然要抽。
-        if (lower.contains("smb=1")) return false;
-        // 应用内本地服务的 /file/ 路由同样是本地文件，哪怕路径没还原成功也不能当外网源撤掉。
-        if (lower.contains("/file/")) return false;
+        // 本机/局域网地址上的本地服务路由才算本地：
+        // SMB 代理（…?smb=1）和应用内 /file/ 都只是把本地文件包成 http，不是外网源；
+        // 公网直链即使路径里出现 /file/ 也一律按网络源撤掉，避免被封。
+        if (isLocalHost(lower) && (lower.contains("/file/") || lower.contains("smb=1"))) return false;
         return lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("rtmp");
+    }
+
+    /** 地址的主机部分是不是本机 / 局域网（127.0.0.1、localhost、192.168.x.x、10.x.x.x、172.16~31.x.x、169.254.x.x）。 */
+    private static boolean isLocalHost(String lowerUrl) {
+        int start = lowerUrl.indexOf("://");
+        if (start < 0) return false;
+        int slash = lowerUrl.indexOf('/', start + 3);
+        String hostPort = slash < 0 ? lowerUrl.substring(start + 3) : lowerUrl.substring(start + 3, slash);
+        int colon = hostPort.lastIndexOf(':');
+        String host = colon >= 0 ? hostPort.substring(0, colon) : hostPort;
+        if (host.startsWith("[")) {
+            int close = host.indexOf(']');
+            host = close > 0 ? host.substring(1, close) : host;
+        }
+        if (host.equals("localhost") || host.equals("127.0.0.1") || host.equals("0.0.0.0") || host.equals("::1")) return true;
+        String[] parts = host.split("\\.");
+        if (parts.length != 4) return false;
+        try {
+            int a = Integer.parseInt(parts[0]);
+            int b = Integer.parseInt(parts[1]);
+            if (a == 10 || a == 127) return true;
+            if (a == 192 && b == 168) return true;
+            if (a == 172 && b >= 16 && b <= 31) return true;
+            if (a == 169 && b == 254) return true;
+        } catch (Throwable ignored) {
+        }
+        return false;
     }
 
     /**
