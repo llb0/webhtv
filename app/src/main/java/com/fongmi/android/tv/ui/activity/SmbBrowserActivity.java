@@ -1171,18 +1171,18 @@ public class SmbBrowserActivity extends AppCompatActivity {
                             rows.add(SmbRowAdapter.Row.icon(entry.name, "", "📁"));
                         } else if (SmbClient.isVideo(entry.name)) {
                             // 视频行给缩略图：取帧走缩略图专用 token 池，不会挤掉正在播放的直链。
-                            // 只有 IJK 能播的老容器（avi/wmv/rmvb 等）系统取帧器解不出来，直接按小图标显示。
+                            // 老容器（avi/wmv/rmvb 等）系统取帧器（MMR）解不出来，但内置 FFmpeg 能解，
+                            // 所以这里一律允许取帧；MMR 那条只作兜底，解不了就等播放时补图。
                             String thumbUrl = null;
                             try {
                                 thumbUrl = SmbPlaybackProxy.createThumbUrl(host, share, remotePath, username, password, domain);
                             } catch (IOException ignored) {
                                 thumbUrl = null;
                             }
-                            boolean legacy = PlayerSetting.isLegacyContainer(entry.name);
                             rows.add(thumbUrl == null
                                     ? SmbRowAdapter.Row.icon(entry.name, "", "▶")
                                     : SmbRowAdapter.Row.video(entry.name, "",
-                                    SmbThumbnailCache.key(host, share, remotePath), thumbUrl, !legacy));
+                                    SmbThumbnailCache.key(host, share, remotePath), thumbUrl, true));
                         } else if (SmbClient.isAudio(entry.name)) {
                             rows.add(SmbRowAdapter.Row.icon(entry.name, "", "♫"));
                         } else if (SmbClient.isImage(entry.name)) {

@@ -9269,7 +9269,33 @@ private boolean runtimeSourceOnly;
     }
 
     private void checkEnded(boolean notify) {
+        // 先把已播完的本集进度归零再切集：顺序不能反，切完 mHistory 已经是下一集了。
+        resetFinishedEpisodeProgress();
         checkNext(notify);
+    }
+
+    /**
+     * 本集播完（自然结束或快进越过片尾）时清掉这一集的进度。
+     *
+     * <p>不清的话，位置缓存里留着「已越过片尾」的位置，切回上一集时一开播就又满足片尾判据、
+     * 立刻被自动推进下一集，用户除非删掉历史否则再也进不去这一集。
+     * 只有存在上一集/下一集可切（多集）时才动，单集/电影不适用（没有「再切回来」这回事）。
+     */
+    private void resetFinishedEpisodeProgress() {
+        if (mHistory == null) return;
+        Flag flag = getFlag();
+        if (flag == null || flag.getEpisodes().size() < 2) return;
+        String cacheName = getCurrentHistoryEpisodeCacheName();
+        if (!TextUtils.isEmpty(cacheName) && !skipEpisodePositionCache()) {
+            // 位置写 0 而不是删记录：删了会被「保存进度」用旧的播放器位置再写回来。
+            EpisodePositionCache.get().put(getKey(), getId(), flag.getFlag(), cacheName, 0, mHistory.getDuration());
+            Task.execute(() -> EpisodePositionCache.get().save());
+        }
+        mHistory.setPosition(0);
+        syncHistory();
+        if (SpiderDebug.isEnabled()) {
+            SpiderDebug.log("playback-ending", "action=reset-progress episode=%s key=%s", cacheName, getKey());
+        }
     }
 
     private void setTrackVisible() {
