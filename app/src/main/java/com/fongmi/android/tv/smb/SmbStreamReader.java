@@ -25,8 +25,11 @@ import java.util.Map;
  */
 final class SmbStreamReader {
 
-    private static final long CHUNK_BYTES = 1024L * 1024;
-    private static final int MAX_WINDOWS = 8;
+    private static final long CHUNK_BYTES = 512L * 1024;
+    private static final int MAX_WINDOWS = 16;
+    /** 片头与片尾索引区常驻：老容器每次定位都要回读这两段，512KB 一块读一次要 250ms 以上。 */
+    private static final long HEAD_BYTES = 1L * 1024 * 1024;
+    private static final long TAIL_BYTES = 4L * 1024 * 1024;
     private static final int MAX_HANDLES = 3;
     private static final long IDLE_MS = 120_000L;
     private static final int MAX_ENTRIES = 4;
@@ -43,6 +46,7 @@ final class SmbStreamReader {
         final long start;
         final byte[] data;
         final int length;
+        boolean pinned;
 
         Window(long start, byte[] data, int length) {
             this.start = start;
@@ -204,8 +208,13 @@ final class SmbStreamReader {
         if (position < 0) throw new IOException("negative offset " + position);
         if (position >= entry.length) return -1;
         int count = (int) Math.min((long) len, entry.length - position);
-        Window window = find(position, count);
-        if (window != null) recordStat(false, 0);
+        // 只要 position 落在某块里就先给这块的剩余部分，不再要求整段都覆盖：
+        // 跨块的小请求以前会被判成未命中、白读一个 512KB 块，这是大量无谓 SMB 读的来源。
+        Window window = find(position);
+        if (window != null) {
+            recordStat(false, 0);
+            if (!window.covers(position, count)) count = (int) (window.start + window.length - position);
+        }
         if (window == null) {
             window = fill(position);
             if (window.length <= 0) throw new IOException("smb read returned 0 bytes at " + position);
@@ -216,10 +225,10 @@ final class SmbStreamReader {
         return count;
     }
 
-    private Window find(long position, int count) {
+    private Window find(long position) {
         synchronized (entry) {
             for (Window window : entry.windows) {
-                if (window.covers(position, count)) {
+                if (position >= window.start && position < window.start + window.length) {
                     entry.lastUsed = System.currentTimeMillis();
                     return window;
                 }
@@ -263,15 +272,24 @@ final class SmbStreamReader {
             for (Window existing : entry.windows) {
                 if (existing.start == position && existing.length >= window.length) return existing;
             }
+            window.pinned = position < HEAD_BYTES || position + CHUNK_BYTES > entry.length - TAIL_BYTES;
             entry.windows.add(window);
+            // 片头/片尾索引区（pinned）不参与淘汰：这盘 avi 每次定位都要回读这两段，
+            // 让它们跟正文抢窗口，等于每定位一次就重读一次 1MB，一次 500ms。
             while (entry.windows.size() > MAX_WINDOWS) {
-                // 片头那块（start=0）常驻：老容器每读一段都要回跳片头取索引/关键帧头部，
-                // 让它参与 LRU 会被正文反复挤掉，等于每次都重读一遍。
                 int victim = -1;
                 for (int i = 0; i < entry.windows.size(); i++) {
-                    if (entry.windows.get(i).start != 0) {
+                    if (!entry.windows.get(i).pinned) {
                         victim = i;
                         break;
+                    }
+                }
+                if (victim < 0) {
+                    for (int i = 0; i < entry.windows.size(); i++) {
+                        if (entry.windows.get(i).start != 0) {
+                            victim = i;
+                            break;
+                        }
                     }
                 }
                 if (victim < 0) break;
