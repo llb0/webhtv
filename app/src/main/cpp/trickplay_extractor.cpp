@@ -37,8 +37,8 @@ extern "C" {
 
 namespace {
 
-constexpr int64_t kOpenTimeoutMs = 8000;
-constexpr int64_t kReadTimeoutMs = 7000;
+constexpr int64_t kOpenTimeoutMs = 12000;
+constexpr int64_t kReadTimeoutMs = 15000;
 
 // ---- runtime bindings ---------------------------------------------------------
 decltype(&avformat_network_init) p_avformat_network_init;
@@ -449,7 +449,7 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeOpen(JNIEnv* env, jclass
     ex->fmt->interrupt_callback.opaque = ex;
 
     AVDictionary* options = nullptr;
-    p_av_dict_set(&options, "timeout", "8000000", 0);   // microseconds
+    p_av_dict_set(&options, "timeout", "15000000", 0);  // microseconds
     // 网络源（HLS 等）探测别太久：够拿 codec 参数即可，探慢了预览就等不及。
     p_av_dict_set(&options, "probesize", "2000000", 0);
     p_av_dict_set(&options, "analyzeduration", "3000000", 0);

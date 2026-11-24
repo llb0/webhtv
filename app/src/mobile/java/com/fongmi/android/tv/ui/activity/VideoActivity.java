@@ -2123,6 +2123,8 @@ private void setupSeekPreview() {
      */
     private void driveSeekPreview(long offsetMs) {
         if (mSeekPreview == null) return;
+        // 网络源不抽帧：保持原来的双箭头快进/快退，不弹预览条。
+        if (!com.fongmi.android.tv.player.TrickplayStore.supports(player().getUrl())) return;
         mSeekPreviewOffset = offsetMs;
         if (!mSeekPreview.isActive()) {
             if (!mSeekPreviewPending) {

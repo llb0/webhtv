@@ -220,11 +220,14 @@ public final class TrickplayStore {
     static String resolveSource(String media) {
         if (media == null) return media;
         String lower = media.toLowerCase(Locale.ROOT);
-        if (!lower.startsWith("http://127.0.0.1") && !lower.startsWith("http://localhost")) return media;
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) return media;
         int index = media.indexOf("/file/");
         if (index < 0) return media;
+        String target = media.substring(index + 5);
+        int query = target.indexOf('?');
+        if (query >= 0) target = target.substring(0, query);
         try {
-            File file = com.github.catvod.utils.Path.local(media.substring(index + 5));
+            File file = com.github.catvod.utils.Path.local(target);
             if (file != null && file.isFile()) {
                 traceOnce("source local-file name=%s size=%d", file.getName(), file.length());
                 return file.getAbsolutePath();
@@ -240,6 +243,11 @@ public final class TrickplayStore {
      */
     public static void startBackground(Context context, String media, Map<String, String> headers, long durationMs) {
         if (context == null || TextUtils.isEmpty(media)) return;
+        if (!supports(media)) {
+            // 网络源不抽：同一 auth_key 再拉一路既费流量，也容易被 CDN 限速/封。
+            traceOnce("bg skip reason=network-source");
+            return;
+        }
         final String key = keyFor(media);
         if (key.equals(backgroundKey)) {
             if (backgroundThread != null && backgroundThread.isAlive()) return;
@@ -284,12 +292,22 @@ public final class TrickplayStore {
         MAIN.postDelayed(holder[0], delayMs);
     }
 
+    /**
+     * 只对能随机读、且不走外网的东西抽帧：本地文件、SMB。
+     * HLS/直链这类网络源一律不抽（已明确撤销）。
+     */
+    public static boolean supports(String media) {
+        return media != null && !TextUtils.isEmpty(media) && !isNetworkSource(media);
+    }
+
     /** 网络源（HLS/直链）；本地文件和本地服务代理都不算。 */
     private static boolean isNetworkSource(String media) {
         if (media == null) return false;
         String source = resolveSource(media);
         if (!source.equals(media)) return false; // 本地服务 URL 已还原成本地路径
         String lower = source.toLowerCase(Locale.ROOT);
+        // SMB 走本机代理（…?smb=1），它只是把局域网文件包成 http，不是外网源，仍然要抽。
+        if (lower.contains("smb=1")) return false;
         return lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("rtmp");
     }
 
@@ -336,11 +354,7 @@ public final class TrickplayStore {
                 return;
             }
             backgroundExtractor = extractor;
-            // 只在开头定位一次，之后一路顺序解码，不再每格 seek（本地 avi 这种没索引的尤其明显）。
-            if (!extractor.restart((index - 1) * STEP_MS)) {
-                traceOnce("bg fail reason=seek error=%s", TrickplayNative.lastError());
-                return;
-            }
+            int consecutiveFailures = 0;
             while (key.equals(backgroundKey)) {
                 long target = (index - 1) * STEP_MS;
                 if (target >= limit) {
@@ -353,15 +367,23 @@ public final class TrickplayStore {
                     sleep(400);
                     continue;
                 }
-                Bitmap bitmap = extractor.advance(target, FRAME_WIDTH);
+                Bitmap bitmap = extractor.grab(target, FRAME_WIDTH);
                 if (!key.equals(backgroundKey)) {
                     traceOnce("bg stop reason=key-changed index=%d", index);
                     return;
                 }
                 if (bitmap == null) {
-                    traceOnce("bg stop reason=no-frame index=%d at=%s error=%s", index, time(target), TrickplayNative.lastError());
-                    return;
+                    // 单格取不到（损坏包、慢盘、定位失败）就跳过这一格继续往后，
+                    // 不再让一个坏点把整部片的缩略图全都掐掉。
+                    trace("bg gap index=%d at=%s error=%s", index, time(target), TrickplayNative.lastError());
+                    if (++consecutiveFailures >= 8) {
+                        traceOnce("bg stop reason=too-many-gaps index=%d", index);
+                        return;
+                    }
+                    index++;
+                    continue;
                 }
+                consecutiveFailures = 0;
                 File file = frameFile(context, key, index);
                 if (!file.isFile() || file.length() == 0) writeFrame(file, bitmap);
                 else bitmap.recycle();
@@ -520,22 +542,14 @@ public final class TrickplayStore {
                 logFailure(window.context, "抽帧会话打不开：" + TrickplayNative.lastError());
                 return;
             }
-            // 预览位置是按时间递增的：定位一次后顺序推进，比逐格 seek 快得多。
-            boolean ascending = true;
-            for (int i = 1; i < window.positions.size(); i++) {
-                if (window.positions.get(i) <= window.positions.get(i - 1)) ascending = false;
-            }
-            if (ascending && !window.positions.isEmpty()) {
-                extractor.restart((frameIndex(window.positions.get(0)) - 1) * STEP_MS);
-            }
+            // 逐格定位：本地/SMB 都能随机读，一次 seek 只解一两帧就拿到图；
+            // 顺序推进一旦碰上损坏包或慢盘，会把整条窗口卡死（之前就是这样整排空图）。
             for (Long position : window.positions) {
                 if (!RUNNING.contains(window.key)) break;
                 int index = frameIndex(position);
                 File file = frameFile(window.context, window.key, index);
                 if (file.isFile() && file.length() > 0) continue;
-                Bitmap bitmap = ascending
-                        ? extractor.advance((index - 1) * STEP_MS, FRAME_WIDTH)
-                        : extractor.grab((index - 1) * STEP_MS, FRAME_WIDTH);
+                Bitmap bitmap = extractor.grab((index - 1) * STEP_MS, FRAME_WIDTH);
                 if (bitmap == null) {
                     logFailure(window.context, "抽帧失败：" + TrickplayNative.lastError());
                     continue;
@@ -619,6 +633,7 @@ public final class TrickplayStore {
      */
     public static Bitmap extractCover(Context context, String media, Map<String, String> headers) {
         if (context == null || TextUtils.isEmpty(media)) return null;
+        if (!supports(media)) return null; // 网络源不抽，交给原来的兜底路径
         TrickplayNative.resetError();
         long[] positions = new long[]{60_000L, 15_000L, 180_000L, 600_000L, 1_500_000L};
         Bitmap chosen = null;
