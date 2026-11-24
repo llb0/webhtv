@@ -8,6 +8,9 @@ import com.github.catvod.crawler.diagnostics.DiagnosticText;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class SpiderDebug {
 
@@ -16,6 +19,24 @@ public class SpiderDebug {
     /** 单条记录字数上限（分段阈值），以及一次最多记录几段。 */
     private static final int CHUNK_CHARS = 3000;
     private static final int MAX_CHUNKS = 10;
+
+    /**
+     * 节流：同一条 tag 下形状相同的消息（号码位归一化后）每秒最多留 3 条，突发 3 条。
+     * 播放进度、歌词刷新这类每秒好几条的东西不再把有用的几步冲走；
+     * 省掉的条数会附在下一条上，不是完全屏蔽。
+     */
+    private static final int THROTTLE_TOKENS = 3;
+    private static final long THROTTLE_WINDOW_MS = 1000L;
+    private static final int BUCKET_LIMIT = 512;
+    /** 已经在调用点自己节流的 tag，这里不重复节流（否则会出现两条"已省略"）。 */
+    private static final Set<String> THROTTLE_EXEMPT = Set.of("trickplay");
+    private static final Map<String, Bucket> THROTTLE = new ConcurrentHashMap<>();
+
+    private static final class Bucket {
+        long windowStart;
+        int used;
+        int suppressed;
+    }
 
     public static boolean isEnabled() {
         return DebugLogStore.isEnabled();
@@ -87,7 +108,13 @@ public class SpiderDebug {
     /** 超长内容按字数切段编号，避免单条记录撞上 1.2 万上限后被一刀截断。 */
     private static void emitChunks(String tag, String prefix, String record, boolean critical) {
         if (record.length() <= CHUNK_CHARS) {
-            DebugLogStore.add(tag, prefix + record, critical);
+            if (critical) { // 崩溃这类关键条目一律不节流
+                DebugLogStore.add(tag, prefix + record, true);
+                return;
+            }
+            String allowed = throttle(tag, record);
+            if (allowed == null) return;
+            DebugLogStore.add(tag, prefix + allowed, false);
             return;
         }
         List<String> parts = new ArrayList<>();
@@ -111,6 +138,51 @@ public class SpiderDebug {
             DebugLogStore.add(tag, "〔共 " + record.length() + " 字，仅保留第 1-" + emitted + " 段，其余 "
                     + (total - emitted) + " 段未记录〕", false);
         }
+    }
+
+    /**
+     * 返回应该写出去的消息（必要时带上"已省略"提示），被压掉时返回 null。
+     */
+    private static String throttle(String tag, String record) {
+        if (record == null || record.isEmpty() || tag == null) return record;
+        if (THROTTLE_EXEMPT.contains(tag)) return record;
+        String shape = shapeOf(tag, record);
+        Bucket bucket = THROTTLE.get(shape);
+        if (bucket == null) {
+            if (THROTTLE.size() > BUCKET_LIMIT) THROTTLE.clear();
+            bucket = new Bucket();
+            Bucket existing = THROTTLE.putIfAbsent(shape, bucket);
+            if (existing != null) bucket = existing;
+        }
+        synchronized (bucket) {
+            long now = System.currentTimeMillis();
+            if (now - bucket.windowStart >= THROTTLE_WINDOW_MS) {
+                bucket.windowStart = now;
+                bucket.used = 0;
+            }
+            if (bucket.used < THROTTLE_TOKENS) {
+                bucket.used++;
+                if (bucket.suppressed > 0) {
+                    int skipped = bucket.suppressed;
+                    bucket.suppressed = 0;
+                    return record + "（另有 " + skipped + " 条同类已省略）";
+                }
+                return record;
+            }
+            bucket.suppressed++;
+            return null;
+        }
+    }
+
+    /** 把号码、十六进制这类每次都变的部分抹成 #，同形状的消息才归到一个桶里。 */
+    private static String shapeOf(String tag, String record) {
+        String text = record.length() > 160 ? record.substring(0, 160) : record;
+        StringBuilder builder = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            builder.append(Character.isDigit(c) ? '#' : c);
+        }
+        return tag + '\u0000' + builder;
     }
 
     private static String safeTag(String tag) {
