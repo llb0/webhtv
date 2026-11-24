@@ -5937,6 +5937,8 @@ private boolean runtimeSourceOnly;
         if (mBinding == null || mHistory == null) return;
         mBinding.control.action.opening.setText(openingLabel());
         mBinding.control.action.ending.setText(endingLabel());
+        // 屏显左下角的总时长跟着扣掉手设的片尾；没设/不匹配时这里传 0，照真实片长显示。
+        if (mOsd != null) mOsd.setEnding(mHistory.getEnding());
     }
 
     private String openingLabel() {

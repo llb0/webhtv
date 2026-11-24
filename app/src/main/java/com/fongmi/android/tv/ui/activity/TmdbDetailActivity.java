@@ -9706,6 +9706,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void updateInlineOpeningEndingText() {
         if (binding == null) return;
+        // 屏显左下角的总时长跟着扣掉手设的片尾；没设/不匹配时传 0，照真实片长显示。
+        if (inlineOsd != null && history != null) inlineOsd.setEnding(history.getEnding());
         binding.playerOpening.setText(inlineOpeningLabel());
         binding.playerEnding.setText(inlineEndingLabel());
         if (!Util.isMobile() || detailActionRoot == null) return;
