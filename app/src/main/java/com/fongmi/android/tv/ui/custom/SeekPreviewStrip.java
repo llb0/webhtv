@@ -108,8 +108,8 @@ public class SeekPreviewStrip extends FrameLayout {
     private boolean holdArmed;
     /** 上一次真正发起取帧请求的时刻：补帧被跳转打断后，靠它隔一会儿自动重来。 */
     private long lastLoadAt;
-    /** 补帧被打断后自动重申请的剩余次数（有上限，避免一遍遍反复抽同一批格子）。 */
-    private int reloadAttempts;
+    /** 本轮已经做过一次「缺格交接」：做过就不再重复申请，避免一遍遍重抽。 */
+    private boolean handoffUsed;
 
     public SeekPreviewStrip(Context context) {
         this(context, null);
@@ -451,7 +451,7 @@ public class SeekPreviewStrip extends FrameLayout {
     }
 
     private void render() {
-        reloadAttempts = 0;
+        handoffUsed = false;
         titleView.setText(String.format(Locale.getDefault(), "%s / %s", format(cursor), format(duration)));
         List<Long> positions = cellPositions();
         barView.setProgress(duration <= 0 ? 0f : (float) cursor / duration);
@@ -494,52 +494,74 @@ public class SeekPreviewStrip extends FrameLayout {
         final int height = Math.max(1, cellHeight);
         final String mediaUrl = media;
         final Map<String, String> mediaHeaders = headers;
-        TrickplayStore.io().execute(() -> {
-            final List<Long> missing = new ArrayList<>();
-            for (long position : positions) {
-                Bitmap bitmap = TextUtils.isEmpty(mediaUrl) ? null
-                        : TrickplayStore.read(context, mediaUrl, position, width, height);
-                if (bitmap == null) missing.add(position);
-                else {
-                    final Bitmap found = bitmap;
-                    final long at = position;
-                    handler.post(() -> applyAt(positions, at, found));
-                }
-            }
-            trace("preview cells=%d missing=%d ready=%b error=%s", positions.size(), missing.size(),
-                    TrickplayNative.isReady(), TrickplayNative.lastError());
-            if (missing.isEmpty() || TextUtils.isEmpty(mediaUrl)) {
-                handler.post(this::pollFramesSettled);
-                return;
-            }
-            if (!allowPrepare) {
-                handler.post(() -> {
-                    loadFallbackFrames(positions);
-                    pollFramesSettled();
-                });
-                return;
-            }
-            // 抽帧顺序跟着当前方向走：快进从当前帧往右，快退从当前帧往左。
-            final List<Long> priority = refreshOrder(positions);
-            missing.sort((a, b) -> Integer.compare(priority.indexOf(a), priority.indexOf(b)));
-            TrickplayStore.ensureFrames(context, mediaUrl, mediaHeaders, missing,
-                    () -> TrickplayStore.io().execute(() -> {
-                        // 每落一格就重新读一次还空着的位置，抽到哪贴到哪。
-                        for (long position : positions) {
-                            Bitmap bitmap = TrickplayStore.read(context, mediaUrl, position, width, height);
-                            if (bitmap == null) continue;
-                            final Bitmap found = bitmap;
-                            final long at = position;
-                            handler.post(() -> applyAt(positions, at, found));
-                        }
-                    }),
-                    () -> handler.post(() -> {
-                        String error = TrickplayNative.lastError();
-                        if (!TextUtils.isEmpty(error)) reportOnce(context, error);
-                        loadFallbackFrames(positions);
-                        pollFramesSettled();
-                    }));
-        });
+        // 已经刷出图的那几格直接跳过：刷新过的格子再抽一遍就是重复，既不省时间还跟播放抢连接。
+        List<Long> missing = new ArrayList<>();
+        for (int i = 0; i < cells.size() && i < positions.size(); i++) {
+            Cell cell = cells.get(i);
+            if (cell.filled && cell.position == positions.get(i)) continue;
+            missing.add(positions.get(i));
+        }
+        if (missing.isEmpty()) {
+            handler.post(this::pollFramesSettled);
+            return;
+        }
+        if (TextUtils.isEmpty(media)) {
+            handler.post(() -> {
+                loadFallbackFrames(positions);
+                pollFramesSettled();
+            });
+            return;
+        }
+        if (!allowPrepare) {
+            handler.post(() -> {
+                loadFallbackFrames(positions);
+                pollFramesSettled();
+            });
+            return;
+        }
+        // 抽帧顺序跟着当前方向走：快进从当前帧往右，快退从当前帧往左。
+        final List<Long> priority = refreshOrder(positions);
+        final List<Long> missingList = missing;
+        missingList.sort((a, b) -> Integer.compare(priority.indexOf(a), priority.indexOf(b)));
+        final List<Long> all = positions;
+        TrickplayStore.ensureFrames(context, media, headers, missingList,
+                () -> TrickplayStore.io().execute(() -> {
+                    // 每落一格就只读这一格，贴上去；已贴过的格子不动。
+                    for (long position : missingList) {
+                        Bitmap bitmap = TrickplayStore.read(context, media, position, width, height);
+                        if (bitmap == null) continue;
+                        final Bitmap found = bitmap;
+                        final long at = position;
+                        handler.post(() -> applyAt(all, at, found));
+                    }
+                }),
+                () -> handler.post(() -> onWindowDone(context, all)));
+    }
+
+    /**
+     * 上一轮补帧结束（正常抽完，或被一次跳转 cancelAll 打断）：只把**仍然缺图**的格子交接给下一轮，
+     * 交接一次为止；已经刷过的格子绝不重抽。交接完还缺就铺兜底图收口。
+     */
+    private void onWindowDone(android.content.Context context, List<Long> positions) {
+        if (!active) return;
+        String error = TrickplayNative.lastError();
+        if (!TextUtils.isEmpty(error)) reportOnce(context, error);
+        List<Long> still = new ArrayList<>();
+        for (int i = 0; i < cells.size() && i < positions.size(); i++) {
+            if (!cells.get(i).filled || cells.get(i).position != positions.get(i)) still.add(positions.get(i));
+        }
+        if (!still.isEmpty() && !handoffUsed) {
+            handoffUsed = true;
+            trace("preview handoff count=%d", still.size());
+            List<Long> ordered = new ArrayList<>(still);
+            List<Long> priority = refreshOrder(positions);
+            ordered.sort((a, b) -> Integer.compare(priority.indexOf(a), priority.indexOf(b)));
+            TrickplayStore.ensureFrames(context, media, headers, ordered, null,
+                    () -> handler.post(() -> onWindowDone(context, positions)));
+            return;
+        }
+        loadFallbackFrames(positions);
+        pollFramesSettled();
     }
 
     /**
@@ -569,12 +591,6 @@ public class SeekPreviewStrip extends FrameLayout {
         if (allCellsFilled() || SystemClock.elapsedRealtime() - framesStartedAt >= SETTLE_TIMEOUT_MS) {
             onFramesSettled();
             return;
-        }
-        // 补帧被一次跳转 cancelAll 打断后不会再回来：这里隔一段自动重新申请，
-        // 图还能陆续补上，而不是一直空着等 30 秒超时。
-        if (reloadAttempts < 3 && SystemClock.elapsedRealtime() - lastLoadAt > 1500) {
-            reloadAttempts++;
-            loadFrames(true);
         }
         handler.postDelayed(settlePoll, SETTLE_POLL_MS);
     }
@@ -606,7 +622,9 @@ public class SeekPreviewStrip extends FrameLayout {
         for (int i = 0; i < cells.size() && i < positions.size() && i < current.size(); i++) {
             if (positions.get(i).longValue() != position) continue;
             if (current.get(i).longValue() != position) continue;
-            applyFallback(cells.get(i), bitmap);
+            Cell cell = cells.get(i);
+            applyFallback(cell, bitmap);
+            cell.filled = true;
         }
     }
 
@@ -800,6 +818,8 @@ public class SeekPreviewStrip extends FrameLayout {
         long position;
         String key;
         boolean highlight;
+        /** 这一格已经贴上「本位置」的图了：已刷新过的格子不再重新请求、也不重新贴。 */
+        boolean filled;
 
         Cell(Context context) {
             root = new FrameLayout(context);
@@ -841,6 +861,7 @@ public class SeekPreviewStrip extends FrameLayout {
 
         /** 位置换了先把上一排的图擦掉：以前旧图留着，用户看到"有时间但图是上一条的"。 */
         void clearImage() {
+            filled = false;
             image.setImageDrawable(null);
             image.setAlpha(1f);
         }
