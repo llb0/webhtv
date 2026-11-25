@@ -7452,6 +7452,7 @@ private boolean runtimeSourceOnly;
                 // 亮起，这里不收它就仍在屏上，由最小可见计时器与网速 ticker 收尾。
                 if (canHideSeekProgress()) showPlaybackContent();
                 boolean pendingResumeSeekApplied = applyPendingResumeSeek();
+                scheduleResumeSeekChecks();
                 // 起播不卡之后就在后台把缩略图抽出来（先抽片头应急段），不必等第一次快进
                 TrickplayStore.setPlayerBusy(false);
                 TrickplayStore.startBackground(this, player().getUrl(), player().getHeaders(), player().getDuration());
@@ -9282,12 +9283,41 @@ private boolean runtimeSourceOnly;
         }
         // 续播位置直接作为起播位置交给播放器，别只靠「起播后再补跳一次」（补跳丢了就会从 0 播）。
         mInitialPlaybackPosition = position;
+        // 起播还没就绪时屏显也显示历史进度，别让用户先看到 00:00。
+        pinSeekDisplay(position);
         if (player().isIjk()) pendingResumeSeekMs = position;
         else {
             long start = System.currentTimeMillis();
             player().seekTo(position);
             SpiderDebug.log("video-flow", "restore seek position=%d cost=%dms key=%s", position, System.currentTimeMillis() - start, getHistoryKey());
             tmdbHistoryResumePending = false;
+        }
+    }
+
+    /**
+     * 续播补跳的复核：READY 之后 1.2/3/6 秒各看一眼，引擎还没到历史进度就再跳一次。
+     *
+     * <p>以前只在 READY 那一刻连补两次，ijk 前几秒还回报 0，两次都白用掉，
+     * 之后 pending 就清空了 —— 表现就是「有时从零开始播」。现在按时间点复核，
+     * 用户自己一拖/一点跳转由 onSeekStarted 取消 pending，不会互相抢。</p>
+     */
+    private void scheduleResumeSeekChecks() {
+        for (long delay : new long[]{1200L, 3000L, 6000L}) {
+            App.post(() -> {
+                long pending = pendingResumeSeekMs;
+                if (pending == C.TIME_UNSET || controller() == null) return;
+                if (isFinishing() || isDestroyed()) return;
+                long pos = player().getPosition();
+                if (pos > 0 && Math.abs(pos - pending) <= 1500) {
+                    pendingResumeSeekMs = C.TIME_UNSET;
+                    tmdbHistoryResumePending = false;
+                    resumeSeekAttempts = 0;
+                    return;
+                }
+                pinSeekDisplay(pending);
+                SpiderDebug.log("playback", "resume-seek retry target=%d pos=%d delay=%d", pending, pos, delay);
+                controller().seekTo(pending);
+            }, delay);
         }
     }
 
@@ -10559,6 +10589,12 @@ private void setupSeekPreview() {
 
             @Override
             public void onDismiss() {
+            }
+
+            @Override
+            public void onBarFocus() {
+                // 下键：焦点落到进度条游标上，左右键直接推它。
+                getSeekView().requestFocus();
             }
         });
         android.view.ViewGroup content = findViewById(android.R.id.content);

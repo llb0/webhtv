@@ -56,6 +56,8 @@ public class SeekPreviewStrip extends FrameLayout {
     private static final long MAX_SPACING_MS = 5L * 60L * 1000L;
     /** 靠近片头/片尾时每格最少也别挤成 0 秒。 */
     private static final long MIN_SLOT_MS = 3L * 1000L;
+    /** 格位与抽帧缓存共用的网格。 */
+    private static final long SNAP_MS = 10_000L;
     /** 游标停稳一会儿再取帧，避免拖动时把还没解码完的请求全作废。 */
     private static final long FRAME_DEBOUNCE_MS = 260L;
     /** 一排图最多等这么久；等不到全齐也不再拿"图还没齐"当理由挂着。 */
@@ -66,6 +68,8 @@ public class SeekPreviewStrip extends FrameLayout {
     public interface Listener {
         void onCommit(long positionMs);
         void onDismiss();
+        /** 下键把焦点交给进度条游标（左右键直接推游标）。 */
+        void onBarFocus();
     }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -267,6 +271,7 @@ public class SeekPreviewStrip extends FrameLayout {
 
     private void commit(long positionMs) {
         long target = clamp(positionMs);
+        trace("commit focus=%d pos=%d cursor=%d", focus, target, cursor);
         if (listener != null) listener.onCommit(target);
         dismiss();
     }
@@ -292,10 +297,17 @@ public class SeekPreviewStrip extends FrameLayout {
         }
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
+                // 上键不再退出排：压住上下键时焦点留在缩略图上，不会掉到别处。
+                if (!actionDown) return true;
+                scheduleHold();
+                return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                // 下键把焦点交给进度条游标，左右键就能直接推它。
                 if (!actionDown) return true;
                 focus = FOCUS_NONE;
                 render();
                 scheduleHold();
+                if (listener != null) listener.onBarFocus();
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 if (!actionDown) return true;
@@ -373,6 +385,7 @@ public class SeekPreviewStrip extends FrameLayout {
         List<Long> positions = cellPositions();
         for (int i = 0; i < cells.size(); i++) {
             Cell cell = cells.get(i);
+            if (cell.position != positions.get(i)) cell.clearImage();
             cell.position = positions.get(i);
             cell.label.setText(format(cell.position));
             cell.setFocused(focus == i);
@@ -570,6 +583,9 @@ public class SeekPreviewStrip extends FrameLayout {
             long value = cursor + (i - CENTER_INDEX) * step;
             if (value < 0) value = 0;
             if (duration > 0 && value > duration) value = duration;
+            // 对齐到 10 秒网格：抽帧缓存按这个网格落盘，格子时间与画面、跳转目标三者一致。
+            value = (value / SNAP_MS) * SNAP_MS;
+            if (duration > 0 && value > duration) value = duration;
             positions.add(value);
         }
         return positions;
@@ -718,6 +734,12 @@ public class SeekPreviewStrip extends FrameLayout {
             focusRing.setVisibility(View.GONE);
             root.addView(focusRing, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+
+        /** 位置换了先把上一排的图擦掉：以前旧图留着，用户看到"有时间但图是上一条的"。 */
+        void clearImage() {
+            image.setImageDrawable(null);
+            image.setAlpha(1f);
         }
 
         void setFocused(boolean focused) {

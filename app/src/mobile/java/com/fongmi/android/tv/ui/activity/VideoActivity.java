@@ -2111,6 +2111,12 @@ private void setupSeekPreview() {
             @Override
             public void onDismiss() {
             }
+
+            @Override
+            public void onBarFocus() {
+                // 下键：焦点落到进度条游标上，左右键直接推它。
+                getSeekView().requestFocus();
+            }
         });
         mSeekPreview.setOnTouchListener((view, event) -> mSeekPreview.handleTouch(event));
         android.view.ViewGroup content = findViewById(android.R.id.content);
@@ -8709,6 +8715,7 @@ private void setupSeekPreview() {
                 if (canHideSeekProgress()) showPlaybackContent();
                 if (mPendingKaraokeResult == null) mKaraokeResultShown = false;
                 boolean pendingResumeSeekApplied = applyPendingResumeSeek();
+                scheduleResumeSeekChecks();
                 // 起播不卡之后就在后台把缩略图抽出来（先抽片头应急段），不必等第一次快进
                 TrickplayStore.setPlayerBusy(false);
                 TrickplayStore.startBackground(this, player().getUrl(), player().getHeaders(), player().getDuration());
@@ -9095,10 +9102,39 @@ private void setupSeekPreview() {
         // ijk 起播是 0，那次补跳一旦没落到（或先被别的跳转顶掉），界面就会先显示历史进度、
         // 一播放又变回 0。起播位置带上之后再保留一次补跳做兜底，兜底自己会判断是否已经到位。
         mInitialPlaybackPosition = position;
+        // 起播还没就绪时屏显也显示历史进度，别让用户先看到 00:00。
+        pinSeekDisplay(position);
         if (player().isIjk()) pendingResumeSeekMs = position;
         else {
             player().seekTo(position);
             tmdbHistoryResumePending = false;
+        }
+    }
+
+    /**
+     * 续播补跳的复核：READY 之后 1.2/3/6 秒各看一眼，引擎还没到历史进度就再跳一次。
+     *
+     * <p>以前只在 READY 那一刻连补两次，ijk 前几秒还回报 0，两次都白用掉，
+     * 之后 pending 就清空了 —— 表现就是「有时从零开始播」。现在按时间点复核，
+     * 用户自己一拖/一点跳转由 onSeekStarted 取消 pending，不会互相抢。</p>
+     */
+    private void scheduleResumeSeekChecks() {
+        for (long delay : new long[]{1200L, 3000L, 6000L}) {
+            App.post(() -> {
+                long pending = pendingResumeSeekMs;
+                if (pending == C.TIME_UNSET || controller() == null) return;
+                if (isFinishing() || isDestroyed()) return;
+                long pos = player().getPosition();
+                if (pos > 0 && Math.abs(pos - pending) <= 1500) {
+                    pendingResumeSeekMs = C.TIME_UNSET;
+                    tmdbHistoryResumePending = false;
+                    resumeSeekAttempts = 0;
+                    return;
+                }
+                pinSeekDisplay(pending);
+                SpiderDebug.log("playback", "resume-seek retry target=%d pos=%d delay=%d", pending, pos, delay);
+                controller().seekTo(pending);
+            }, delay);
         }
     }
 

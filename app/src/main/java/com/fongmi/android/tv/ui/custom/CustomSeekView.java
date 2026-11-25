@@ -40,7 +40,7 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
     private static final long PAUSED_BUFFER_LOG_INTERVAL_MS = 5000;
     private static final long DURATION_FALLBACK_LOG_INTERVAL_MS = 5000;
     private static final long SEEK_POSITION_TOLERANCE_MS = 1500;
-    private static final long SEEK_POSITION_HOLD_TIMEOUT_MS = 10000;
+    private static final long SEEK_POSITION_HOLD_TIMEOUT_MS = 30000;
 
     private final StringBuilder timeBuilder = new StringBuilder();
     private final Formatter timeFormatter = new Formatter(timeBuilder, Locale.getDefault());
