@@ -586,7 +586,9 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             // 起播位置在 prepare 之前已经交给 ijk，这里不再补 seek：如果没落到目标点，那是引擎侧的问题，
             // 日志里的 fallback=true 就是查它的入口，不在这里用第二次 seek 掩盖。
             updateCurrentCues(target);
-            pendingSeekPositionMs = C.TIME_UNSET;
+            // 对外位置在引擎真正落到起播点之前一直是这个起播位置（exo 的 MediaItem 起播位置天生如此），
+            // 这是引擎状态的定义而不是屏显造假：否则 prepare 到出首帧这段，界面读到的就是 0。
+            setPendingSeek(landed ? C.TIME_UNSET : target);
         } else {
             updateCurrentCues(position());
         }

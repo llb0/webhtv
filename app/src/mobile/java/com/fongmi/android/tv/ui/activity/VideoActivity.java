@@ -2153,7 +2153,7 @@ private void setupSeekPreview() {
         mSeekPreviewPending = false;
         if (!canPreviewSeek()) return;
         mSeekPreview.begin(player().getDuration(), mSeekPreviewBase + mSeekPreviewOffset,
-                player().getUrl(), mSeekPreviewHeaders);
+                mSeekPreviewOffset >= 0, player().getUrl(), mSeekPreviewHeaders);
     }
 
     private boolean canPreviewSeek() {
@@ -10637,7 +10637,7 @@ private void checkOrientation() {
         com.fongmi.android.tv.player.TrickplayStore.cancelAll();
         seekTo(time);
         cancelPendingSeekPreview();
-        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();
+        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.dismiss();
     }
 
     @Override

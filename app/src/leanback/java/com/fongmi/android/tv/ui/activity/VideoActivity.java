@@ -9708,26 +9708,10 @@ private boolean runtimeSourceOnly;
                     || keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
                     || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) return true;
         }
-        // 预览层只接管「上键进缩略图排」以及焦点已在排内的导航；
-        // 左右键仍要留给按住快进会话，否则松手时它拿不到 UP，既不快进、界面也只剩一下闪现。
-        if (mSeekPreview != null && mSeekPreview.isActive()) {
-            int previewKey = event.getKeyCode();
-            boolean previewDown = KeyUtil.isActionDown(event);
-            // OK 键在预览条上永远归预览条：不管焦点有没有进排，都跳选中那一格。
-            // 以前焦点没进排时 OK 会漏到控制栏，用户点了缩略图却什么都没发生。
-            if (KeyUtil.isEnterKey(event)) {
-                if (previewDown) mSeekPreview.commitCurrent();
-                return true;
-            }
-            if (mSeekPreview.isRowFocused()) {
-                if (mSeekPreview.handleKey(previewKey, previewDown)) return true;
-            } else if (previewKey == KeyEvent.KEYCODE_DPAD_UP) {
-                if (previewDown) mSeekPreview.handleKey(previewKey, true);
-                return true;
-            } else if (KeyUtil.isBackKey(event)) {
-                if (previewDown) mSeekPreview.dismiss();
-                return true;
-            }
+        // 预览条只做显示：除返回键外不接管任何按键，左右键留给原生快进（10 秒一步、松手由原生跳转）。
+        if (mSeekPreview != null && mSeekPreview.isActive()
+                && mSeekPreview.handleKey(event.getKeyCode(), KeyUtil.isActionDown(event))) {
+            return true;
         }
         if (KeyUtil.isActionDown(event) && (!isFullscreen() || isVisible(mBinding.control.getRoot()) || isVisible(mBinding.lutQuick) || (!KeyUtil.isLeftKey(event) && !KeyUtil.isRightKey(event) && !KeyUtil.isBackKey(event)))) cancelKeySeek();
         if (KeyUtil.isActionDown(event) && KeyUtil.isBackKey(event)) {
@@ -9954,7 +9938,7 @@ private boolean runtimeSourceOnly;
         mKeyDown.reset();
         // 松手不立刻收起：留 3 秒让用户按上键进缩略图排挑图；单次点按没弹层的直接结束。
         cancelPendingSeekPreview();
-        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();
+        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.dismiss();
     }
 
     @Override
@@ -10609,7 +10593,7 @@ private void setupSeekPreview() {
         mSeekPreviewPending = false;
         if (!canSeek()) return;
         mSeekPreview.begin(player().getDuration(), mSeekPreviewBase + mSeekPreviewOffset,
-                player().getUrl(), mSeekPreviewHeaders);
+                mSeekPreviewOffset >= 0, player().getUrl(), mSeekPreviewHeaders);
     }
 
     private void cancelPendingSeekPreview() {

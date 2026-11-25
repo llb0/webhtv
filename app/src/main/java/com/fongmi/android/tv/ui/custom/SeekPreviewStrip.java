@@ -108,6 +108,9 @@ public class SeekPreviewStrip extends FrameLayout {
     private boolean holdArmed;
     /** 上一次真正发起取帧请求的时刻：补帧被跳转打断后，靠它隔一会儿自动重来。 */
     private long lastLoadAt;
+    /** 8 格位置在显示这一刻冻结，之后步进只挪游标。 */
+    private List<Long> frozenPositions;
+
     /** 本轮已经做过一次「缺格交接」：做过就不再重复申请，避免一遍遍重抽。 */
     private boolean handoffUsed;
 
@@ -213,6 +216,16 @@ public class SeekPreviewStrip extends FrameLayout {
 
     /** 长按开始：给定时长、起始游标、以及取帧用的媒体源。 */
     public void begin(long durationMs, long cursorMs, String mediaUrl, Map<String, String> mediaHeaders) {
+        begin(durationMs, cursorMs, true, mediaUrl, mediaHeaders);
+    }
+
+    /**
+     * 长按开始。{@code forward} 是这一刻的拖动/按键方向。
+     *
+     * <p>这 8 格的时间点在显示的这一刻就定下来，之后 {@link #update(long)} 只挪游标、不再重排格子，
+     * 否则跟着原生快进一步一重排，就会一直在抽新位置的帧，越刷越卡。</p>
+     */
+    public void begin(long durationMs, long cursorMs, boolean forward, String mediaUrl, Map<String, String> mediaHeaders) {
         boolean sameMedia = TextUtils.equals(mediaUrl, media);
         this.duration = Math.max(0, durationMs);
         this.cursor = clamp(cursorMs);
@@ -222,9 +235,11 @@ public class SeekPreviewStrip extends FrameLayout {
         if (getContext() != null) {
             applyAspect(TrickplayStore.aspect(getContext().getApplicationContext(), mediaUrl));
         }
-        barFocused = false;
-        direction = DIR_FORWARD;
-        focus = anchorIndex();
+        direction = forward ? DIR_FORWARD : DIR_REWIND;
+        frozenPositions = layoutPositions();
+        // 焦点交给下面那条游标：左右键留给原生快进（10 秒一步），预览条只做显示。
+        barFocused = true;
+        focus = FOCUS_NONE;
         active = true;
         holdArmed = false;
         framesPending = true;
@@ -234,27 +249,19 @@ public class SeekPreviewStrip extends FrameLayout {
         render();
     }
 
-    /** 按住期间的每次步进。 */
+    /** 按住期间的每次步进：只挪游标和时间，格子布局与已取到的帧保持不动。 */
     public void update(long cursorMs) {
         if (!active) return;
-        long next = clamp(cursorMs);
-        if (next > cursor) direction = DIR_FORWARD;
-        else if (next < cursor) direction = DIR_REWIND;
-        cursor = next;
-        // 焦点默认留在当前帧那一格，拖着走时跟着换位，不用重新按上键。
-        if (!barFocused) focus = anchorIndex();
-        render();
+        cursor = clamp(cursorMs);
+        titleView.setText(String.format(Locale.getDefault(), "%s / %s", format(cursor), format(duration)));
+        barView.setProgress(duration <= 0 ? 0f : (float) cursor / duration);
+        barView.invalidate();
     }
 
-    /** 松手：进入选择窗口；缩略图还没出齐就先不收计时器。 */
+    /** 松手：跳转交给播放页原生那一步，预览条直接收起。 */
     public void hold() {
         if (!active) return;
-        active = true;
-        holdArmed = true;
-        // 松手就把焦点停在「当前帧」那一格（快进在最左、快退在最右）。
-        if (focus == FOCUS_NONE) focus = anchorIndex();
-        if (framesPending) return;
-        scheduleHold();
+        dismiss();
     }
 
     public void dismiss() {
@@ -268,6 +275,7 @@ public class SeekPreviewStrip extends FrameLayout {
         holdArmed = false;
         framesPending = false;
         recentFrames.clear();
+        frozenPositions = null;
         // 收起时把「已刷新」标记连同图一起清掉：标记的意义是「这一排此刻名下已有图」，
         // 留着标记又不留图，下次弹出来就会当成已刷新而不再取图，格子里就一直是空的。
         for (Cell cell : cells) cell.clearImage();
@@ -292,6 +300,33 @@ public class SeekPreviewStrip extends FrameLayout {
         }
         commit(cells.get(Math.min(focus, cells.size() - 1)).position);
         return true;
+    }
+
+    private void onCellClicked(int index) {
+        if (!active) return;
+        focus = index;
+        render();
+        commit(cells.get(index).position);
+    }
+
+    private void commit(long positionMs) {
+        long target = clamp(positionMs);
+        trace("commit focus=%d pos=%d cursor=%d", focus, target, cursor);
+        if (listener != null) listener.onCommit(target);
+        dismiss();
+    }
+
+    /**
+     * 遥控器按键：预览条只做显示，不接管左右键——左右键留给播放页原生的「按住快进」，
+     * 按 10 秒一步走、松手由原生跳转。这里只吃掉返回键（收起预览条）。
+     */
+    public boolean handleKey(int keyCode, boolean actionDown) {
+        if (!active) return false;
+        if (keyCode == KeyEvent.KEYCODE_BACK && !actionDown) {
+            dismiss();
+            return true;
+        }
+        return false;
     }
 
     private void onCellClicked(int index) {
@@ -673,6 +708,12 @@ public class SeekPreviewStrip extends FrameLayout {
      * 当前帧固定在最边上，位置序列单调，靠近片头/片尾时间距自动收紧。</p>
      */
     private List<Long> cellPositions() {
+        if (frozenPositions != null) return new ArrayList<>(frozenPositions);
+        return layoutPositions();
+    }
+
+    /** 按显示这一刻的方向与游标算出 8 格位置；只在 begin/dismiss 前后调用，不跟着每次步进重算。 */
+    private List<Long> layoutPositions() {
         long step = spacing();
         int slots = cellCount - 1;
         if (direction == DIR_FORWARD) {
