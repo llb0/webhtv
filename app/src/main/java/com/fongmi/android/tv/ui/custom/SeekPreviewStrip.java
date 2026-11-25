@@ -442,9 +442,13 @@ public class SeekPreviewStrip extends FrameLayout {
                 });
                 return;
             }
-            // 先抽游标附近那几格：用户看的就是这一格，远处的慢慢补。
-            final long cursorAt = cursor;
-            missing.sort((a, b) -> Long.compare(Math.abs(a - cursorAt), Math.abs(b - cursorAt)));
+            // 抽帧顺序：当前那一格 → 右侧逐格往后 → 最后才补左侧快退。
+            // 快进用得最多，右边的图早出来才能马上点。
+            final List<Long> priority = new ArrayList<>(cellCount);
+            priority.add(positions.get(CENTER_INDEX));
+            for (int i = CENTER_INDEX + 1; i < positions.size(); i++) priority.add(positions.get(i));
+            for (int i = CENTER_INDEX - 1; i >= 0; i--) priority.add(positions.get(i));
+            missing.sort((a, b) -> Integer.compare(priority.indexOf(a), priority.indexOf(b)));
             TrickplayStore.ensureFrames(context, mediaUrl, mediaHeaders, missing,
                     () -> TrickplayStore.io().execute(() -> {
                         // 每落一格就重新读一次还空着的位置，抽到哪贴到哪。
