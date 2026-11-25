@@ -68,6 +68,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import org.json.JSONObject;
@@ -1139,6 +1140,19 @@ public class SmbBrowserActivity extends AppCompatActivity {
         return edit;
     }
 
+    /** 同名历史里取一个已知的总时长；没有播放过就返回 0（海报不显示副标题）。 */
+    private long longestKnownDuration(String name) {
+        try {
+            long best = 0;
+            for (com.fongmi.android.tv.bean.History history : com.fongmi.android.tv.bean.History.findByName(name)) {
+                best = Math.max(best, history.getDuration());
+            }
+            return best;
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
     private void openShare(String value) {
         showingFavorites = false;
         share = value;
@@ -1158,6 +1172,14 @@ public class SmbBrowserActivity extends AppCompatActivity {
         worker.execute(() -> {
             try {
                 List<SmbClient.Entry> found = SmbClient.listFiles(host, share, path, username, password, domain);
+                // 目录海报的时长副标题：只从最近观看里取已知时长（播放过才有），查不到就不显示。
+                // 放在这里（worker 线程）查，别让主线程为每一行跑一次数据库。
+                Map<String, Long> durations = new HashMap<>();
+                for (SmbClient.Entry entry : found) {
+                    if (entry.directory || !SmbClient.isVideo(entry.name)) continue;
+                    long value = longestKnownDuration(entry.name);
+                    if (value > 0) durations.put(entry.name, value);
+                }
                 runOnUiThread(() -> {
                     files.clear();
                     files.addAll(found);
@@ -1179,10 +1201,11 @@ public class SmbBrowserActivity extends AppCompatActivity {
                             } catch (IOException ignored) {
                                 thumbUrl = null;
                             }
+                            long durationMs = durations.getOrDefault(entry.name, 0L);
                             rows.add(thumbUrl == null
                                     ? SmbRowAdapter.Row.icon(entry.name, "", "▶")
                                     : SmbRowAdapter.Row.video(entry.name, "",
-                                    SmbThumbnailCache.key(host, share, remotePath), thumbUrl, true));
+                                    SmbThumbnailCache.key(host, share, remotePath), thumbUrl, true, durationMs));
                         } else if (SmbClient.isAudio(entry.name)) {
                             rows.add(SmbRowAdapter.Row.icon(entry.name, "", "♫"));
                         } else if (SmbClient.isImage(entry.name)) {

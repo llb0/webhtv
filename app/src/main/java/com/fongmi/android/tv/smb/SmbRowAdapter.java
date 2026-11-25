@@ -42,15 +42,23 @@ public class SmbRowAdapter extends BaseAdapter {
         public final String thumbKey;
         public final String thumbUrl;
         public final boolean allowGenerate;
+        /** 影片总时长，0 表示还不知道；只在目录海报左下角当副标题显示。 */
+        public final long durationMs;
 
         private Row(String title, String subtitle, String glyph, String thumbKey, String thumbUrl,
                     boolean allowGenerate) {
+            this(title, subtitle, glyph, thumbKey, thumbUrl, allowGenerate, 0L);
+        }
+
+        private Row(String title, String subtitle, String glyph, String thumbKey, String thumbUrl,
+                    boolean allowGenerate, long durationMs) {
             this.title = title;
             this.subtitle = subtitle;
             this.glyph = glyph;
             this.thumbKey = thumbKey;
             this.thumbUrl = thumbUrl;
             this.allowGenerate = allowGenerate;
+            this.durationMs = Math.max(0L, durationMs);
         }
 
         /**
@@ -87,6 +95,12 @@ public class SmbRowAdapter extends BaseAdapter {
                                 boolean allowGenerate) {
             return new Row(title, subtitle, "▶", thumbKey, thumbUrl, allowGenerate);
         }
+
+        /** 带总时长的视频行：海报左下角显示时长副标题。 */
+        public static Row video(String title, String subtitle, String thumbKey, String thumbUrl,
+                                boolean allowGenerate, long durationMs) {
+            return new Row(title, subtitle, "▶", thumbKey, thumbUrl, allowGenerate, durationMs);
+        }
     }
 
     private static final class Holder {
@@ -94,6 +108,7 @@ public class SmbRowAdapter extends BaseAdapter {
         TextView icon;
         FrameLayout thumbBox;
         ImageView thumb;
+        TextView caption;
         String thumbKey;
     }
 
@@ -271,6 +286,19 @@ public class SmbRowAdapter extends BaseAdapter {
         holder.thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
         holder.thumbBox.addView(holder.thumb, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 海报左下角的时长副标题（像「2:33:44」这种），没有总时长就不显示。
+        holder.caption = new TextView(context);
+        holder.caption.setTextColor(0xE6FFFFFF);
+        holder.caption.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        holder.caption.setShadowLayer(4f, 0f, 1f, android.graphics.Color.BLACK);
+        holder.caption.setVisibility(View.GONE);
+        FrameLayout.LayoutParams captionParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        captionParams.gravity = Gravity.BOTTOM | Gravity.START;
+        captionParams.leftMargin = dp(3);
+        captionParams.bottomMargin = dp(2);
+        holder.thumbBox.addView(holder.caption, captionParams);
         return row;
     }
 
@@ -282,6 +310,7 @@ public class SmbRowAdapter extends BaseAdapter {
         holder.thumbBox.setVisibility(View.GONE);
         holder.thumb.setImageDrawable(null);
         holder.thumb.setTag(null);
+        holder.caption.setVisibility(View.GONE);
         holder.thumbKey = row.thumbKey;
 
         // 还没有截图：小图标占位，标题整体避开图标。
@@ -294,6 +323,10 @@ public class SmbRowAdapter extends BaseAdapter {
             // 截图就位：图占左上角，标题前几行缩进到图的右侧，超出的行回到图的左边。
             holder.icon.setVisibility(View.GONE);
             holder.thumbBox.setVisibility(View.VISIBLE);
+            if (row.durationMs > 0) {
+                holder.caption.setText(com.fongmi.android.tv.utils.Util.timeMs(row.durationMs));
+                holder.caption.setVisibility(View.VISIBLE);
+            }
             setTitle(holder, row.title, thumbWidth + iconGap, true);
             View parent = (View) holder.thumbBox.getParent();
             if (parent != null) parent.requestLayout();
