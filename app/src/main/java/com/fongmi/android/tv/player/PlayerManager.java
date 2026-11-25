@@ -265,6 +265,12 @@ public class PlayerManager implements ParseCallback {
     private long pendingSwitchPositionMs = C.TIME_UNSET;
     private long pendingInitialStartPositionMs = C.TIME_UNSET;
     /**
+     * 本次起播请求的历史进度。ijk 起播阶段做 buffer/解码的安全重载时，
+     * {@code player.getCurrentPosition()} 还是 0，以前直接拿 0 重开，历史进度就被丢掉、
+     * 从片头开始播。这里记一份，重载时若当前位置还在片头附近就沿用它。
+     */
+    private long mediaStartPositionMs = C.TIME_UNSET;
+    /**
      * 宿主从 History 里恢复出来的外挂字幕，等本次起播前注入。
      *
      * <p>不让宿主直接改 spec：spec 在 {@code parse()} 路径里是 PlayerManager 自己
@@ -3421,6 +3427,13 @@ public void resetTrack(int type) {
         boolean repeat = isRepeatOne();
         long position = ijk.isVod()
                 ? Math.max(0, player.getCurrentPosition()) : C.TIME_UNSET;
+        // 起播阶段的重载：当前位置还没走起来（依旧在片头），但这次起播本来就带着历史进度，
+        // 必须沿用历史进度重开，否则重载一次就从 0 开始播（用户说的「偶发从 0 开始」）。
+        if (position >= 0 && position < 3000 && mediaStartPositionMs > 0) {
+            PlaybackTrace.log("ijk-buffer", playbackTrace.current(),
+                    "action=reload resume-from-start target=%d current=%d", mediaStartPositionMs, position);
+            position = mediaStartPositionMs;
+        }
         try {
             prepareSeq++;
             App.removeCallbacks(runnable);
@@ -6338,6 +6351,7 @@ public void resetTrack(int type) {
         clearDanmaku("start");
         this.spec = spec;
         pendingInitialStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
+        mediaStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
         prepareMpvOutputForNewItem();
         beginPlaybackTrace("start", false);
         this.playWhenReady = playWhenReady;
@@ -6370,6 +6384,7 @@ public void resetTrack(int type) {
         clearDanmaku("parse");
         spec = PlaySpec.fromParse(result, key, metadata, useParse);
         pendingInitialStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
+        mediaStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
         prepareMpvOutputForNewItem();
         beginPlaybackTrace("parse", false);
         this.playWhenReady = playWhenReady;

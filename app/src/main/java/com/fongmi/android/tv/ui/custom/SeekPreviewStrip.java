@@ -106,6 +106,8 @@ public class SeekPreviewStrip extends FrameLayout {
     private long framesStartedAt;
     /** 已经松手/停稳、在等用户点格子：出图完成后再开始倒计时。 */
     private boolean holdArmed;
+    /** 上一次真正发起取帧请求的时刻：补帧被跳转打断后，靠它隔一会儿自动重来。 */
+    private long lastLoadAt;
 
     public SeekPreviewStrip(Context context) {
         this(context, null);
@@ -480,6 +482,7 @@ public class SeekPreviewStrip extends FrameLayout {
      */
     private void loadFrames(boolean allowPrepare) {
         if (!active) return;
+        lastLoadAt = SystemClock.elapsedRealtime();
         final android.content.Context context = getContext() == null ? null : getContext().getApplicationContext();
         if (context == null) return;
         final List<Long> positions = cellPositions();
@@ -563,6 +566,9 @@ public class SeekPreviewStrip extends FrameLayout {
             onFramesSettled();
             return;
         }
+        // 补帧被一次跳转 cancelAll 打断后不会再回来：这里隔一段自动重新申请，
+        // 图还能陆续补上，而不是一直空着等 30 秒超时。
+        if (SystemClock.elapsedRealtime() - lastLoadAt > 1500) loadFrames(true);
         handler.postDelayed(settlePoll, SETTLE_POLL_MS);
     }
 

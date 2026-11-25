@@ -100,6 +100,8 @@ public final class TrickplayStore {
     private static volatile String rerunMedia;
     private static volatile long rerunAt;
     private static volatile boolean rerunBusy;
+    /** 当前正在跑的窗口：新请求一来就把它标成 stale，它抽完这一格立刻让位。 */
+    private static volatile Window activeWindow;
 
     private TrickplayStore() {
     }
@@ -609,6 +611,13 @@ public final class TrickplayStore {
         }
         Window window = new Window(context.getApplicationContext(), media, headers, positions, onFrame, onDone);
         window.startedAt = SystemClock.elapsedRealtime();
+        // 预览条每次拖动都会算出一排新位置：旧窗口还在抽老位置就白费十几秒，还跟播放抢连接。
+        // 新位置一来就把旧窗标 stale，它抽完当前这格就停，让新窗立刻接手。
+        Window running = activeWindow;
+        if (running != null && !running.positions.equals(positions)) {
+            running.stale = true;
+            traceOnce("window supersede key=%s", key.substring(0, 8));
+        }
         if (RUNNING.add(key)) {
             IO.execute(() -> runWindow(window));
         } else {
@@ -617,6 +626,7 @@ public final class TrickplayStore {
     }
 
     private static void runWindow(Window window) {
+        activeWindow = window;
         try {
             executeWindow(window);
         } finally {
@@ -631,6 +641,7 @@ public final class TrickplayStore {
             MAIN.post(() -> {
                 if (window.onDone != null) window.onDone.run();
             });
+            if (activeWindow == window) activeWindow = null;
             ATTEMPTED.remove(window.key + "#" + window.positions.hashCode());
             RUNNING.remove(window.key);
             Window next = PENDING.remove(window.key);
@@ -658,7 +669,7 @@ public final class TrickplayStore {
             // 逐格定位：本地/SMB 都能随机读，一次 seek 只解一两帧就拿到图；
             // 顺序推进一旦碰上损坏包或慢盘，会把整条窗口卡死（之前就是这样整排空图）。
             for (Long position : window.positions) {
-                if (!RUNNING.contains(window.key)) break;
+                if (!RUNNING.contains(window.key) || window.stale) break;
                 // 补帧途中播放又卡住了：等一会儿再继续，但**不整窗放弃**——
                 // 以前这里一 break，后面的格子就永远是空白（用户看到的就是后几张老不出图）。
                 if (waitWhileBusy()) {
@@ -975,6 +986,8 @@ public final class TrickplayStore {
     }
 
     private static final class Window {
+        /** 用户还在拖、位置又变了：这窗抽到下一格就该让位给新请求。 */
+        volatile boolean stale;
         final Context context;
         final String media;
         final Map<String, String> headers;

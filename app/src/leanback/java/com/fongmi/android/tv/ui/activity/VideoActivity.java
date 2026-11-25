@@ -10008,6 +10008,8 @@ private boolean runtimeSourceOnly;
 
     @Override
     public void onSeekEnd(long time) {
+        // 松手这一刻要真跳转：先停掉在跑的补帧，别让它和这次 seek 抢同一条连接（电视上最明显）。
+        com.fongmi.android.tv.player.TrickplayStore.cancelAll();
         if (seekTo(time)) hideCenter();
         mKeyDown.reset();
         // 松手不立刻收起：留 3 秒让用户按上键进缩略图排挑图；单次点按没弹层的直接结束。

@@ -10697,6 +10697,8 @@ private void checkOrientation() {
 
     @Override
     public void onSeekEnd(long time) {
+        // 松手这一刻要真跳转：先停掉在跑的补帧，别让它和这次 seek 抢同一条连接（电视上最明显）。
+        com.fongmi.android.tv.player.TrickplayStore.cancelAll();
         seekTo(time);
         cancelPendingSeekPreview();
         if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();

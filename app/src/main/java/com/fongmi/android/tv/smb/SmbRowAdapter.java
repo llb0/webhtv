@@ -323,16 +323,28 @@ public class SmbRowAdapter extends BaseAdapter {
             // 截图就位：图占左上角，标题前几行缩进到图的右侧，超出的行回到图的左边。
             holder.icon.setVisibility(View.GONE);
             holder.thumbBox.setVisibility(View.VISIBLE);
-            long durationMs = SmbThumbnailCache.duration(context, row.thumbKey);
-            if (durationMs <= 0) durationMs = row.durationMs;
-            if (durationMs > 0) {
-                holder.caption.setText(com.fongmi.android.tv.utils.Util.timeMs(durationMs));
-                holder.caption.setVisibility(View.VISIBLE);
+            showCaption(holder, row, SmbThumbnailCache.duration(context, row.thumbKey));
+            // 老缓存只有图没有时长：后台会补一次 header 探测，补上后再把副标题贴出来，
+            // 不然第一次进目录会「图先出来、时长要等很久」。
+            if (SmbThumbnailCache.duration(context, row.thumbKey) <= 0 && row.durationMs <= 0) {
+                for (long delay : new long[]{900L, 2400L, 5000L}) {
+                    holder.caption.postDelayed(() -> {
+                        if (row.thumbKey == null || !row.thumbKey.equals(holder.thumbKey)) return;
+                        showCaption(holder, row, SmbThumbnailCache.duration(context, row.thumbKey));
+                    }, delay);
+                }
             }
             setTitle(holder, row.title, thumbWidth + iconGap, true);
             View parent = (View) holder.thumbBox.getParent();
             if (parent != null) parent.requestLayout();
         });
+    }
+
+    private void showCaption(Holder holder, Row row, long durationMs) {
+        long value = durationMs > 0 ? durationMs : row.durationMs;
+        if (value <= 0) return;
+        holder.caption.setText(com.fongmi.android.tv.utils.Util.timeMs(value));
+        holder.caption.setVisibility(View.VISIBLE);
     }
 
     private void setTitle(Holder holder, String text, int indent, boolean besideThumb) {
