@@ -9,6 +9,7 @@ import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.player.TrickplayLog;
@@ -53,6 +54,9 @@ public class SeekPreviewStrip extends FrameLayout {
     private static final long MAX_SPACING_MS = 5L * 60L * 1000L;
     /** 游标停稳一会儿再取帧，避免拖动时把还没解码完的请求全作废。 */
     private static final long FRAME_DEBOUNCE_MS = 260L;
+    /** 一排图最多等这么久；等不到全齐也不再拿"图还没齐"当理由挂着。 */
+    private static final long SETTLE_TIMEOUT_MS = 20000L;
+    private static final long SETTLE_POLL_MS = 400L;
     private static final int FOCUS_NONE = -1;
 
     public interface Listener {
@@ -63,6 +67,8 @@ public class SeekPreviewStrip extends FrameLayout {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable holdRunner = this::dismiss;
     private final Runnable frameRunner = this::loadFrames;
+    private final Runnable settleRunner = this::onFramesSettled;
+    private final Runnable settlePoll = this::pollFramesSettled;
     private final LinearLayout container;
     private final TextView titleView;
     private final LinearLayout rowView;
@@ -85,6 +91,7 @@ public class SeekPreviewStrip extends FrameLayout {
     private boolean reportedUnavailable;
     /** 当前这一排还有格子没出图；出图完成前不收计时器，免得图还没刷出来就整条消失。 */
     private boolean framesPending;
+    private long framesStartedAt;
     /** 已经松手/停稳、在等用户点格子：出图完成后再开始倒计时。 */
     private boolean holdArmed;
 
@@ -225,6 +232,8 @@ public class SeekPreviewStrip extends FrameLayout {
 
     public void dismiss() {
         handler.removeCallbacks(holdRunner);
+        handler.removeCallbacks(settlePoll);
+        handler.removeCallbacks(settleRunner);
         handler.removeCallbacks(frameRunner);
         active = false;
         focus = FOCUS_NONE;
@@ -364,6 +373,9 @@ public class SeekPreviewStrip extends FrameLayout {
         }
         // 游标停稳再取帧：拖动过程中只更新时间文字和游标，免得请求全被后面的位置作废。
         framesPending = true;
+        framesStartedAt = SystemClock.elapsedRealtime();
+        handler.removeCallbacks(settleRunner);
+        handler.postDelayed(settleRunner, SETTLE_TIMEOUT_MS);
         handler.removeCallbacks(frameRunner);
         handler.postDelayed(frameRunner, FRAME_DEBOUNCE_MS);
     }
@@ -400,16 +412,19 @@ public class SeekPreviewStrip extends FrameLayout {
             trace("preview cells=%d missing=%d ready=%b error=%s", positions.size(), missing.size(),
                     TrickplayNative.isReady(), TrickplayNative.lastError());
             if (missing.isEmpty() || TextUtils.isEmpty(mediaUrl)) {
-                handler.post(this::onFramesSettled);
+                handler.post(this::pollFramesSettled);
                 return;
             }
             if (!allowPrepare) {
                 handler.post(() -> {
                     loadFallbackFrames(positions);
-                    onFramesSettled();
+                    pollFramesSettled();
                 });
                 return;
             }
+            // 先抽游标附近那几格：用户看的就是这一格，远处的慢慢补。
+            final long cursorAt = cursor;
+            missing.sort((a, b) -> Long.compare(Math.abs(a - cursorAt), Math.abs(b - cursorAt)));
             TrickplayStore.ensureFrames(context, mediaUrl, mediaHeaders, missing,
                     () -> TrickplayStore.io().execute(() -> {
                         // 每落一格就重新读一次还空着的位置，抽到哪贴到哪。
@@ -425,19 +440,44 @@ public class SeekPreviewStrip extends FrameLayout {
                         String error = TrickplayNative.lastError();
                         if (!TextUtils.isEmpty(error)) reportOnce(context, error);
                         loadFallbackFrames(positions);
-                        onFramesSettled();
+                        pollFramesSettled();
                     }));
         });
     }
 
     /**
-     * 这一排的图出齐了（或走到兜底/失败）：此时才开始停留倒计时。
-     * 用户滑动不松手等图，图的刷新节奏不再决定预览条什么时候消失。
+     * 这一排的图出齐了（或等到超时）：此时才开始停留倒计时。
+     * 否则「队列忙、本轮结束」这类回调都会被当成齐了，条在图只出一两张时就消失。
      */
     private void onFramesSettled() {
         if (!active) return;
+        handler.removeCallbacks(settlePoll);
+        handler.removeCallbacks(settleRunner);
         framesPending = false;
         if (holdArmed && !dragging) scheduleHold();
+    }
+
+    /** 还没齐就继续等，最多等到 {@link #SETTLE_TIMEOUT_MS}。 */
+    private void pollFramesSettled() {
+        if (!active) return;
+        if (allCellsFilled() || SystemClock.elapsedRealtime() - framesStartedAt >= SETTLE_TIMEOUT_MS) {
+            onFramesSettled();
+            return;
+        }
+        handler.postDelayed(settlePoll, SETTLE_POLL_MS);
+    }
+
+    private boolean allCellsFilled() {
+        for (Cell cell : cells) {
+            if (cell.image.getDrawable() == null) return false;
+        }
+        return true;
+    }
+
+    /** 每贴一格就看一眼是否已经全齐，齐了立刻开始计时，不必等到轮询。 */
+    private void checkFramesSettled() {
+        if (!active || !framesPending) return;
+        if (allCellsFilled()) onFramesSettled();
     }
 
     private void trace(String format, Object... args) {
@@ -548,6 +588,7 @@ public class SeekPreviewStrip extends FrameLayout {
             cell.image.setImageBitmap(bitmap);
             cell.image.setAlpha(1f);
             remember(bitmap);
+            checkFramesSettled();
             return;
         }
         Bitmap fallback = nearestFrame();

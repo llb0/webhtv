@@ -272,24 +272,24 @@ public final class TrickplayNative {
         return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
     }
 
-    private static native boolean nativeSetup(String libDir);
+    private static native synchronized boolean nativeSetup(String libDir);
 
-    static native void nativeClearError();
+    static native synchronized void nativeClearError();
 
-    static native long nativeOpen(String url, String[] headers, String caFile);
+    static native synchronized long nativeOpen(String url, String[] headers, String caFile);
 
     /** 片源显示宽高比（w/h），拿不到返回 0。 */
-    static native float nativeAspect(long handle);
+    static native synchronized float nativeAspect(long handle);
 
     /** 顺序抽帧前定位一次；之后一路往前解，不再每格 seek。 */
-    static native boolean nativeRestart(long handle, long positionMs);
+    static native synchronized boolean nativeRestart(long handle, long positionMs);
 
     /** 往前解到 targetMs 或之后的第一帧；到片尾返回 null。 */
-    static native int[] nativeAdvance(long handle, long targetMs, int width);
+    static native synchronized int[] nativeAdvance(long handle, long targetMs, int width);
 
-    static native int[] nativeGrab(long handle, long positionMs, int width);
+    static native synchronized int[] nativeGrab(long handle, long positionMs, int width);
 
-    static native void nativeClose(long handle);
+    static native synchronized void nativeClose(long handle);
 
-    static native String nativeLastError();
+    static native synchronized String nativeLastError();
 }

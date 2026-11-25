@@ -609,11 +609,14 @@ public final class TrickplayStore {
             // 顺序推进一旦碰上损坏包或慢盘，会把整条窗口卡死（之前就是这样整排空图）。
             for (Long position : window.positions) {
                 if (!RUNNING.contains(window.key)) break;
-                // 补帧途中播放又卡住了：这一格先不抽，让带宽回到播放上。
+                // 补帧途中播放又卡住了：等一会儿再继续，但**不整窗放弃**——
+                // 以前这里一 break，后面的格子就永远是空白（用户看到的就是后几张老不出图）。
                 if (waitWhileBusy()) {
                     traceOnce("window pause reason=player-busy key=%s", window.key.substring(0, 8));
-                    break;
+                    sleep(CELL_PAUSE_MS);
                 }
+                // 每格之间让一拍，别把播放的连接/带宽全占了。
+                sleep(CELL_PAUSE_MS);
                 int index = frameIndex(position);
                 File file = frameFile(window.context, window.key, index);
                 if (file.isFile() && file.length() > 0) continue;
@@ -631,6 +634,9 @@ public final class TrickplayStore {
     }
 
     /** 播放忙（缓冲/跳转）时等一小会儿；仍忙就返回 true，表示这次补帧应该让路。 */
+    /** 相邻两格之间让一拍，降低和播放抢读的压力。 */
+    private static final long CELL_PAUSE_MS = 120L;
+
     private static boolean waitWhileBusy() {
         long waited = 0;
         while (playerBusy && waited < BUSY_GIVEUP_MS) {
