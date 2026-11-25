@@ -214,12 +214,22 @@ public class SeekPreviewStrip extends FrameLayout {
         }
         focus = FOCUS_NONE;
         active = true;
+        setSubtitle(this.duration);
         holdArmed = false;
         framesPending = true;
         handler.removeCallbacks(holdRunner);
         if (getVisibility() != VISIBLE) setVisibility(VISIBLE);
         bringToFront();
         render();
+    }
+
+    /** 副标题写影片总时长；时长未知就留空不显示。 */
+    private void setSubtitle(long durationMs) {
+        String text = durationMs > 0 ? format(durationMs) : "";
+        for (Cell cell : cells) {
+            cell.subtitle.setText(text);
+            cell.setFrameAvailable(cell.image.getDrawable() != null);
+        }
     }
 
     /** 按住期间的每次步进。 */
@@ -637,6 +647,7 @@ public class SeekPreviewStrip extends FrameLayout {
             applyAspect(bitmap.getWidth() / (float) Math.max(1, bitmap.getHeight()));
             cell.image.setImageBitmap(bitmap);
             cell.image.setAlpha(1f);
+            cell.setFrameAvailable(true);
             remember(bitmap);
             checkFramesSettled();
             return;
@@ -705,6 +716,7 @@ public class SeekPreviewStrip extends FrameLayout {
         final FrameLayout root;
         final ImageView image;
         final TextView label;
+        final TextView subtitle;
         final View focusRing;
         long position;
         String key;
@@ -730,12 +742,28 @@ public class SeekPreviewStrip extends FrameLayout {
             label.setTextColor(Color.WHITE);
             label.setTextSize(11f);
             label.setGravity(Gravity.BOTTOM | Gravity.START);
-            label.setPadding(ResUtil.dp2px(6), 0, ResUtil.dp2px(6), ResUtil.dp2px(3));
+            label.setPadding(ResUtil.dp2px(6), 0, ResUtil.dp2px(6), 0);
             label.setShadowLayer(4f, 0f, 1f, Color.BLACK);
-            FrameLayout.LayoutParams labelParams = new FrameLayout.LayoutParams(
+
+            // 副标题：影片总时长，贴着缩略图左下角；没抽到图的格子不显示。
+            subtitle = new TextView(context);
+            subtitle.setTextColor(0xB3FFFFFF);
+            subtitle.setTextSize(9f);
+            subtitle.setGravity(Gravity.START);
+            subtitle.setPadding(ResUtil.dp2px(6), 0, ResUtil.dp2px(6), ResUtil.dp2px(3));
+            subtitle.setShadowLayer(4f, 0f, 1f, Color.BLACK);
+            subtitle.setVisibility(View.GONE);
+
+            LinearLayout caption = new LinearLayout(context);
+            caption.setOrientation(LinearLayout.VERTICAL);
+            caption.addView(label, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            caption.addView(subtitle, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            FrameLayout.LayoutParams captionParams = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            labelParams.gravity = Gravity.BOTTOM;
-            root.addView(label, labelParams);
+            captionParams.gravity = Gravity.BOTTOM;
+            root.addView(caption, captionParams);
 
             focusRing = new View(context);
             GradientDrawable ring = new GradientDrawable();
@@ -752,6 +780,12 @@ public class SeekPreviewStrip extends FrameLayout {
         void clearImage() {
             image.setImageDrawable(null);
             image.setAlpha(1f);
+            setFrameAvailable(false);
+        }
+
+        /** 只有真的抽到这一格的图才显示时长副标题；兜底/空白格子不显示。 */
+        void setFrameAvailable(boolean available) {
+            subtitle.setVisibility(available && !TextUtils.isEmpty(subtitle.getText()) ? View.VISIBLE : View.GONE);
         }
 
         void setFocused(boolean focused) {
