@@ -822,18 +822,24 @@ public final class TrickplayStore {
         long[] positions = new long[]{60_000L, 15_000L, 180_000L, 600_000L, 1_500_000L};
         Bitmap chosen = null;
         double bestLuma = -1;
-        for (long timeMs : positions) {
-            Bitmap frame = extractOne(context, media, headers, timeMs, COVER_WIDTH);
-            if (frame == null) continue;
-            double luma = luma(frame);
-            if (luma > bestLuma) {
-                if (chosen != null && chosen != frame) chosen.recycle();
-                chosen = frame;
-                bestLuma = luma;
-            } else if (chosen != frame) {
-                frame.recycle();
+        // 以前每试一个位置就 open→grab→close 一次，SMB 上每次 open 要回读索引 2–3 秒，
+        // 5 个位置就是十几秒（用户看到的「图先出来、副标题很久才出」也是这里：
+        // 时长只有走 open() 才会被记下来）。现在只开一次会话，顺手把时长也拿到。
+        try (Extractor extractor = open(context, media, headers)) {
+            if (extractor == null || !extractor.isValid()) return null;
+            for (long timeMs : positions) {
+                Bitmap frame = extractor.grab(timeMs, COVER_WIDTH);
+                if (frame == null) continue;
+                double luma = luma(frame);
+                if (luma > bestLuma) {
+                    if (chosen != null && chosen != frame) chosen.recycle();
+                    chosen = frame;
+                    bestLuma = luma;
+                } else if (chosen != frame) {
+                    frame.recycle();
+                }
+                if (bestLuma >= MIN_COVER_LUMA) break;
             }
-            if (bestLuma >= MIN_COVER_LUMA) break;
         }
         return chosen;
     }
