@@ -169,6 +169,47 @@ public final class SmbThumbnailCache {
         return new File(dir(context), key + ".jpg");
     }
 
+    /** 时长副标题的落盘文件名：和图放在一起，清理缓存时一起清掉。 */
+    private static File durationFile(Context context, String key) {
+        return new File(dir(context), key + ".duration");
+    }
+
+    /** 已知的影片总时长（毫秒）；没生成过海报或读不到就返回 0。 */
+    public static long duration(Context context, String key) {
+        if (context == null || key == null) return 0;
+        try {
+            File file = durationFile(context, key);
+            if (!file.isFile()) return 0;
+            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(file));
+            try {
+                String line = reader.readLine();
+                if (line == null) return 0;
+                return Math.max(0L, Long.parseLong(line.trim()));
+            } finally {
+                reader.close();
+            }
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    /** 生成海报时顺手把总时长存下来：下次进目录不必再开一次文件。 */
+    private static void writeDuration(Context context, String key, long durationMs) {
+        if (context == null || key == null || durationMs <= 0) return;
+        try {
+            File file = durationFile(context, key);
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            java.io.FileWriter writer = new java.io.FileWriter(file, false);
+            try {
+                writer.write(Long.toString(durationMs));
+            } finally {
+                writer.close();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static boolean recentlyFailed(String key) {
         Long at = FAILED.get(key);
         if (at == null) return false;
@@ -204,6 +245,8 @@ public final class SmbThumbnailCache {
             Bitmap scaled = scale(cover, TARGET_WIDTH, 0);
             if (scaled != cover) cover.recycle();
             write(scaled, target);
+            // 抽封面那次 open 已经拿到时长，顺手存下来给左下角副标题用。
+            writeDuration(context, key, TrickplayStore.durationOf(url));
             trim(context);
             return scaled;
         }
@@ -246,6 +289,7 @@ public final class SmbThumbnailCache {
             Bitmap scaled = scale(chosen, TARGET_WIDTH, 0);
             if (scaled != chosen) chosen.recycle();
             write(scaled, target);
+            writeDuration(context, key, duration);
             trim(context);
             return scaled;
         } finally {

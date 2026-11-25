@@ -67,6 +67,9 @@ public final class TrickplayStore {
         }
     };
     /** 每部片子的显示宽高比（w/h），预览条按片源比例排版，不再写死 16:9。 */
+    /** 打开文件时顺手记下的总时长（key = keyFor(media)），给目录海报当副标题。 */
+    private static final Map<String, Long> DURATION = new java.util.concurrent.ConcurrentHashMap<>();
+
     private static final Map<String, Float> ASPECT = new ConcurrentHashMap<>();
     private static final Set<String> RUNNING = ConcurrentHashMap.newKeySet();
     private static final Map<String, Window> PENDING = new ConcurrentHashMap<>();
@@ -130,6 +133,10 @@ public final class TrickplayStore {
             }
             if (handle != 0) {
                 rememberAspect(TrickplayStore.keyFor(media), TrickplayNative.nativeAspect(handle));
+                // 开文件时顺手把总时长取出来缓存：目录海报的时长副标题直接用它，
+                // 不必为了一个时长再 open/seek 一次（对 SMB 老容器那就是几秒）。
+                long durationMs = TrickplayNative.nativeDuration(handle);
+                if (durationMs > 0) DURATION.put(TrickplayStore.keyFor(media), durationMs);
             }
         }
 
@@ -475,6 +482,13 @@ public final class TrickplayStore {
     private static String time(long millis) {
         long total = Math.max(0, millis) / 1000;
         return String.format(Locale.ROOT, "%d:%02d", total / 60, total % 60);
+    }
+
+    /** 已知的影片总时长（毫秒）；没打开过这个文件就返回 0。 */
+    public static long durationOf(String media) {
+        if (TextUtils.isEmpty(media)) return 0;
+        Long value = DURATION.get(keyFor(media));
+        return value == null ? 0 : value;
     }
 
     public static float aspect(Context context, String media) {

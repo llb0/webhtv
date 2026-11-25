@@ -544,6 +544,15 @@ Java_com_fongmi_android_tv_player_TrickplayNative_nativeAspect(JNIEnv*, jclass, 
     return (jfloat) par->width / (jfloat) par->height;
 }
 
+// 影片总时长（毫秒）：开一次文件就把元数据一起取到，目录海报直接复用，不用再开第二次。
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_fongmi_android_tv_player_TrickplayNative_nativeDuration(JNIEnv*, jclass, jlong handle) {
+    Extractor* ex = reinterpret_cast<Extractor*>(handle);
+    if (ex == nullptr || ex->fmt == nullptr) return 0;
+    if (ex->fmt->duration <= 0) return 0;
+    return (jlong) (ex->fmt->duration * 1000LL / AV_TIME_BASE);
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_fongmi_android_tv_player_TrickplayNative_nativeRestart(JNIEnv*, jclass, jlong handle,
                                                                  jlong positionMs) {

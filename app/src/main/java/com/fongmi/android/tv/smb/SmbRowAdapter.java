@@ -323,8 +323,10 @@ public class SmbRowAdapter extends BaseAdapter {
             // 截图就位：图占左上角，标题前几行缩进到图的右侧，超出的行回到图的左边。
             holder.icon.setVisibility(View.GONE);
             holder.thumbBox.setVisibility(View.VISIBLE);
-            if (row.durationMs > 0) {
-                holder.caption.setText(com.fongmi.android.tv.utils.Util.timeMs(row.durationMs));
+            long durationMs = SmbThumbnailCache.duration(context, row.thumbKey);
+            if (durationMs <= 0) durationMs = row.durationMs;
+            if (durationMs > 0) {
+                holder.caption.setText(com.fongmi.android.tv.utils.Util.timeMs(durationMs));
                 holder.caption.setVisibility(View.VISIBLE);
             }
             setTitle(holder, row.title, thumbWidth + iconGap, true);

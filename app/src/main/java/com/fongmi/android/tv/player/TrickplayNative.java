@@ -281,6 +281,9 @@ public final class TrickplayNative {
     /** 片源显示宽高比（w/h），拿不到返回 0。 */
     static native synchronized float nativeAspect(long handle);
 
+    /** 影片总时长（毫秒）；开文件时顺手取，给目录海报当副标题用。 */
+    static native synchronized long nativeDuration(long handle);
+
     /** 顺序抽帧前定位一次；之后一路往前解，不再每格 seek。 */
     static native synchronized boolean nativeRestart(long handle, long positionMs);
 
