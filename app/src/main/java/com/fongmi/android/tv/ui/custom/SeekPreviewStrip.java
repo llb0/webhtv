@@ -570,17 +570,25 @@ public class SeekPreviewStrip extends FrameLayout {
      * 保证第 4 格一定等于当前进度、最后一格一定在它之后。</p>
      */
     private List<Long> cellPositions() {
-        long step = spacing();
-        long leftSlots = CENTER_INDEX;
+        long spacing = spacing();
         long rightSlots = cellCount - 1 - CENTER_INDEX;
-        if (leftSlots > 0 && cursor > 0) step = Math.min(step, Math.max(MIN_SLOT_MS, cursor / leftSlots));
+        // 两侧各算各的步进：片头附近没有快退空间时，只压缩左边三格，
+        // 右侧四格仍按原步进往后铺 —— 以前是整排共用一个步进，片头一夹
+        // 就把剩下的格子挤成很小的步进（7 张分摊原来 4 张的距离）。
+        long leftStep = spacing;
+        if (CENTER_INDEX > 0 && cursor > 0) {
+            leftStep = Math.min(spacing, Math.max(MIN_SLOT_MS, cursor / CENTER_INDEX));
+        }
+        long rightStep = spacing;
         if (rightSlots > 0 && duration > 0) {
             long remain = Math.max(0, duration - cursor);
-            step = Math.min(step, Math.max(MIN_SLOT_MS, remain / rightSlots));
+            rightStep = Math.min(spacing, Math.max(MIN_SLOT_MS, remain / rightSlots));
         }
         List<Long> positions = new ArrayList<>(cellCount);
         for (int i = 0; i < cellCount; i++) {
-            long value = cursor + (i - CENTER_INDEX) * step;
+            long value = i < CENTER_INDEX
+                    ? cursor - (CENTER_INDEX - i) * leftStep
+                    : cursor + (i - CENTER_INDEX) * rightStep;
             if (value < 0) value = 0;
             if (duration > 0 && value > duration) value = duration;
             // 对齐到 10 秒网格：抽帧缓存按这个网格落盘，格子时间与画面、跳转目标三者一致。
