@@ -107,7 +107,13 @@ public final class SmbThumbnailCache {
             try {
                 File file = file(app, key);
                 // 磁盘上的图永远先用：不管之前取帧失败没失败、列表是从哪个目录重新进来的。
-                if (file.isFile()) bitmap = readDisk(file, width, height);
+                if (file.isFile()) {
+                    bitmap = readDisk(file, width, height);
+                    // 老缓存只有图没有时长（.duration 是后加的）：补一次，只读 header 不抽帧。
+                    if (bitmap != null && allowGenerate && url != null && duration(app, key) <= 0) {
+                        writeDuration(app, key, TrickplayStore.probeDuration(app, url, null));
+                    }
+                }
                 if (bitmap == null && allowGenerate && url != null && !recentlyFailed(key)) {
                     tried = true;
                     bitmap = generate(app, key, url, file);

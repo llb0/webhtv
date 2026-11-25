@@ -95,6 +95,11 @@ public final class TrickplayStore {
     private static volatile Thread backgroundThread;
     /** 正在跑的后台流式抽帧会话，暂停/离开播放页时关掉它，让 IO 立刻让出来。 */
     private static volatile Extractor backgroundExtractor;
+    /** 预览期间跨多次「窗口请求」复用同一个已打开的会话：SMB 每次 open 都要回读索引，代价 2–3 秒。 */
+    private static volatile Extractor rerunExtractor;
+    private static volatile String rerunMedia;
+    private static volatile long rerunAt;
+    private static volatile boolean rerunBusy;
 
     private TrickplayStore() {
     }
@@ -199,6 +204,34 @@ public final class TrickplayStore {
                 } catch (Throwable ignored) {
                 }
             }
+        }
+    }
+
+    /** 用户点了某一格要真跳转：立刻停掉正在跑的补帧，把 SMB 连接让给播放器的 seek。 */
+    public static void cancelAll() {
+        // 只让正在跑的补帧循环在当前这格之后停下（空闲的会话已不再读数据，不会跟 seek 抢带宽），
+        // 不在别的线程上 close 会话，避免和正在 grab 的线程抢同一个原生句柄。
+        PENDING.clear();
+        RUNNING.clear();
+        traceOnce("cancel all");
+    }
+
+    /**
+     * 只取时长不抽帧：目录里已有海报但没有时长副标题（老缓存）时补一次。
+     * 已知的直接从内存返回，不知道的才开一次会话读 header。
+     */
+    public static long probeDuration(Context context, String media, Map<String, String> headers) {
+        if (context == null || TextUtils.isEmpty(media)) return 0;
+        long known = durationOf(media);
+        if (known > 0) return known;
+        Extractor extractor = rerunExtractor;
+        if (extractor != null && TextUtils.equals(rerunMedia, media)) return durationOf(media);
+        Extractor probe = open(context, media, headers);
+        if (probe == null) return 0;
+        try {
+            return probe.isValid() ? durationOf(media) : 0;
+        } finally {
+            probe.close();
         }
     }
 
@@ -616,7 +649,8 @@ public final class TrickplayStore {
             traceOnce("window wait reason=player-busy key=%s", window.key.substring(0, 8));
             sleep(CELL_PAUSE_MS);
         }
-        try (Extractor extractor = open(window.context, window.media, window.headers)) {
+        Extractor extractor = acquire(window);
+        try {
             if (extractor == null || !extractor.isValid()) {
                 logFailure(window.context, "抽帧会话打不开：" + TrickplayNative.lastError());
                 return;
@@ -647,9 +681,46 @@ public final class TrickplayStore {
                 if (window.onFrame != null) MAIN.post(window.onFrame);
             }
         } finally {
+            release(window.media, extractor);
             trim(window.context);
         }
     }
+
+    /** 同一个片源 8 秒内连续请求窗口就复用同一个会话，省掉每窗 2–3 秒的 open（SMB 回读索引）。 */
+    private static Extractor acquire(Window window) {
+        Extractor cached = rerunExtractor;
+        if (cached != null && !rerunBusy && TextUtils.equals(rerunMedia, window.media)
+                && SystemClock.elapsedRealtime() - rerunAt < REUSE_WINDOW_MS) {
+            rerunBusy = true;
+            traceOnce("open reuse key=%s", window.key.substring(0, 8));
+            return cached;
+        }
+        if (cached != null) {
+            rerunExtractor = null;
+            rerunMedia = null;
+            cached.close();
+        }
+        Extractor extractor = open(window.context, window.media, window.headers);
+        rerunBusy = true;
+        if (extractor != null && extractor.isValid()) {
+            rerunExtractor = extractor;
+            rerunMedia = window.media;
+        }
+        return extractor;
+    }
+
+    private static void release(String media, Extractor extractor) {
+        rerunBusy = false;
+        if (extractor == null) return;
+        // 走完了这一轮就留着，下一轮窗口（用户继续拖）还能直接用；换片或超时才真关。
+        if (rerunExtractor == extractor) {
+            rerunAt = SystemClock.elapsedRealtime();
+            return;
+        }
+        extractor.close();
+    }
+
+    private static final long REUSE_WINDOW_MS = 8000L;
 
     /** 播放忙（缓冲/跳转）时等一小会儿；仍忙就返回 true，表示这次补帧应该让路。 */
     /** 相邻两格之间让一拍，降低和播放抢读的压力。 */

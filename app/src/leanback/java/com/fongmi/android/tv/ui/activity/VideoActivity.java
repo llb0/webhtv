@@ -10614,6 +10614,9 @@ private void setupSeekPreview() {
                 onSeekStarted();
                 markPreviewSeek(positionMs);
                 pinSeekDisplay(positionMs);
+                // 先停掉正在跑的补帧会话，把 SMB 连接让给这次跳转；否则抽帧和 seek 抢同一条连接，
+                // 表现就是「卡的时候点略图不跳」。
+                com.fongmi.android.tv.player.TrickplayStore.cancelAll();
                 controller().seekTo(positionMs);
                 controller().play();
                 hideCenter();
