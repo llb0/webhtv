@@ -1018,34 +1018,6 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
      * 这里跳完 1.2 秒回读一次引擎位置，日志里 seek-verify 给出 target / actual / duration，
      * 一眼就能分清「没跳成」和「跳成了只是播放慢」。
      */
-    /** 跳转期间把屏显当前时间钉在目标点上，引擎报 0 也不跟着掉回 00:00。 */
-    private long startupDisplayFloorMs = C.TIME_UNSET;
-    private long startupDisplayFloorAt;
-
-    /**
-     * 起播阶段的屏显下限：有历史进度就先把时间显示在历史进度上，不要等引擎报位置。
-     * 引擎到位（或超过 25 秒）后自动失效，之后完全跟随引擎。
-     */
-    protected final void pinStartupFloor(long positionMs) {
-        if (positionMs <= 0) return;
-        startupDisplayFloorMs = positionMs;
-        startupDisplayFloorAt = android.os.SystemClock.elapsedRealtime();
-    }
-
-    /** 屏显用的位置：起播未到位时用历史进度，其余时候就是引擎位置。 */
-    protected final long displayPosition() {
-        long position = player() == null ? 0 : Math.max(0, player().getPosition());
-        if (startupDisplayFloorMs != C.TIME_UNSET) {
-            if (position >= startupDisplayFloorMs - 1500
-                    || android.os.SystemClock.elapsedRealtime() - startupDisplayFloorAt > 25000L) {
-                startupDisplayFloorMs = C.TIME_UNSET;
-            } else {
-                return startupDisplayFloorMs;
-            }
-        }
-        return position;
-    }
-
     protected final void pinSeekDisplay(long targetMs) {
         try {
             CustomSeekView seek = getSeekView();

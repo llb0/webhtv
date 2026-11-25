@@ -27889,7 +27889,6 @@ PLcom/fongmi/android/tv/ui/activity/VideoActivity;->applyIntentTmdbVodRemark(Lco
 PLcom/fongmi/android/tv/ui/activity/VideoActivity;->applyNativePersonalTmdbRatings(Lcom/fongmi/android/tv/service/PersonalRecommendationService$RecommendationPage;I)V
 PLcom/fongmi/android/tv/ui/activity/VideoActivity;->applyNightMode()V
 PLcom/fongmi/android/tv/ui/activity/VideoActivity;->applyPendingPlayerKernel()V
-PLcom/fongmi/android/tv/ui/activity/VideoActivity;->applyPendingResumeSeek()Z
 PLcom/fongmi/android/tv/ui/activity/VideoActivity;->applyPlaybackArtwork(Lcom/fongmi/android/tv/bean/Episode;)V
 PLcom/fongmi/android/tv/ui/activity/VideoActivity;->applyPlaybackOverlay()V
 PLcom/fongmi/android/tv/ui/activity/VideoActivity;->applyRuntimeDetailMode(I)V

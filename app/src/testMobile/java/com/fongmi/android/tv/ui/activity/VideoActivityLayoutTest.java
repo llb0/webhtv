@@ -1283,43 +1283,47 @@ public class VideoActivityLayoutTest {
     }
 
     @Test
-    public void mobileReadyStateKeepsPlaybackInitializationAfterPendingResumeSeek() throws Exception {
+    public void mobileReadyStateKeepsPlaybackInitializationWithoutResumeSeekRetry() throws Exception {
         Path sourcePath = findMobileJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int method = source.indexOf("protected void onStateChanged(int state)");
         int ready = source.indexOf("case Player.STATE_READY:", method);
-        int seek = source.indexOf("boolean pendingResumeSeekApplied = applyPendingResumeSeek();", ready);
         int reset = source.indexOf("player().reset();", ready);
         int shortDrama = source.indexOf("applyShortDramaMode();", ready);
         int introSkip = source.indexOf("requestIntroSkipPlan();", ready);
-        int autoSkipGuard = source.indexOf("if (!pendingResumeSeekApplied) applyAutoIntroSkip();", ready);
+        int autoSkip = source.indexOf("applyAutoIntroSkip();", ready);
 
         assertTrue(sourcePath + " is missing onStateChanged", method >= 0);
-        assertTrue("ready playback must capture whether a pending resume seek was applied", seek > ready);
-        assertTrue("pending resume seek must not skip playback reset", reset > seek);
-        assertTrue("pending resume seek must not skip short-drama readiness", shortDrama > reset);
-        assertTrue("pending resume seek must not skip intro-skip planning", introSkip > shortDrama);
-        assertTrue("auto intro skip should wait for the deferred seek to settle", autoSkipGuard > introSkip);
+        assertTrue("ready playback must keep playback reset", reset > ready);
+        assertTrue("ready playback must keep short-drama readiness", shortDrama > reset);
+        assertTrue("ready playback must keep intro-skip planning", introSkip > shortDrama);
+        assertTrue("auto intro skip must run directly instead of being gated by a resume-seek retry", autoSkip > introSkip);
+        // 起播位置只交给播放器一次：READY 之后不再补跳、不再定时复核。
+        assertFalse("resume seek must not be retried after ready", source.contains("applyPendingResumeSeek"));
+        assertFalse("startup position must not be duplicated in a second field", source.contains("pendingResumeSeekMs"));
+        assertFalse("startup position must not be duplicated in an attempt counter", source.contains("resumeSeekAttempts"));
     }
 
     @Test
-    public void leanbackReadyStateKeepsPlaybackInitializationAfterPendingResumeSeek() throws Exception {
+    public void leanbackReadyStateKeepsPlaybackInitializationWithoutResumeSeekRetry() throws Exception {
         Path sourcePath = findLeanbackJavaPath().resolve(Path.of("com", "fongmi", "android", "tv", "ui", "activity", "VideoActivity.java"));
         String source = new String(Files.readAllBytes(sourcePath), StandardCharsets.UTF_8);
         int method = source.indexOf("protected void onStateChanged(int state)");
         int ready = source.indexOf("case Player.STATE_READY:", method);
-        int seek = source.indexOf("boolean pendingResumeSeekApplied = applyPendingResumeSeek();", ready);
         int reset = source.indexOf("player().reset();", ready);
         int shortDrama = source.indexOf("applyShortDramaMode();", ready);
         int introSkip = source.indexOf("requestIntroSkipPlan();", ready);
-        int autoSkipGuard = source.indexOf("if (!pendingResumeSeekApplied) applyAutoIntroSkip();", ready);
+        int autoSkip = source.indexOf("applyAutoIntroSkip();", ready);
 
         assertTrue(sourcePath + " is missing onStateChanged", method >= 0);
-        assertTrue("TV ready playback must capture whether a pending resume seek was applied", seek > ready);
-        assertTrue("TV pending resume seek must not skip playback reset", reset > seek);
-        assertTrue("TV pending resume seek must not skip short-drama readiness", shortDrama > reset);
-        assertTrue("TV pending resume seek must not skip intro-skip planning", introSkip > shortDrama);
-        assertTrue("TV auto intro skip should wait for the deferred seek to settle", autoSkipGuard > introSkip);
+        assertTrue("TV ready playback must keep playback reset", reset > ready);
+        assertTrue("TV ready playback must keep short-drama readiness", shortDrama > reset);
+        assertTrue("TV ready playback must keep intro-skip planning", introSkip > shortDrama);
+        assertTrue("TV auto intro skip must run directly instead of being gated by a resume-seek retry", autoSkip > introSkip);
+        // 起播位置只交给播放器一次：READY 之后不再补跳、不再定时复核。
+        assertFalse("resume seek must not be retried after ready", source.contains("applyPendingResumeSeek"));
+        assertFalse("startup position must not be duplicated in a second field", source.contains("pendingResumeSeekMs"));
+        assertFalse("startup position must not be duplicated in an attempt counter", source.contains("resumeSeekAttempts"));
     }
 
     @Test
@@ -2966,7 +2970,7 @@ public class VideoActivityLayoutTest {
             int alignMethod = source.indexOf("private void alignHistoryWithSelectedEpisode", resumeMethod);
             String resumeBody = resumeMethod >= 0 && alignMethod > resumeMethod ? source.substring(resumeMethod, alignMethod) : "";
             int setPosition = resumeBody.indexOf("setPosition();");
-            int applyPending = resumeBody.indexOf("applyPendingResumeSeek();");
+            int applyPending = resumeBody.indexOf("seekToResumePosition(position);");
             assertTrue(sourcePath + " must protect the cross-source position while switching playback",
                     source.contains("private boolean tmdbHistoryResumePending;")
                             && source.contains("tmdbHistoryResumePending = true;")
@@ -2983,7 +2987,7 @@ public class VideoActivityLayoutTest {
             assertTrue(sourcePath + " must not write the old player position into the resumed episode cache during refresh",
                     saveCacheGuard >= 0 && saveCacheWrite > saveCacheGuard);
 
-            assertTrue(sourcePath + " must immediately apply a pending IJK seek when the selected episode is unchanged",
+            assertTrue(sourcePath + " must seek to the resolved history position when the selected episode is unchanged",
                     setPosition >= 0 && applyPending > setPosition);
 
             int manual = source.indexOf("private void applyManualTmdb(TmdbItem item)");

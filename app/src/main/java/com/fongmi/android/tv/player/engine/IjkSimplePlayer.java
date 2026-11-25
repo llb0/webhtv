@@ -583,8 +583,8 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             long actual = Math.max(0, ijk.getCurrentPosition());
             boolean landed = Math.abs(actual - target) <= 1500;
             SpiderDebug.log("ijk", "open start-at target=%d actual=%d fallback=%b", target, actual, !landed);
-            // seek-at-start 已经在 prepare 前设好，这里只在引擎没落到目标点时补一次，正常不该发生。
-            if (!landed) ijk.seekTo(target);
+            // 起播位置在 prepare 之前已经交给 ijk，这里不再补 seek：如果没落到目标点，那是引擎侧的问题，
+            // 日志里的 fallback=true 就是查它的入口，不在这里用第二次 seek 掩盖。
             updateCurrentCues(target);
             pendingSeekPositionMs = C.TIME_UNSET;
         } else {

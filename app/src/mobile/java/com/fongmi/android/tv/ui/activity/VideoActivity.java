@@ -633,10 +633,8 @@ private int mAudioBackgroundRandomNonce;
     private int followingUiGeneration;
     private boolean followingActionPending;
     private long playerStartTime;
-    private long pendingResumeSeekMs = C.TIME_UNSET;
     /** 点缩略图刚跳过的目标点，用于 0.9 秒后复核补跳。 */
     private long previewCommitTarget = C.TIME_UNSET;
-    private int resumeSeekAttempts;
     private boolean tmdbHistoryResumePending;
     private boolean shortDramaSession;
     /** setQualityVisible 最近一次的结论，供短剧 dock 图标复用，避免两个真值来源。 */
@@ -1682,7 +1680,6 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
 
         long position = Math.max(mHistory.getOpening(), mHistory.getPosition());
         if (position > 0) {
-            pendingResumeSeekMs = position;
             tmdbHistoryResumePending = true;
         }
         if (!targetFlag.isSelected() || !targetEpisode.isSelected()) {
@@ -1695,7 +1692,7 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         alignHistoryWithSelectedEpisode(targetFlag, targetEpisode);
         if (position > 0) {
             setPosition();
-            applyPendingResumeSeek();
+            seekToResumePosition(position);
         }
     }
 
@@ -3404,7 +3401,7 @@ private void setupSeekPreview() {
                 || !player().supportsPlaylistQueue() || !PreloadSetting.isPreload(PlayerSetting.EXO)) return false;
         if (MultiThreadProxySetting.get().enabled() || player().isRepeatOne() || mHistory == null
                 || mHistory.getOpening() > 0 || mHistory.getEnding() > 0
-                || pendingResumeSeekMs != C.TIME_UNSET || tmdbHistoryResumePending
+                || tmdbHistoryResumePending
                 || isAudioOnly() || shouldUseImmersiveAudio()) return false;
         Flag flag = getFlag();
         if (flag == null || flag.getEpisodes().size() < 2 || result == null || result.hasMsg()
@@ -8717,8 +8714,6 @@ private void setupSeekPreview() {
                 // 亮起，这里不收它就仍在屏上，由最小可见计时器与网速 ticker 收尾。
                 if (canHideSeekProgress()) showPlaybackContent();
                 if (mPendingKaraokeResult == null) mKaraokeResultShown = false;
-                boolean pendingResumeSeekApplied = applyPendingResumeSeek();
-                scheduleResumeSeekChecks();
                 // 起播不卡之后就在后台把缩略图抽出来（先抽片头应急段），不必等第一次快进
                 TrickplayStore.setPlayerBusy(false);
                 TrickplayStore.startBackground(this, player().getUrl(), player().getHeaders(), player().getDuration());
@@ -8727,7 +8722,7 @@ private void setupSeekPreview() {
                 player().reset();
                 applyShortDramaMode();
                 requestIntroSkipPlan();
-                if (!pendingResumeSeekApplied) applyAutoIntroSkip();
+                applyAutoIntroSkip();
                 setAdFeedbackVisible(); // 播放地址确定后按格式刷新"有广告"按钮
                 if (!mShortDramaQueueSessionActive) beginShortDramaQueue();
                 // 首帧回调可能早于历史就绪或 Surface 尚未可抓帧，READY 后再补一次；
@@ -8836,9 +8831,7 @@ private void setupSeekPreview() {
         App.removeCallbacks(mSeekProgressFallback);
         // 用户自己拖/点了跳转，就取消启动时的「续播位置」：以前这条在 READY 后仍会再跳一次，
         // 把刚跳好的位置拉回原处（屏显到了、画面却还在原位）。
-        pendingResumeSeekMs = C.TIME_UNSET;
         tmdbHistoryResumePending = false;
-        resumeSeekAttempts = 0;
         previewCommitTarget = C.TIME_UNSET;
         // 窗口必须在 showProgress() 之前打开：它内部会立刻投递网速 ticker，
         // 那个 ticker 的兜底收口会读到尚未开始 seek 的 READY。
@@ -9072,39 +9065,16 @@ private void setupSeekPreview() {
         }
     }
 
-    private boolean applyPendingResumeSeek() {
-        if (pendingResumeSeekMs == C.TIME_UNSET || controller() == null) return false;
-        long target = pendingResumeSeekMs;
-        if (Math.abs(player().getPosition() - target) < 1500) {
-            pendingResumeSeekMs = C.TIME_UNSET;
-            tmdbHistoryResumePending = false;
-            resumeSeekAttempts = 0;
-            return false;
-        }
-        // 起播位置已经交给播放器了，这里只兜底：引擎若把位置丢回 0（起播后重来一次），
-        // 最多补两次，补到为止；用户自己一跳转就由 onSeekStarted 取消，不会再抢。
-        // 最多补 4 次；到上限也不清 pending，交给后面的定时复核继续补，
-        // 以前两次用完就清空，ijk 前几秒报 0 时会被白烧光，表现就是「偶尔从 0 开始播」。
-        if (resumeSeekAttempts >= 4) return false;
-        resumeSeekAttempts++;
-        SpiderDebug.log("playback", "resume-seek apply target=%d pos=%d attempt=%d", target, player().getPosition(), resumeSeekAttempts);
-        controller().seekTo(target);
-        logResumeSeekVerify(target);
-        return true;
+    /** 历史进度在播放后才就绪（TMDB 匹配回来得晚）：此刻显式跳一次，位置取自历史，不读引擎回填值。 */
+    private void seekToResumePosition(long positionMs) {
+        if (controller() == null) return;
+        pinSeekDisplay(positionMs);
+        controller().seekTo(positionMs);
+        SpiderDebug.log("playback", "resume-seek explicit target=%d", positionMs);
     }
 
     private void setPosition() {
-        pendingResumeSeekMs = C.TIME_UNSET;
-        if (mHistory == null) {
-            tmdbHistoryResumePending = false;
-            mInitialPlaybackPosition = C.TIME_UNSET;
-            return;
-        }
-        if (hasDiscMenu()) {
-            tmdbHistoryResumePending = false;
-            mInitialPlaybackPosition = C.TIME_UNSET;
-            return;
-        }
+        if (mHistory == null || hasDiscMenu()) return;
         long position = resolveInitialPlaybackPosition();
         if (position == C.TIME_UNSET || position <= 0) {
             tmdbHistoryResumePending = false;
@@ -9118,48 +9088,11 @@ private void setupSeekPreview() {
             tmdbHistoryResumePending = false;
             return;
         }
-        // 续播位置要直接当起播位置交给播放器，不能只靠「起播后再跳一次」：
-        // ijk 起播是 0，那次补跳一旦没落到（或先被别的跳转顶掉），界面就会先显示历史进度、
-        // 一播放又变回 0。起播位置带上之后再保留一次补跳做兜底，兜底自己会判断是否已经到位。
+        // 起播位置只有这一份：直接作为播放器的起播位置交下去，exo 与 ijk 都在 prepare 之前生效。
+        // 起播之后不补跳、不复核——引擎若真没落到这个位置，那要看 open start-at 日志查引擎原因，
+        // 不在这里用 seekTo 掩盖。
         mInitialPlaybackPosition = position;
-        // 起播还没就绪时屏显也显示历史进度，别让用户先看到 00:00。
         pinSeekDisplay(position);
-        pinStartupFloor(position);
-        // 不论哪个内核都记下待补跳位置：非 ijk 也有「起播太早、seek 被引擎忽略」的窗口，
-        // 以前只有 ijk 记，非 ijk 一旦被忽略就永远从 0 播（第二次播放常见）。
-        pendingResumeSeekMs = position;
-        if (!player().isIjk()) {
-            player().seekTo(position);
-            tmdbHistoryResumePending = false;
-        }
-    }
-
-    /**
-     * 续播补跳的复核：READY 之后 1.2/3/6 秒各看一眼，引擎还没到历史进度就再跳一次。
-     *
-     * <p>以前只在 READY 那一刻连补两次，ijk 前几秒还回报 0，两次都白用掉，
-     * 之后 pending 就清空了 —— 表现就是「有时从零开始播」。现在按时间点复核，
-     * 用户自己一拖/一点跳转由 onSeekStarted 取消 pending，不会互相抢。</p>
-     */
-    private void scheduleResumeSeekChecks() {
-        for (long delay : new long[]{1200L, 3000L, 6000L, 10000L, 15000L}) {
-            App.post(() -> {
-                long pending = pendingResumeSeekMs;
-                if (pending == C.TIME_UNSET || controller() == null) return;
-                if (isFinishing() || isDestroyed()) return;
-                long pos = player().getPosition();
-                if (pos > 0 && Math.abs(pos - pending) <= 1500) {
-                    pendingResumeSeekMs = C.TIME_UNSET;
-                    tmdbHistoryResumePending = false;
-                    resumeSeekAttempts = 0;
-                    return;
-                }
-                pinSeekDisplay(pending);
-                SpiderDebug.log("playback", "resume-seek retry target=%d pos=%d delay=%d", pending, pos, delay);
-                controller().seekTo(pending);
-                logResumeSeekVerify(pending);
-            }, delay);
-        }
     }
 
     private void setSpeed() {
@@ -10691,7 +10624,7 @@ private void checkOrientation() {
         mBinding.widget.action.setImageResource(time > 0 ? R.drawable.ic_widget_forward : R.drawable.ic_widget_rewind);
         // 快进/快退期间引擎可能还报 0（尤其是刚起播或 SMB 正在定位），
         // 屏显一律用「游标起点 + 本次偏移」，绝不留成 00:00。
-        long shownAt = displayPosition() + time;
+        long shownAt = Math.max(0, player().getPosition()) + time;
         if (shownAt <= 0 && mSeekPreviewBase > 0) shownAt = mSeekPreviewBase + time;
         mBinding.widget.time.setText(com.fongmi.android.tv.utils.Util.timeMs(Math.max(0, shownAt)));
         mBinding.widget.seek.setVisibility(View.VISIBLE);

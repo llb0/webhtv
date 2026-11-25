@@ -3427,9 +3427,9 @@ public void resetTrack(int type) {
         boolean repeat = isRepeatOne();
         long position = ijk.isVod()
                 ? Math.max(0, player.getCurrentPosition()) : C.TIME_UNSET;
-        // 起播阶段的重载：当前位置还没走起来（依旧在片头），但这次起播本来就带着历史进度，
-        // 必须沿用历史进度重开，否则重载一次就从 0 开始播（用户说的「偶发从 0 开始」）。
-        if (position >= 0 && position < 3000 && mediaStartPositionMs > 0) {
+        // 首帧还没出来之前，引擎报的「当前位置」没有意义（就是 0）：这段区间内的重载必须沿用
+        // 本次打开的起播位置，否则重开一次就从 0 播。用「首帧是否已出」判断，不再用位置大小猜。
+        if (!playbackTrace.hasStage(PlaybackTrace.Stage.FIRST_FRAME) && mediaStartPositionMs > 0) {
             PlaybackTrace.log("ijk-buffer", playbackTrace.current(),
                     "action=reload resume-from-start target=%d current=%d", mediaStartPositionMs, position);
             position = mediaStartPositionMs;
