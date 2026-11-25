@@ -48,7 +48,7 @@ public class SeekPreviewStrip extends FrameLayout {
     /** 固定 8 格，格宽按可用宽度等分（16:9 比例），整排铺满，不自动算格数。 */
     private static final int CELL_COUNT = 8;
     private static final int CELL_GAP_DP = 5;
-    private static final long HOLD_MS = 3000L;
+    private static final long HOLD_MS = 5000L;
     private static final long MIN_SPACING_MS = 30L * 1000L;
     private static final long MAX_SPACING_MS = 5L * 60L * 1000L;
     /** 游标停稳一会儿再取帧，避免拖动时把还没解码完的请求全作废。 */
@@ -83,6 +83,10 @@ public class SeekPreviewStrip extends FrameLayout {
     private boolean active;
     private boolean dragging;
     private boolean reportedUnavailable;
+    /** 当前这一排还有格子没出图；出图完成前不收计时器，免得图还没刷出来就整条消失。 */
+    private boolean framesPending;
+    /** 已经松手/停稳、在等用户点格子：出图完成后再开始倒计时。 */
+    private boolean holdArmed;
 
     public SeekPreviewStrip(Context context) {
         this(context, null);
@@ -195,6 +199,8 @@ public class SeekPreviewStrip extends FrameLayout {
         }
         focus = FOCUS_NONE;
         active = true;
+        holdArmed = false;
+        framesPending = true;
         handler.removeCallbacks(holdRunner);
         if (getVisibility() != VISIBLE) setVisibility(VISIBLE);
         bringToFront();
@@ -208,10 +214,12 @@ public class SeekPreviewStrip extends FrameLayout {
         render();
     }
 
-    /** 松手：保留 3 秒选择窗口。 */
+    /** 松手：进入选择窗口；缩略图还没出齐就先不收计时器。 */
     public void hold() {
         if (!active) return;
         active = true;
+        holdArmed = true;
+        if (framesPending) return;
         scheduleHold();
     }
 
@@ -221,6 +229,8 @@ public class SeekPreviewStrip extends FrameLayout {
         active = false;
         focus = FOCUS_NONE;
         dragging = false;
+        holdArmed = false;
+        framesPending = false;
         recentFrames.clear();
         if (getVisibility() == VISIBLE) setVisibility(GONE);
     }
@@ -228,6 +238,8 @@ public class SeekPreviewStrip extends FrameLayout {
     private void scheduleHold() {
         handler.removeCallbacks(holdRunner);
         if (!active) return;
+        // 手指还按着、或者这一排图还没出齐，都不算「停留结束」，不启动收起倒计时。
+        if (dragging || framesPending) return;
         handler.postDelayed(holdRunner, HOLD_MS);
     }
 
@@ -302,6 +314,7 @@ public class SeekPreviewStrip extends FrameLayout {
             case MotionEvent.ACTION_DOWN:
                 if (!insideBar(event)) return false;
                 dragging = true;
+                holdArmed = false;
                 updateFromTouch(event);
                 handler.removeCallbacks(holdRunner);
                 return true;
@@ -350,6 +363,7 @@ public class SeekPreviewStrip extends FrameLayout {
             cell.setFocused(focus == i);
         }
         // 游标停稳再取帧：拖动过程中只更新时间文字和游标，免得请求全被后面的位置作废。
+        framesPending = true;
         handler.removeCallbacks(frameRunner);
         handler.postDelayed(frameRunner, FRAME_DEBOUNCE_MS);
     }
@@ -385,9 +399,15 @@ public class SeekPreviewStrip extends FrameLayout {
             }
             trace("preview cells=%d missing=%d ready=%b error=%s", positions.size(), missing.size(),
                     TrickplayNative.isReady(), TrickplayNative.lastError());
-            if (missing.isEmpty() || TextUtils.isEmpty(mediaUrl)) return;
+            if (missing.isEmpty() || TextUtils.isEmpty(mediaUrl)) {
+                handler.post(this::onFramesSettled);
+                return;
+            }
             if (!allowPrepare) {
-                handler.post(() -> loadFallbackFrames(positions));
+                handler.post(() -> {
+                    loadFallbackFrames(positions);
+                    onFramesSettled();
+                });
                 return;
             }
             TrickplayStore.ensureFrames(context, mediaUrl, mediaHeaders, missing,
@@ -405,8 +425,19 @@ public class SeekPreviewStrip extends FrameLayout {
                         String error = TrickplayNative.lastError();
                         if (!TextUtils.isEmpty(error)) reportOnce(context, error);
                         loadFallbackFrames(positions);
+                        onFramesSettled();
                     }));
         });
+    }
+
+    /**
+     * 这一排的图出齐了（或走到兜底/失败）：此时才开始停留倒计时。
+     * 用户滑动不松手等图，图的刷新节奏不再决定预览条什么时候消失。
+     */
+    private void onFramesSettled() {
+        if (!active) return;
+        framesPending = false;
+        if (holdArmed && !dragging) scheduleHold();
     }
 
     private void trace(String format, Object... args) {
