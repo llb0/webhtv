@@ -268,6 +268,9 @@ public class SeekPreviewStrip extends FrameLayout {
         holdArmed = false;
         framesPending = false;
         recentFrames.clear();
+        // 收起时把「已刷新」标记连同图一起清掉：标记的意义是「这一排此刻名下已有图」，
+        // 留着标记又不留图，下次弹出来就会当成已刷新而不再取图，格子里就一直是空的。
+        for (Cell cell : cells) cell.clearImage();
         if (getVisibility() == VISIBLE) setVisibility(GONE);
     }
 
