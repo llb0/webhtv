@@ -108,6 +108,8 @@ public class SeekPreviewStrip extends FrameLayout {
     private boolean holdArmed;
     /** 上一次真正发起取帧请求的时刻：补帧被跳转打断后，靠它隔一会儿自动重来。 */
     private long lastLoadAt;
+    /** 补帧被打断后自动重申请的剩余次数（有上限，避免一遍遍反复抽同一批格子）。 */
+    private int reloadAttempts;
 
     public SeekPreviewStrip(Context context) {
         this(context, null);
@@ -220,9 +222,9 @@ public class SeekPreviewStrip extends FrameLayout {
         if (getContext() != null) {
             applyAspect(TrickplayStore.aspect(getContext().getApplicationContext(), mediaUrl));
         }
-        focus = FOCUS_NONE;
-        barFocused = true;
+        barFocused = false;
         direction = DIR_FORWARD;
+        focus = anchorIndex();
         active = true;
         holdArmed = false;
         framesPending = true;
@@ -239,7 +241,8 @@ public class SeekPreviewStrip extends FrameLayout {
         if (next > cursor) direction = DIR_FORWARD;
         else if (next < cursor) direction = DIR_REWIND;
         cursor = next;
-        focus = FOCUS_NONE;
+        // 焦点默认留在当前帧那一格，拖着走时跟着换位，不用重新按上键。
+        if (!barFocused) focus = anchorIndex();
         render();
     }
 
@@ -448,6 +451,7 @@ public class SeekPreviewStrip extends FrameLayout {
     }
 
     private void render() {
+        reloadAttempts = 0;
         titleView.setText(String.format(Locale.getDefault(), "%s / %s", format(cursor), format(duration)));
         List<Long> positions = cellPositions();
         barView.setProgress(duration <= 0 ? 0f : (float) cursor / duration);
@@ -568,7 +572,10 @@ public class SeekPreviewStrip extends FrameLayout {
         }
         // 补帧被一次跳转 cancelAll 打断后不会再回来：这里隔一段自动重新申请，
         // 图还能陆续补上，而不是一直空着等 30 秒超时。
-        if (SystemClock.elapsedRealtime() - lastLoadAt > 1500) loadFrames(true);
+        if (reloadAttempts < 3 && SystemClock.elapsedRealtime() - lastLoadAt > 1500) {
+            reloadAttempts++;
+            loadFrames(true);
+        }
         handler.postDelayed(settlePoll, SETTLE_POLL_MS);
     }
 

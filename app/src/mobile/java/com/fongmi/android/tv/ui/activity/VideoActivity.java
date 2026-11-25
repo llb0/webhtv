@@ -9124,8 +9124,11 @@ private void setupSeekPreview() {
         mInitialPlaybackPosition = position;
         // 起播还没就绪时屏显也显示历史进度，别让用户先看到 00:00。
         pinSeekDisplay(position);
-        if (player().isIjk()) pendingResumeSeekMs = position;
-        else {
+        pinStartupFloor(position);
+        // 不论哪个内核都记下待补跳位置：非 ijk 也有「起播太早、seek 被引擎忽略」的窗口，
+        // 以前只有 ijk 记，非 ijk 一旦被忽略就永远从 0 播（第二次播放常见）。
+        pendingResumeSeekMs = position;
+        if (!player().isIjk()) {
             player().seekTo(position);
             tmdbHistoryResumePending = false;
         }
@@ -10688,7 +10691,7 @@ private void checkOrientation() {
         mBinding.widget.action.setImageResource(time > 0 ? R.drawable.ic_widget_forward : R.drawable.ic_widget_rewind);
         // 快进/快退期间引擎可能还报 0（尤其是刚起播或 SMB 正在定位），
         // 屏显一律用「游标起点 + 本次偏移」，绝不留成 00:00。
-        long shownAt = player().getPosition() + time;
+        long shownAt = displayPosition() + time;
         if (shownAt <= 0 && mSeekPreviewBase > 0) shownAt = mSeekPreviewBase + time;
         mBinding.widget.time.setText(com.fongmi.android.tv.utils.Util.timeMs(Math.max(0, shownAt)));
         mBinding.widget.seek.setVisibility(View.VISIBLE);
