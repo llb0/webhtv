@@ -9938,7 +9938,7 @@ private boolean runtimeSourceOnly;
         mKeyDown.reset();
         // 松手不立刻收起：留 3 秒让用户按上键进缩略图排挑图；单次点按没弹层的直接结束。
         cancelPendingSeekPreview();
-        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.dismiss();
+        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();
     }
 
     @Override

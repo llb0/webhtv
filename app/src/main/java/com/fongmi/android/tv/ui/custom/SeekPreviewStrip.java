@@ -258,10 +258,16 @@ public class SeekPreviewStrip extends FrameLayout {
         barView.invalidate();
     }
 
-    /** 松手：跳转交给播放页原生那一步，预览条直接收起。 */
+    /**
+     * 松手：跳转仍交给播放页原生那一步，预览条留着给用户看这几格。
+     * 图没出齐之前不计时；出齐（或等满超时）后才走 {@link #HOLD_MS} 的倒计时收起。
+     */
     public void hold() {
         if (!active) return;
-        dismiss();
+        active = true;
+        holdArmed = true;
+        if (framesPending) return;
+        scheduleHold();
     }
 
     public void dismiss() {

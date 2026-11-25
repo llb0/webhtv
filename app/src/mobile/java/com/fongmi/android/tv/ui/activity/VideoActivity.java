@@ -10637,7 +10637,7 @@ private void checkOrientation() {
         com.fongmi.android.tv.player.TrickplayStore.cancelAll();
         seekTo(time);
         cancelPendingSeekPreview();
-        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.dismiss();
+        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();
     }
 
     @Override
