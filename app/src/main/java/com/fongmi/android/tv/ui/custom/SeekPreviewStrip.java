@@ -79,6 +79,7 @@ public class SeekPreviewStrip extends FrameLayout {
     private final LinearLayout container;
     private final TextView titleView;
     private final LinearLayout rowView;
+    /** 只做进度指示：不获取焦点、半透明，焦点只在缩略图排里移动。 */
     private final BarView barView;
     private final List<Cell> cells = new ArrayList<>();
     private final List<Bitmap> recentFrames = new ArrayList<>();
@@ -95,8 +96,6 @@ public class SeekPreviewStrip extends FrameLayout {
     private int focus = FOCUS_NONE;
     /** +1 快进（8 格都在当前之后，当前在最左）；-1 快退（8 格都在当前之前，当前在最右）。 */
     private int direction = DIR_FORWARD;
-    /** 下键把焦点交给预览条自己的进度条游标。 */
-    private boolean barFocused;
     private boolean active;
     private boolean dragging;
     private boolean reportedUnavailable;
@@ -137,7 +136,6 @@ public class SeekPreviewStrip extends FrameLayout {
         container.addView(titleView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // 缩略图在上，进度条在下。
         rowView = new LinearLayout(context);
         rowView.setOrientation(LinearLayout.HORIZONTAL);
         container.addView(rowView, new LinearLayout.LayoutParams(
@@ -155,8 +153,11 @@ public class SeekPreviewStrip extends FrameLayout {
         }
 
         barView = new BarView(context);
+        barView.setAlpha(0.45f);
+        barView.setFocusable(false);
+        barView.setClickable(false);
         LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(26));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(20));
         barParams.topMargin = dp(8);
         container.addView(barView, barParams);
 
@@ -216,7 +217,6 @@ public class SeekPreviewStrip extends FrameLayout {
             applyAspect(TrickplayStore.aspect(getContext().getApplicationContext(), mediaUrl));
         }
         focus = FOCUS_NONE;
-        barFocused = false;
         direction = DIR_FORWARD;
         active = true;
         holdArmed = false;
@@ -235,7 +235,6 @@ public class SeekPreviewStrip extends FrameLayout {
         else if (next < cursor) direction = DIR_REWIND;
         cursor = next;
         focus = FOCUS_NONE;
-        barFocused = false;
         render();
     }
 
@@ -310,7 +309,6 @@ public class SeekPreviewStrip extends FrameLayout {
             if (keyCode != KeyEvent.KEYCODE_DPAD_UP) return false;
             if (!actionDown) return true;
             focus = anchorIndex();
-            barFocused = false;
             render();
             scheduleHold();
             return true;
@@ -319,28 +317,23 @@ public class SeekPreviewStrip extends FrameLayout {
             case KeyEvent.KEYCODE_DPAD_UP:
                 // 上键回到缩略图排，焦点留在当前帧那一格。
                 if (!actionDown) return true;
-                barFocused = false;
                 focus = anchorIndex();
                 render();
                 scheduleHold();
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                // 下键把焦点交给预览条自己的进度条游标（不是播放器那条原生进度条）。
-                if (!actionDown) return true;
-                barFocused = true;
-                if (focus == FOCUS_NONE) focus = anchorIndex();
-                render();
-                scheduleHold();
+                // 下面没有进度条了：吃掉，别让焦点跑回播放器控制栏。
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
+                // 8 格内左右环形移动：第 1 格往左回到第 8 格，第 8 格往右回到第 1 格。
                 if (!actionDown) return true;
-                focus = Math.max(0, focus - 1);
+                focus = focus == 0 ? cellCount - 1 : focus - 1;
                 render();
                 scheduleHold();
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 if (!actionDown) return true;
-                focus = Math.min(cellCount - 1, focus + 1);
+                focus = focus == cellCount - 1 ? 0 : focus + 1;
                 render();
                 scheduleHold();
                 return true;
@@ -362,7 +355,7 @@ public class SeekPreviewStrip extends FrameLayout {
         if (!active) return false;
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                if (!insideBar(event)) return false;
+                if (!insideStrip(event)) return false;
                 dragging = true;
                 holdArmed = false;
                 updateFromTouch(event);
@@ -383,34 +376,30 @@ public class SeekPreviewStrip extends FrameLayout {
         }
     }
 
-    private boolean insideBar(MotionEvent event) {
+    private boolean insideStrip(MotionEvent event) {
         int[] location = new int[2];
-        barView.getLocationOnScreen(location);
+        container.getLocationOnScreen(location);
         float y = event.getRawY();
-        return y >= location[1] - dp(10) && y <= location[1] + barView.getHeight() + dp(10);
+        return y >= location[1] - dp(12) && y <= location[1] + container.getHeight() + dp(12);
     }
 
     private void updateFromTouch(MotionEvent event) {
         int[] location = new int[2];
-        barView.getLocationOnScreen(location);
-        float ratio = (event.getRawX() - location[0]) / Math.max(1f, barView.getWidth());
+        container.getLocationOnScreen(location);
+        float ratio = (event.getRawX() - location[0]) / Math.max(1f, container.getWidth());
         long next = clamp((long) (clampRatio(ratio) * duration));
         // 往左拖是快退、往右拖是快进：整排 8 格跟着方向翻成同一向。
         if (next < cursor) direction = DIR_REWIND;
         else if (next > cursor) direction = DIR_FORWARD;
         cursor = next;
         focus = FOCUS_NONE;
-        barFocused = false;
         render();
     }
 
     private void render() {
         titleView.setText(String.format(Locale.getDefault(), "%s / %s", format(cursor), format(duration)));
         List<Long> positions = cellPositions();
-        // 下键之后游标跟着选中的那一格走，播放器那条原生进度条不参与。
-        long barCursor = barFocused && focus >= 0 && focus < positions.size() ? positions.get(focus) : cursor;
-        barView.setProgress(duration <= 0 ? 0f : (float) barCursor / duration);
-        barView.setFocused(barFocused);
+        barView.setProgress(duration <= 0 ? 0f : (float) cursor / duration);
         barView.setTicks(ticks());
         barView.invalidate();
 
@@ -641,6 +630,7 @@ public class SeekPreviewStrip extends FrameLayout {
         return order;
     }
 
+
     private float[] ticks() {
         List<Long> positions = cellPositions();
         float[] ticks = new float[positions.size()];
@@ -805,12 +795,12 @@ public class SeekPreviewStrip extends FrameLayout {
         }
     }
 
+    /** 缩略图下面那条细进度条：纯指示，不接受焦点。 */
     private final class BarView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rect = new RectF();
         private float progress;
         private float[] ticks;
-        private boolean focused;
 
         BarView(Context context) {
             super(context);
@@ -818,10 +808,6 @@ public class SeekPreviewStrip extends FrameLayout {
 
         void setProgress(float progress) {
             this.progress = progress;
-        }
-
-        void setFocused(boolean focused) {
-            this.focused = focused;
         }
 
         void setTicks(float[] ticks) {
@@ -832,7 +818,7 @@ public class SeekPreviewStrip extends FrameLayout {
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             int height = getHeight();
-            float trackHeight = dp(4);
+            float trackHeight = dp(3);
             float top = height / 2f - trackHeight / 2f;
             paint.setColor(0xFF3A3A44);
             rect.set(dp(6), top, getWidth() - dp(6), top + trackHeight);
@@ -843,7 +829,7 @@ public class SeekPreviewStrip extends FrameLayout {
             canvas.drawRoundRect(rect, trackHeight / 2f, trackHeight / 2f, paint);
 
             if (ticks != null) {
-                paint.setColor(0x66FFFFFF);
+                paint.setColor(0x44FFFFFF);
                 for (float tick : ticks) {
                     float x = dp(6) + (getWidth() - dp(12)) * clampRatio(tick);
                     canvas.drawRect(x - dp(1), top - dp(2), x + dp(1), top + trackHeight + dp(2), paint);
@@ -851,14 +837,8 @@ public class SeekPreviewStrip extends FrameLayout {
             }
 
             float x = dp(6) + (getWidth() - dp(12)) * clampRatio(progress);
-            if (focused) {
-                paint.setColor(0x66FF7A2F);
-                canvas.drawCircle(x, height / 2f, dp(11), paint);
-            }
             paint.setColor(0xFFFF7A2F);
-            canvas.drawCircle(x, height / 2f, dp(7), paint);
-            paint.setColor(Color.WHITE);
-            canvas.drawCircle(x, height / 2f, dp(3), paint);
+            canvas.drawCircle(x, height / 2f, dp(5), paint);
         }
     }
 }

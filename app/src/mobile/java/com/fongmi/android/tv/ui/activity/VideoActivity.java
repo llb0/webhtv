@@ -634,6 +634,8 @@ private int mAudioBackgroundRandomNonce;
     private boolean followingActionPending;
     private long playerStartTime;
     private long pendingResumeSeekMs = C.TIME_UNSET;
+    /** 点缩略图刚跳过的目标点，用于 0.9 秒后复核补跳。 */
+    private long previewCommitTarget = C.TIME_UNSET;
     private int resumeSeekAttempts;
     private boolean tmdbHistoryResumePending;
     private boolean shortDramaSession;
@@ -2099,6 +2101,8 @@ private void setupSeekPreview() {
         mSeekPreview.setListener(new SeekPreviewStrip.Listener() {
             @Override
             public void onCommit(long positionMs) {
+                SpiderDebug.log("playback", "preview-commit target=%d pos=%d canSeek=%b", positionMs,
+                        player() == null ? -1 : player().getPosition(), canPreviewSeek());
                 if (!canPreviewSeek()) return;
                 onSeekStarted();
                 markPreviewSeek(positionMs);
@@ -2106,6 +2110,8 @@ private void setupSeekPreview() {
                 controller().seekTo(positionMs);
                 controller().play();
                 logSeekVerify(positionMs);
+                previewCommitTarget = positionMs;
+                App.post(() -> retryPreviewCommitIfNeeded(positionMs), 900L);
             }
 
             @Override
@@ -8830,6 +8836,7 @@ private void setupSeekPreview() {
         pendingResumeSeekMs = C.TIME_UNSET;
         tmdbHistoryResumePending = false;
         resumeSeekAttempts = 0;
+        previewCommitTarget = C.TIME_UNSET;
         // 窗口必须在 showProgress() 之前打开：它内部会立刻投递网速 ticker，
         // 那个 ticker 的兜底收口会读到尚未开始 seek 的 READY。
         mSeekProgressPending = true;
@@ -9040,6 +9047,28 @@ private void setupSeekPreview() {
         finish();
     }
 
+    /** 续播补跳的回读：1 秒后打印引擎实际位置，日志里能直接看出补跳有没有落地。 */
+    private void logResumeSeekVerify(long target) {
+        App.post(() -> {
+            if (controller() == null) return;
+            SpiderDebug.log("playback", "resume-seek verify target=%d actual=%d duration=%d", target, player().getPosition(), player().getDuration());
+        }, 1000L);
+    }
+
+    /** 点缩略图后 0.9 秒复核：引擎没真的到目标点就再补一次。 */
+    private void retryPreviewCommitIfNeeded(long target) {
+        if (controller() == null) return;
+        if (previewCommitTarget != target) return;
+        previewCommitTarget = C.TIME_UNSET;
+        long pos = player().getPosition();
+        SpiderDebug.log("playback", "preview-commit verify target=%d actual=%d", target, pos);
+        if (Math.abs(pos - target) > 3000) {
+            SpiderDebug.log("playback", "preview-commit retry target=%d actual=%d", target, pos);
+            pinSeekDisplay(target);
+            controller().seekTo(target);
+        }
+    }
+
     private boolean applyPendingResumeSeek() {
         if (pendingResumeSeekMs == C.TIME_UNSET || controller() == null) return false;
         long target = pendingResumeSeekMs;
@@ -9051,19 +9080,13 @@ private void setupSeekPreview() {
         }
         // 起播位置已经交给播放器了，这里只兜底：引擎若把位置丢回 0（起播后重来一次），
         // 最多补两次，补到为止；用户自己一跳转就由 onSeekStarted 取消，不会再抢。
-        if (resumeSeekAttempts >= 2) {
-            pendingResumeSeekMs = C.TIME_UNSET;
-            tmdbHistoryResumePending = false;
-            resumeSeekAttempts = 0;
-            return false;
-        }
+        // 最多补 4 次；到上限也不清 pending，交给后面的定时复核继续补，
+        // 以前两次用完就清空，ijk 前几秒报 0 时会被白烧光，表现就是「偶尔从 0 开始播」。
+        if (resumeSeekAttempts >= 4) return false;
         resumeSeekAttempts++;
         SpiderDebug.log("playback", "resume-seek apply target=%d pos=%d attempt=%d", target, player().getPosition(), resumeSeekAttempts);
         controller().seekTo(target);
-        if (resumeSeekAttempts >= 2) {
-            pendingResumeSeekMs = C.TIME_UNSET;
-            tmdbHistoryResumePending = false;
-        }
+        logResumeSeekVerify(target);
         return true;
     }
 
@@ -9113,7 +9136,7 @@ private void setupSeekPreview() {
      * 用户自己一拖/一点跳转由 onSeekStarted 取消 pending，不会互相抢。</p>
      */
     private void scheduleResumeSeekChecks() {
-        for (long delay : new long[]{1200L, 3000L, 6000L}) {
+        for (long delay : new long[]{1200L, 3000L, 6000L, 10000L, 15000L}) {
             App.post(() -> {
                 long pending = pendingResumeSeekMs;
                 if (pending == C.TIME_UNSET || controller() == null) return;
@@ -9128,6 +9151,7 @@ private void setupSeekPreview() {
                 pinSeekDisplay(pending);
                 SpiderDebug.log("playback", "resume-seek retry target=%d pos=%d delay=%d", pending, pos, delay);
                 controller().seekTo(pending);
+                logResumeSeekVerify(pending);
             }, delay);
         }
     }
