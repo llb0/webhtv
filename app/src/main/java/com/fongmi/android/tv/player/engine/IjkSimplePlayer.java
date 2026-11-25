@@ -108,6 +108,8 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
     private int decode;
     private int subtitleSerial;
     private long pendingSeekPositionMs;
+    /** 本次打开媒体时指定的起播位置（历史进度）：在 prepare 之前就交给 ijk，起播直接落到该点。 */
+    private long startAtPositionMs = C.TIME_UNSET;
     private long pendingSeekRequestedAtMs;
     private boolean playWhenReady;
     private boolean loading;
@@ -163,6 +165,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         currentCues = CueGroup.EMPTY_TIME_ZERO;
         playbackState = Player.STATE_IDLE;
         pendingSeekPositionMs = C.TIME_UNSET;
+        startAtPositionMs = C.TIME_UNSET;
         pendingSeekRequestedAtMs = C.TIME_UNSET;
         playWhenReady = true;
         volume = 1f;
@@ -400,7 +403,8 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         clearSubtitles();
         invalidateResourceObservation();
         mediaItem = mediaItems.isEmpty() ? null : mediaItems.get(0);
-        setPendingSeek(mediaItem != null && startPositionMs > 0 ? startPositionMs : C.TIME_UNSET);
+        startAtPositionMs = mediaItem != null && startPositionMs > 0 ? startPositionMs : C.TIME_UNSET;
+        setPendingSeek(startAtPositionMs);
         playbackState = mediaItem == null ? Player.STATE_IDLE : Player.STATE_IDLE;
         loading = false;
         currentTracks = Tracks.EMPTY;
@@ -575,8 +579,13 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         playerError = null;
         refreshTracks();
         if (pendingSeekPositionMs != C.TIME_UNSET) {
-            ijk.seekTo(pendingSeekPositionMs);
-            updateCurrentCues(pendingSeekPositionMs);
+            long target = pendingSeekPositionMs;
+            long actual = Math.max(0, ijk.getCurrentPosition());
+            boolean landed = Math.abs(actual - target) <= 1500;
+            SpiderDebug.log("ijk", "open start-at target=%d actual=%d fallback=%b", target, actual, !landed);
+            // seek-at-start 已经在 prepare 前设好，这里只在引擎没落到目标点时补一次，正常不该发生。
+            if (!landed) ijk.seekTo(target);
+            updateCurrentCues(target);
             pendingSeekPositionMs = C.TIME_UNSET;
         } else {
             updateCurrentCues(position());
@@ -1166,6 +1175,10 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "reconnect", IjkPerformanceSetting.isReconnect() ? 1 : 0);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1);
+        // 有历史进度就在 prepare 之前交给 ijk：起播线程一开读就落到该点，
+        // 不再「先解 0 秒的帧、prepare 回来才 seekTo」——那既白读一段数据，又必然先闪一下 00:00。
+        ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "seek-at-start",
+                startAtPositionMs > 0 ? startAtPositionMs : 0);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "subtitle", 1);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "video-pictq-size", appliedDecodeControlConfig.pictureQueue());
         SpiderDebug.log("ijk-decode",
