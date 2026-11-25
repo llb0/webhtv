@@ -670,6 +670,7 @@ private boolean runtimeSourceOnly;
     private long detailStartTime;
     private long playerStartTime;
     private long pendingResumeSeekMs = C.TIME_UNSET;
+    private int resumeSeekAttempts;
     private boolean tmdbHistoryResumePending;
     private boolean pendingLutImport;
     private boolean playerKernelSwitchRefreshing;
@@ -7584,6 +7585,7 @@ private boolean runtimeSourceOnly;
         // 把刚跳好的位置拉回原处（屏显到了、画面却还在原位）。
         pendingResumeSeekMs = C.TIME_UNSET;
         tmdbHistoryResumePending = false;
+        resumeSeekAttempts = 0;
         // 窗口必须在 showProgress() 之前打开：它内部会立刻投递网速 ticker，
         // 那个 ticker 的兜底收口会读到尚未开始 seek 的 READY。
         mSeekProgressPending = true;
@@ -9233,11 +9235,27 @@ private boolean runtimeSourceOnly;
     private boolean applyPendingResumeSeek() {
         if (pendingResumeSeekMs == C.TIME_UNSET || controller() == null) return false;
         long target = pendingResumeSeekMs;
-        pendingResumeSeekMs = C.TIME_UNSET;
-        tmdbHistoryResumePending = false;
-        if (Math.abs(player().getPosition() - target) < 1500) return false;
-        SpiderDebug.log("playback", "resume-seek apply target=%d pos=%d", target, player().getPosition());
+        if (Math.abs(player().getPosition() - target) < 1500) {
+            pendingResumeSeekMs = C.TIME_UNSET;
+            tmdbHistoryResumePending = false;
+            resumeSeekAttempts = 0;
+            return false;
+        }
+        // 起播位置已经交给播放器了，这里只兜底：引擎若把位置丢回 0（起播后重来一次），
+        // 最多补两次，补到为止；用户自己一跳转就由 onSeekStarted 取消，不会再抢。
+        if (resumeSeekAttempts >= 2) {
+            pendingResumeSeekMs = C.TIME_UNSET;
+            tmdbHistoryResumePending = false;
+            resumeSeekAttempts = 0;
+            return false;
+        }
+        resumeSeekAttempts++;
+        SpiderDebug.log("playback", "resume-seek apply target=%d pos=%d attempt=%d", target, player().getPosition(), resumeSeekAttempts);
         controller().seekTo(target);
+        if (resumeSeekAttempts >= 2) {
+            pendingResumeSeekMs = C.TIME_UNSET;
+            tmdbHistoryResumePending = false;
+        }
         return true;
     }
 
@@ -9262,7 +9280,8 @@ private boolean runtimeSourceOnly;
             tmdbHistoryResumePending = false;
             return;
         }
-        mInitialPlaybackPosition = C.TIME_UNSET;
+        // 续播位置直接作为起播位置交给播放器，别只靠「起播后再补跳一次」（补跳丢了就会从 0 播）。
+        mInitialPlaybackPosition = position;
         if (player().isIjk()) pendingResumeSeekMs = position;
         else {
             long start = System.currentTimeMillis();
