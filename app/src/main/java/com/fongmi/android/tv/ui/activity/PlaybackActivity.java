@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Display;
@@ -767,7 +768,27 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         });
     }
 
+    private long previewSeekAtMs;
+    private long previewSeekTargetMs = -1L;
+
     protected void onSeekStarted() {
+    }
+
+    /** 预览条自己提交了一次跳转：记下目标与时刻，供同页其他跳转入口让路。 */
+    protected final void markPreviewSeek(long targetMs) {
+        previewSeekAtMs = SystemClock.elapsedRealtime();
+        previewSeekTargetMs = targetMs;
+        SpiderDebug.log("playback", "seek-commit source=preview target=%d", targetMs);
+    }
+
+    /**
+     * 预览条刚跳完，别处的跳转（控件游标残留值、手势累计值）再来「补一刀」就会把位置抢走：
+     * 1.5 秒内、且目标差一分钟以上的跳转一律丢弃，只留日志。
+     */
+    private boolean isStraySeek(long targetMs) {
+        if (previewSeekAtMs <= 0L || previewSeekTargetMs < 0L) return false;
+        if (SystemClock.elapsedRealtime() - previewSeekAtMs > 1500L) return false;
+        return Math.abs(targetMs - previewSeekTargetMs) > 60_000L;
     }
 
     protected void showResizeModeDialog(int currentMode, IntConsumer action) {
@@ -980,9 +1001,14 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         long targetMs = Math.max(0, player().getPosition() + deltaMs);
         long durationMs = player().getDuration();
         boolean seekToEnd = durationMs > 0 && targetMs >= durationMs;
-        mController.seekTo(seekToEnd ? durationMs : targetMs);
+        long finalTarget = seekToEnd ? durationMs : targetMs;
+        if (isStraySeek(finalTarget)) {
+            SpiderDebug.log("playback", "seek-stray drop target=%d keeper=%d delta=%d", finalTarget, previewSeekTargetMs, deltaMs);
+            return false;
+        }
+        mController.seekTo(finalTarget);
         if (!seekToEnd) mController.play();
-        logSeekVerify(seekToEnd ? durationMs : targetMs);
+        logSeekVerify(finalTarget);
         return seekToEnd;
     }
 

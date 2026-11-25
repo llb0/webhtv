@@ -732,6 +732,9 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
                 || event == IjkMediaPlayer.OnNativeInvokeListener.EVENT_DID_HTTP_SEEK;
         String key = event + "|" + openStage.label();
         long now = SystemClock.elapsedRealtime();
+        // 事件码会在 3/4 之间反复跳，只按「同键」去重挡不住；再叠一层总速率上限：
+        // 非关键事件每 500ms 最多一条，整份日志的 input.open 从每秒几十条降到每秒两条。
+        if (!critical && now - inputOpenAtMs < 500L) return;
         if (!critical && key.equals(inputOpenKey) && now - inputOpenAtMs < 2000L) return;
         inputOpenKey = key;
         inputOpenAtMs = now;

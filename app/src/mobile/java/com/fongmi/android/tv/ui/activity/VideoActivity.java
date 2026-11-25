@@ -2100,6 +2100,7 @@ private void setupSeekPreview() {
             public void onCommit(long positionMs) {
                 if (!canPreviewSeek()) return;
                 onSeekStarted();
+                markPreviewSeek(positionMs);
                 controller().seekTo(positionMs);
                 controller().play();
                 logSeekVerify(positionMs);
