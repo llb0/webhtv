@@ -2111,12 +2111,6 @@ private void setupSeekPreview() {
             @Override
             public void onDismiss() {
             }
-
-            @Override
-            public void onBarFocus() {
-                // 下键：焦点落到进度条游标上，左右键直接推它。
-                getSeekView().requestFocus();
-            }
         });
         mSeekPreview.setOnTouchListener((view, event) -> mSeekPreview.handleTouch(event));
         android.view.ViewGroup content = findViewById(android.R.id.content);
@@ -10665,7 +10659,11 @@ private void checkOrientation() {
     public void onSeeking(long time) {
         driveSeekPreview(time);
         mBinding.widget.action.setImageResource(time > 0 ? R.drawable.ic_widget_forward : R.drawable.ic_widget_rewind);
-        mBinding.widget.time.setText(player().getPositionTime(time));
+        // 快进/快退期间引擎可能还报 0（尤其是刚起播或 SMB 正在定位），
+        // 屏显一律用「游标起点 + 本次偏移」，绝不留成 00:00。
+        long shownAt = player().getPosition() + time;
+        if (shownAt <= 0 && mSeekPreviewBase > 0) shownAt = mSeekPreviewBase + time;
+        mBinding.widget.time.setText(com.fongmi.android.tv.utils.Util.timeMs(Math.max(0, shownAt)));
         mBinding.widget.seek.setVisibility(View.VISIBLE);
         hideProgress();
     }

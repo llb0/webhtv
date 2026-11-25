@@ -48,8 +48,9 @@ public class SeekPreviewStrip extends FrameLayout {
 
     /** 固定 8 格，格宽按可用宽度等分（16:9 比例），整排铺满，不自动算格数。 */
     private static final int CELL_COUNT = 8;
-    /** 当前进度落在第 4 格（下标 3）：左三格快退、右四格快进。 */
-    private static final int CENTER_INDEX = 3;
+    /** 快退/快进两种排法，当前帧固定在最边上那一格。 */
+    private static final int DIR_FORWARD = 1;
+    private static final int DIR_REWIND = -1;
     private static final int CELL_GAP_DP = 5;
     private static final long HOLD_MS = 5000L;
     private static final long MIN_SPACING_MS = 30L * 1000L;
@@ -68,8 +69,6 @@ public class SeekPreviewStrip extends FrameLayout {
     public interface Listener {
         void onCommit(long positionMs);
         void onDismiss();
-        /** 下键把焦点交给进度条游标（左右键直接推游标）。 */
-        void onBarFocus();
     }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -94,6 +93,10 @@ public class SeekPreviewStrip extends FrameLayout {
     private long duration;
     private long cursor;
     private int focus = FOCUS_NONE;
+    /** +1 快进（8 格都在当前之后，当前在最左）；-1 快退（8 格都在当前之前，当前在最右）。 */
+    private int direction = DIR_FORWARD;
+    /** 下键把焦点交给预览条自己的进度条游标。 */
+    private boolean barFocused;
     private boolean active;
     private boolean dragging;
     private boolean reportedUnavailable;
@@ -213,6 +216,8 @@ public class SeekPreviewStrip extends FrameLayout {
             applyAspect(TrickplayStore.aspect(getContext().getApplicationContext(), mediaUrl));
         }
         focus = FOCUS_NONE;
+        barFocused = false;
+        direction = DIR_FORWARD;
         active = true;
         holdArmed = false;
         framesPending = true;
@@ -225,7 +230,12 @@ public class SeekPreviewStrip extends FrameLayout {
     /** 按住期间的每次步进。 */
     public void update(long cursorMs) {
         if (!active) return;
-        cursor = clamp(cursorMs);
+        long next = clamp(cursorMs);
+        if (next > cursor) direction = DIR_FORWARD;
+        else if (next < cursor) direction = DIR_REWIND;
+        cursor = next;
+        focus = FOCUS_NONE;
+        barFocused = false;
         render();
     }
 
@@ -234,8 +244,8 @@ public class SeekPreviewStrip extends FrameLayout {
         if (!active) return;
         active = true;
         holdArmed = true;
-        // 松手就把焦点停在「当前进度」那一格：电视端不用再按一次上键进排。
-        if (focus == FOCUS_NONE) focus = CENTER_INDEX;
+        // 松手就把焦点停在「当前帧」那一格（快进在最左、快退在最右）。
+        if (focus == FOCUS_NONE) focus = anchorIndex();
         if (framesPending) return;
         scheduleHold();
     }
@@ -260,6 +270,15 @@ public class SeekPreviewStrip extends FrameLayout {
         // 手指还按着、或者这一排图还没出齐，都不算「停留结束」，不启动收起倒计时。
         if (dragging || framesPending) return;
         handler.postDelayed(holdRunner, HOLD_MS);
+    }
+
+    /** 遥控器 OK：跳当前选中的那一格（没选就跳当前帧）。 */
+    public boolean commitCurrent() {
+        if (!active) return false;
+        if (cells.isEmpty()) return false;
+        int index = focus == FOCUS_NONE ? anchorIndex() : Math.min(focus, cells.size() - 1);
+        commit(cells.get(index).position);
+        return true;
     }
 
     private void onCellClicked(int index) {
@@ -290,24 +309,28 @@ public class SeekPreviewStrip extends FrameLayout {
         if (focus == FOCUS_NONE) {
             if (keyCode != KeyEvent.KEYCODE_DPAD_UP) return false;
             if (!actionDown) return true;
-            focus = CENTER_INDEX;
+            focus = anchorIndex();
+            barFocused = false;
             render();
             scheduleHold();
             return true;
         }
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
-                // 上键不再退出排：压住上下键时焦点留在缩略图上，不会掉到别处。
+                // 上键回到缩略图排，焦点留在当前帧那一格。
                 if (!actionDown) return true;
+                barFocused = false;
+                focus = anchorIndex();
+                render();
                 scheduleHold();
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                // 下键把焦点交给进度条游标，左右键就能直接推它。
+                // 下键把焦点交给预览条自己的进度条游标（不是播放器那条原生进度条）。
                 if (!actionDown) return true;
-                focus = FOCUS_NONE;
+                barFocused = true;
+                if (focus == FOCUS_NONE) focus = anchorIndex();
                 render();
                 scheduleHold();
-                if (listener != null) listener.onBarFocus();
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 if (!actionDown) return true;
@@ -371,25 +394,33 @@ public class SeekPreviewStrip extends FrameLayout {
         int[] location = new int[2];
         barView.getLocationOnScreen(location);
         float ratio = (event.getRawX() - location[0]) / Math.max(1f, barView.getWidth());
-        cursor = clamp((long) (clampRatio(ratio) * duration));
+        long next = clamp((long) (clampRatio(ratio) * duration));
+        // 往左拖是快退、往右拖是快进：整排 8 格跟着方向翻成同一向。
+        if (next < cursor) direction = DIR_REWIND;
+        else if (next > cursor) direction = DIR_FORWARD;
+        cursor = next;
         focus = FOCUS_NONE;
+        barFocused = false;
         render();
     }
 
     private void render() {
         titleView.setText(String.format(Locale.getDefault(), "%s / %s", format(cursor), format(duration)));
-        barView.setProgress(duration <= 0 ? 0f : (float) cursor / duration);
+        List<Long> positions = cellPositions();
+        // 下键之后游标跟着选中的那一格走，播放器那条原生进度条不参与。
+        long barCursor = barFocused && focus >= 0 && focus < positions.size() ? positions.get(focus) : cursor;
+        barView.setProgress(duration <= 0 ? 0f : (float) barCursor / duration);
+        barView.setFocused(barFocused);
         barView.setTicks(ticks());
         barView.invalidate();
 
-        List<Long> positions = cellPositions();
         for (int i = 0; i < cells.size(); i++) {
             Cell cell = cells.get(i);
             if (cell.position != positions.get(i)) cell.clearImage();
             cell.position = positions.get(i);
             cell.label.setText(format(cell.position));
             cell.setFocused(focus == i);
-            cell.setHighlight(i == CENTER_INDEX);
+            cell.setHighlight(i == anchorIndex());
         }
         // 游标停稳再取帧：拖动过程中只更新时间文字和游标，免得请求全被后面的位置作废。
         framesPending = true;
@@ -442,12 +473,8 @@ public class SeekPreviewStrip extends FrameLayout {
                 });
                 return;
             }
-            // 抽帧顺序：当前那一格 → 右侧逐格往后 → 最后才补左侧快退。
-            // 快进用得最多，右边的图早出来才能马上点。
-            final List<Long> priority = new ArrayList<>(cellCount);
-            priority.add(positions.get(CENTER_INDEX));
-            for (int i = CENTER_INDEX + 1; i < positions.size(); i++) priority.add(positions.get(i));
-            for (int i = CENTER_INDEX - 1; i >= 0; i--) priority.add(positions.get(i));
+            // 抽帧顺序跟着当前方向走：快进从当前帧往右，快退从当前帧往左。
+            final List<Long> priority = refreshOrder(positions);
             missing.sort((a, b) -> Integer.compare(priority.indexOf(a), priority.indexOf(b)));
             TrickplayStore.ensureFrames(context, mediaUrl, mediaHeaders, missing,
                     () -> TrickplayStore.io().execute(() -> {
@@ -567,32 +594,27 @@ public class SeekPreviewStrip extends FrameLayout {
     }
 
     /**
-     * 固定以当前进度为锚点：第 4 格（{@link #CENTER_INDEX}）就是游标本身，左三格快退、右四格快进。
+     * 8 格全部同向：快进时 0 号格就是当前帧、往后都是快进；快退时 7 号格是当前帧、往前都是快退。
      *
-     * <p>以前是"整排平移、游标大致居中"，片头/片尾一夹就把整排推到 00:00 附近，用户看到的
-     * 时间永远是 0/5/10…，最后一格还没超过当前进度。现在间距向两侧收紧到刚好放得下，
-     * 保证第 4 格一定等于当前进度、最后一格一定在它之后。</p>
+     * <p>以前是"当前进度居中、左右各摊一半"，方向感很差；现在按用户滑动/按键的方向整排铺开，
+     * 当前帧固定在最边上，位置序列单调，靠近片头/片尾时间距自动收紧。</p>
      */
     private List<Long> cellPositions() {
-        long spacing = spacing();
-        long rightSlots = cellCount - 1 - CENTER_INDEX;
-        // 两侧各算各的步进：片头附近没有快退空间时，只压缩左边三格，
-        // 右侧四格仍按原步进往后铺 —— 以前是整排共用一个步进，片头一夹
-        // 就把剩下的格子挤成很小的步进（7 张分摊原来 4 张的距离）。
-        long leftStep = spacing;
-        if (CENTER_INDEX > 0 && cursor > 0) {
-            leftStep = Math.min(spacing, Math.max(MIN_SLOT_MS, cursor / CENTER_INDEX));
-        }
-        long rightStep = spacing;
-        if (rightSlots > 0 && duration > 0) {
-            long remain = Math.max(0, duration - cursor);
-            rightStep = Math.min(spacing, Math.max(MIN_SLOT_MS, remain / rightSlots));
+        long step = spacing();
+        int slots = cellCount - 1;
+        if (direction == DIR_FORWARD) {
+            if (duration > 0) {
+                long remain = Math.max(0, duration - cursor);
+                step = Math.min(step, Math.max(MIN_SLOT_MS, remain / slots));
+            }
+        } else {
+            if (cursor > 0) step = Math.min(step, Math.max(MIN_SLOT_MS, cursor / slots));
         }
         List<Long> positions = new ArrayList<>(cellCount);
         for (int i = 0; i < cellCount; i++) {
-            long value = i < CENTER_INDEX
-                    ? cursor - (CENTER_INDEX - i) * leftStep
-                    : cursor + (i - CENTER_INDEX) * rightStep;
+            long value = direction == DIR_FORWARD
+                    ? cursor + i * step
+                    : cursor - (slots - i) * step;
             if (value < 0) value = 0;
             if (duration > 0 && value > duration) value = duration;
             // 对齐到 10 秒网格：抽帧缓存按这个网格落盘，格子时间与画面、跳转目标三者一致。
@@ -601,6 +623,22 @@ public class SeekPreviewStrip extends FrameLayout {
             positions.add(value);
         }
         return positions;
+    }
+
+    /** 当前帧所在的那一格：快进是 0，快退是最后一格。 */
+    private int anchorIndex() {
+        return direction == DIR_FORWARD ? 0 : cellCount - 1;
+    }
+
+    /** 抽帧顺序：当前帧那一格起，顺着方向从近到远。 */
+    private List<Long> refreshOrder(List<Long> positions) {
+        List<Long> order = new ArrayList<>(cellCount);
+        if (direction == DIR_FORWARD) {
+            for (int i = 0; i < positions.size(); i++) order.add(positions.get(i));
+        } else {
+            for (int i = positions.size() - 1; i >= 0; i--) order.add(positions.get(i));
+        }
+        return order;
     }
 
     private float[] ticks() {
@@ -772,6 +810,7 @@ public class SeekPreviewStrip extends FrameLayout {
         private final RectF rect = new RectF();
         private float progress;
         private float[] ticks;
+        private boolean focused;
 
         BarView(Context context) {
             super(context);
@@ -779,6 +818,10 @@ public class SeekPreviewStrip extends FrameLayout {
 
         void setProgress(float progress) {
             this.progress = progress;
+        }
+
+        void setFocused(boolean focused) {
+            this.focused = focused;
         }
 
         void setTicks(float[] ticks) {
@@ -808,6 +851,10 @@ public class SeekPreviewStrip extends FrameLayout {
             }
 
             float x = dp(6) + (getWidth() - dp(12)) * clampRatio(progress);
+            if (focused) {
+                paint.setColor(0x66FF7A2F);
+                canvas.drawCircle(x, height / 2f, dp(11), paint);
+            }
             paint.setColor(0xFFFF7A2F);
             canvas.drawCircle(x, height / 2f, dp(7), paint);
             paint.setColor(Color.WHITE);

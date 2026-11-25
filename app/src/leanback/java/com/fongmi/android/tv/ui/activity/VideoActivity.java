@@ -9753,6 +9753,12 @@ private boolean runtimeSourceOnly;
         if (mSeekPreview != null && mSeekPreview.isActive()) {
             int previewKey = event.getKeyCode();
             boolean previewDown = KeyUtil.isActionDown(event);
+            // OK 键在预览条上永远归预览条：不管焦点有没有进排，都跳选中那一格。
+            // 以前焦点没进排时 OK 会漏到控制栏，用户点了缩略图却什么都没发生。
+            if (KeyUtil.isEnterKey(event)) {
+                if (previewDown) mSeekPreview.commitCurrent();
+                return true;
+            }
             if (mSeekPreview.isRowFocused()) {
                 if (mSeekPreview.handleKey(previewKey, previewDown)) return true;
             } else if (previewKey == KeyEvent.KEYCODE_DPAD_UP) {
@@ -9971,7 +9977,11 @@ private boolean runtimeSourceOnly;
         driveSeekPreview(time);
         mBinding.widget.center.setVisibility(View.VISIBLE);
         mBinding.widget.duration.setText(getTimelineDurationTime());
-        mBinding.widget.position.setText(player().getPositionTime(time));
+        // 快进/快退期间引擎可能还报 0（尤其是刚起播或 SMB 正在定位），
+        // 屏显一律用「游标起点 + 本次偏移」，绝不留成 00:00。
+        long shownAt = player().getPosition() + time;
+        if (shownAt <= 0 && mSeekPreviewBase > 0) shownAt = mSeekPreviewBase + time;
+        mBinding.widget.position.setText(com.fongmi.android.tv.utils.Util.timeMs(Math.max(0, shownAt)));
         mBinding.widget.action.setImageResource(time > 0 ? R.drawable.ic_widget_forward : R.drawable.ic_widget_rewind);
         hideProgress();
     }
@@ -10589,12 +10599,6 @@ private void setupSeekPreview() {
 
             @Override
             public void onDismiss() {
-            }
-
-            @Override
-            public void onBarFocus() {
-                // 下键：焦点落到进度条游标上，左右键直接推它。
-                getSeekView().requestFocus();
             }
         });
         android.view.ViewGroup content = findViewById(android.R.id.content);
