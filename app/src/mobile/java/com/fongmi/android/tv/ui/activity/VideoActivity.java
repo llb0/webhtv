@@ -2102,6 +2102,7 @@ private void setupSeekPreview() {
                 if (!canPreviewSeek()) return;
                 onSeekStarted();
                 markPreviewSeek(positionMs);
+                pinSeekDisplay(positionMs);
                 controller().seekTo(positionMs);
                 controller().play();
                 logSeekVerify(positionMs);

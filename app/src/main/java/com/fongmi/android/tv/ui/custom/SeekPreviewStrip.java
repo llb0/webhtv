@@ -48,14 +48,18 @@ public class SeekPreviewStrip extends FrameLayout {
 
     /** 固定 8 格，格宽按可用宽度等分（16:9 比例），整排铺满，不自动算格数。 */
     private static final int CELL_COUNT = 8;
+    /** 当前进度落在第 4 格（下标 3）：左三格快退、右四格快进。 */
+    private static final int CENTER_INDEX = 3;
     private static final int CELL_GAP_DP = 5;
     private static final long HOLD_MS = 5000L;
     private static final long MIN_SPACING_MS = 30L * 1000L;
     private static final long MAX_SPACING_MS = 5L * 60L * 1000L;
+    /** 靠近片头/片尾时每格最少也别挤成 0 秒。 */
+    private static final long MIN_SLOT_MS = 3L * 1000L;
     /** 游标停稳一会儿再取帧，避免拖动时把还没解码完的请求全作废。 */
     private static final long FRAME_DEBOUNCE_MS = 260L;
     /** 一排图最多等这么久；等不到全齐也不再拿"图还没齐"当理由挂着。 */
-    private static final long SETTLE_TIMEOUT_MS = 20000L;
+    private static final long SETTLE_TIMEOUT_MS = 30000L;
     private static final long SETTLE_POLL_MS = 400L;
     private static final int FOCUS_NONE = -1;
 
@@ -67,7 +71,7 @@ public class SeekPreviewStrip extends FrameLayout {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable holdRunner = this::dismiss;
     private final Runnable frameRunner = this::loadFrames;
-    private final Runnable settleRunner = this::onFramesSettled;
+    private final Runnable settleRunner = this::onSettleTimeout;
     private final Runnable settlePoll = this::pollFramesSettled;
     private final LinearLayout container;
     private final TextView titleView;
@@ -226,6 +230,8 @@ public class SeekPreviewStrip extends FrameLayout {
         if (!active) return;
         active = true;
         holdArmed = true;
+        // 松手就把焦点停在「当前进度」那一格：电视端不用再按一次上键进排。
+        if (focus == FOCUS_NONE) focus = CENTER_INDEX;
         if (framesPending) return;
         scheduleHold();
     }
@@ -279,7 +285,7 @@ public class SeekPreviewStrip extends FrameLayout {
         if (focus == FOCUS_NONE) {
             if (keyCode != KeyEvent.KEYCODE_DPAD_UP) return false;
             if (!actionDown) return true;
-            focus = cellCount / 2;
+            focus = CENTER_INDEX;
             render();
             scheduleHold();
             return true;
@@ -370,6 +376,7 @@ public class SeekPreviewStrip extends FrameLayout {
             cell.position = positions.get(i);
             cell.label.setText(format(cell.position));
             cell.setFocused(focus == i);
+            cell.setHighlight(i == CENTER_INDEX);
         }
         // 游标停稳再取帧：拖动过程中只更新时间文字和游标，免得请求全被后面的位置作废。
         framesPending = true;
@@ -457,6 +464,15 @@ public class SeekPreviewStrip extends FrameLayout {
         if (holdArmed && !dragging) scheduleHold();
     }
 
+    /** 等满超时：还空着的格子用兜底图铺上，别让用户对着空白排等到整条消失。 */
+    private void onSettleTimeout() {
+        if (!active) return;
+        if (!allCellsFilled()) {
+            loadFallbackFrames(cellPositions());
+        }
+        onFramesSettled();
+    }
+
     /** 还没齐就继续等，最多等到 {@link #SETTLE_TIMEOUT_MS}。 */
     private void pollFramesSettled() {
         if (!active) return;
@@ -533,23 +549,29 @@ public class SeekPreviewStrip extends FrameLayout {
         return Math.min(value, MAX_SPACING_MS);
     }
 
+    /**
+     * 固定以当前进度为锚点：第 4 格（{@link #CENTER_INDEX}）就是游标本身，左三格快退、右四格快进。
+     *
+     * <p>以前是"整排平移、游标大致居中"，片头/片尾一夹就把整排推到 00:00 附近，用户看到的
+     * 时间永远是 0/5/10…，最后一格还没超过当前进度。现在间距向两侧收紧到刚好放得下，
+     * 保证第 4 格一定等于当前进度、最后一格一定在它之后。</p>
+     */
     private List<Long> cellPositions() {
-        long spacing = spacing();
-        if (duration > 0) {
-            // 片子比一整排还短时把间隔收到刚好铺满，不出现重复时间点。
-            long span = spacing * (cellCount - 1);
-            if (span > duration) spacing = Math.max(1_000L, duration / Math.max(1, cellCount - 1));
-        }
-        // 整个窗口平移，而不是逐格 clamp：接近片头/片尾时不会出现一排 00:00。
-        long start = cursor - (cellCount / 2) * spacing;
-        if (duration > 0) {
-            long span = spacing * (cellCount - 1);
-            start = Math.max(0, Math.min(start, Math.max(0, duration - span)));
-        } else {
-            start = Math.max(0, start);
+        long step = spacing();
+        long leftSlots = CENTER_INDEX;
+        long rightSlots = cellCount - 1 - CENTER_INDEX;
+        if (leftSlots > 0 && cursor > 0) step = Math.min(step, Math.max(MIN_SLOT_MS, cursor / leftSlots));
+        if (rightSlots > 0 && duration > 0) {
+            long remain = Math.max(0, duration - cursor);
+            step = Math.min(step, Math.max(MIN_SLOT_MS, remain / rightSlots));
         }
         List<Long> positions = new ArrayList<>(cellCount);
-        for (int i = 0; i < cellCount; i++) positions.add(start + i * spacing);
+        for (int i = 0; i < cellCount; i++) {
+            long value = cursor + (i - CENTER_INDEX) * step;
+            if (value < 0) value = 0;
+            if (duration > 0 && value > duration) value = duration;
+            positions.add(value);
+        }
         return positions;
     }
 
@@ -658,6 +680,7 @@ public class SeekPreviewStrip extends FrameLayout {
         final View focusRing;
         long position;
         String key;
+        boolean highlight;
 
         Cell(Context context) {
             root = new FrameLayout(context);
@@ -698,7 +721,15 @@ public class SeekPreviewStrip extends FrameLayout {
         }
 
         void setFocused(boolean focused) {
-            focusRing.setVisibility(focused ? View.VISIBLE : View.GONE);
+            focusRing.setVisibility(focused || highlight ? View.VISIBLE : View.GONE);
+            focusRing.setAlpha(focused ? 1f : 0.55f);
+        }
+
+        /** 当前进度那一格常亮一个淡描边，一眼就能认出「现在在这」。 */
+        void setHighlight(boolean on) {
+            highlight = on;
+            label.setTextColor(on ? 0xFFFFC08A : Color.WHITE);
+            label.setTextSize(on ? 12f : 11f);
         }
     }
 

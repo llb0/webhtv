@@ -10551,6 +10551,7 @@ private void setupSeekPreview() {
                 if (!canSeek()) return;
                 onSeekStarted();
                 markPreviewSeek(positionMs);
+                pinSeekDisplay(positionMs);
                 controller().seekTo(positionMs);
                 controller().play();
                 hideCenter();

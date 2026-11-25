@@ -1006,6 +1006,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             SpiderDebug.log("playback", "seek-stray drop target=%d keeper=%d delta=%d", finalTarget, previewSeekTargetMs, deltaMs);
             return false;
         }
+        pinSeekDisplay(finalTarget);
         mController.seekTo(finalTarget);
         if (!seekToEnd) mController.play();
         logSeekVerify(finalTarget);
@@ -1017,6 +1018,15 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
      * 这里跳完 1.2 秒回读一次引擎位置，日志里 seek-verify 给出 target / actual / duration，
      * 一眼就能分清「没跳成」和「跳成了只是播放慢」。
      */
+    /** 跳转期间把屏显当前时间钉在目标点上，引擎报 0 也不跟着掉回 00:00。 */
+    protected final void pinSeekDisplay(long targetMs) {
+        try {
+            CustomSeekView seek = getSeekView();
+            if (seek != null) seek.pinSeekPosition(targetMs);
+        } catch (Throwable ignored) {
+        }
+    }
+
     protected final void logSeekVerify(long targetMs) {
         if (!SpiderDebug.isEnabled()) return;
         App.post(() -> {

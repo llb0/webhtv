@@ -49,7 +49,7 @@ public final class TrickplayStore {
     private static final long DISK_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000;
     private static final int MEMORY_BYTES = 8 * 1024 * 1024;
     /** 找不到精确格时往前后各找几格（黄金时刻还没抽到时就近顶替）。 */
-    private static final int NEIGHBORS = 5;
+    private static final int NEIGHBORS = 1;
     private static final double MIN_COVER_LUMA = 36;
     private static final long STREAM_POLL_MS = 300L;
     private static final int MAX_STREAM_FAILURES = 3;
@@ -597,8 +597,10 @@ public final class TrickplayStore {
         // 每次 open 都要回读片尾索引几 MB，和真正那次 seek 抢同一条 SMB 连接，
         // 会把 seek 拖到播放器超时放弃（表现就是屏显到了、画面还在原位）。
         if (waitWhileBusy()) {
-            traceOnce("window skip reason=player-busy key=%s", window.key.substring(0, 8));
-            return;
+            // 播放还在缓冲/跳转：等过一阵仍忙也照样往下抽（每格之间让一拍）。
+            // 以前这里直接 return，整排图一格都不出，用户只能盯着空白条看到超时。
+            traceOnce("window wait reason=player-busy key=%s", window.key.substring(0, 8));
+            sleep(CELL_PAUSE_MS);
         }
         try (Extractor extractor = open(window.context, window.media, window.headers)) {
             if (extractor == null || !extractor.isValid()) {
@@ -620,7 +622,9 @@ public final class TrickplayStore {
                 int index = frameIndex(position);
                 File file = frameFile(window.context, window.key, index);
                 if (file.isFile() && file.length() > 0) continue;
-                Bitmap bitmap = extractor.grab((index - 1) * STEP_MS, FRAME_WIDTH);
+                // 抽到格子标注的那个时间点本身，而不是网格向下取整的 10 秒台阶：
+                // 以前 51:53 的格子抽的是 51:50 的画面，手机上一眼就看得出图和时间对不上。
+                Bitmap bitmap = extractor.grab(position, FRAME_WIDTH);
                 if (bitmap == null) {
                     logFailure(window.context, "抽帧失败：" + TrickplayNative.lastError());
                     continue;

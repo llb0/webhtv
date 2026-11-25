@@ -297,6 +297,22 @@ public class CustomSeekView extends FrameLayout implements Player.Listener, Time
         positionView.setText(stringToTime(position));
     }
 
+    /**
+     * 任意跳转（原生快进、点缩略图、续播补跳）都先把屏显钉在目标点。
+     *
+     * <p>引擎在 seek 期间有一段时间会报 0，界面据此刷新就会看到「转圈时当前时间变 00:00、
+     * 转完才跳回目标」。这里复用已有的 pending 机制，把屏显锁住，直到引擎真正到位或超时。</p>
+     */
+    public void pinSeekPosition(long positionMs) {
+        Player progress = getProgressPlayer();
+        long duration = currentDuration > 0 ? currentDuration : progress == null ? 0 : Math.max(0, progress.getDuration());
+        long position = duration > 0 ? Util.constrainValue(positionMs, 0, duration) : Math.max(0, positionMs);
+        scrubbing = false;
+        beginPendingSeek(position);
+        removeCallbacks(runnable);
+        postDelayed(runnable, MIN_UPDATE_INTERVAL_MS);
+    }
+
     public void commitSeekPreview(long positionMs) {
         Player progress = getProgressPlayer();
         long duration = currentDuration > 0 ? currentDuration : progress == null ? 0 : Math.max(0, progress.getDuration());
