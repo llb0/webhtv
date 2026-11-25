@@ -335,6 +335,34 @@ public class SeekPreviewStrip extends FrameLayout {
         return false;
     }
 
+    /**
+     * 手机端：在预览层上横拖移动游标，松手进入停留窗口；点缩略图直接跳。
+     */
+    public boolean handleTouch(MotionEvent event) {
+        if (!active) return false;
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                if (!insideStrip(event)) return false;
+                dragging = true;
+                holdArmed = false;
+                updateFromTouch(event);
+                handler.removeCallbacks(holdRunner);
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (!dragging) return false;
+                updateFromTouch(event);
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (!dragging) return false;
+                dragging = false;
+                hold();
+                return true;
+            default:
+                return false;
+        }
+    }
+
     private boolean insideStrip(MotionEvent event) {
         int[] location = new int[2];
         container.getLocationOnScreen(location);
