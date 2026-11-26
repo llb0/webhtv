@@ -213,6 +213,13 @@ public final class TrickplayStore {
     public static void cancelAll() {
         // 只让正在跑的补帧循环在当前这格之后停下（空闲的会话已不再读数据，不会跟 seek 抢带宽），
         // 不在别的线程上 close 会话，避免和正在 grab 的线程抢同一个原生句柄。
+        // 被清掉的排队窗口同样要回调 onDone（这些位置这次没抽成，预览条得知道自己该收口了）。
+        for (Window pending : PENDING.values()) {
+            if (pending.onDone != null) {
+                final Runnable done = pending.onDone;
+                MAIN.post(done);
+            }
+        }
         PENDING.clear();
         RUNNING.clear();
         traceOnce("cancel all");
@@ -621,7 +628,12 @@ public final class TrickplayStore {
         if (RUNNING.add(key)) {
             IO.execute(() -> runWindow(window));
         } else {
-            PENDING.put(key, window);
+            // 覆盖前把旧窗的 onDone 交回去：预览条靠它做「缺格交接」，丢了回调它只能干等 30 秒超时。
+            Window dropped = PENDING.put(key, window);
+            if (dropped != null && dropped != window && dropped.onDone != null) {
+                final Runnable done = dropped.onDone;
+                MAIN.post(done);
+            }
         }
     }
 
