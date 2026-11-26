@@ -834,7 +834,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
         }
         // 末尾固定一行「分享本机」：手机把本机目录分享出去，另一端的 SMB 浏览就能搜到。
         boolean sharing = SmbShareController.isSharing(this);
-        labels.add(sharing ? "■ 停止分享  ·  " + SmbShareController.label(this)
+        String lock = SmbShareController.user(this).isEmpty() || SmbShareController.password(this).isEmpty()
+                ? "" : "（需账号密码）";
+        labels.add(sharing ? "■ 分享设置  ·  " + SmbShareController.label(this) + lock
                 : "＋ 分享本机文件（SMB 只读）");
         return labels;
     }
@@ -908,21 +910,195 @@ public class SmbBrowserActivity extends AppCompatActivity {
     }
 
     private void toggleShare() {
-        if (SmbShareController.isSharing(this)) {
-            SmbShareService.stop(this);
-            SmbShareController.stopServer(this);
-            setItems(hostLabels());
-            setStatus("已停止分享本机文件");
-            return;
+        showShareSettings();
+    }
+
+    /** 分享设置入口：开关、分享哪个目录、要不要口令，运行中也能改（改完立即重启服务端生效）。 */
+    private void showShareSettings() {
+        boolean sharing = SmbShareController.isSharing(this);
+        List<String> actions = new ArrayList<>();
+        List<Runnable> tasks = new ArrayList<>();
+        if (sharing) {
+            actions.add("停止分享");
+            tasks.add(this::stopShare);
+        } else {
+            actions.add("开始分享");
+            tasks.add(this::startShare);
         }
-        java.io.File root = SmbShareController.root(this);
-        if (!SmbShareController.startServer(this, root, SmbShareController.port(this))) {
+        actions.add("分享目录：" + SmbShareController.root(this).getAbsolutePath());
+        tasks.add(this::showShareRootPicker);
+        String account = SmbShareController.user(this);
+        String secret = SmbShareController.password(this);
+        boolean secured = !account.isEmpty() && !secret.isEmpty();
+        actions.add("账号密码：" + (secured ? account : "未设置（匿名可访问）"));
+        tasks.add(this::showShareAccountDialog);
+        String address = SmbShareController.label(this);
+        actions.add("本机地址：" + address);
+        tasks.add(() -> Toast.makeText(this, address, Toast.LENGTH_LONG).show());
+
+        List<Runnable> finalTasks = tasks;
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("本机文件分享")
+                .setItems(actions.toArray(new String[0]), (dialog, which) -> finalTasks.get(which).run())
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void startShare() {
+        File root = SmbShareController.root(this);
+        if (!SmbShareController.startServer(this, root, SmbShareController.port(this),
+                SmbShareController.user(this), SmbShareController.password(this))) {
             Toast.makeText(this, "分享启动失败：端口被占用或目录不可读", Toast.LENGTH_LONG).show();
             return;
         }
         SmbShareService.start(this);
         setItems(hostLabels());
         setStatus("正在分享：" + SmbShareController.label(this));
+    }
+
+    private void stopShare() {
+        SmbShareService.stop(this);
+        SmbShareController.stopServer(this);
+        setItems(hostLabels());
+        setStatus("已停止分享本机文件");
+    }
+
+    /** 目录选择器：当前目录的子目录可以点进去，「选择此目录」把当前目录设为分享根。 */
+    private void showShareRootPicker() {
+        showShareRootPicker(SmbShareController.root(this));
+    }
+
+    private void showShareRootPicker(File dir) {
+        File[] found = dir.listFiles(File::isDirectory);
+        List<File> dirs = new ArrayList<>();
+        if (found != null) {
+            for (File child : found) if (!child.isHidden()) dirs.add(child);
+        }
+        dirs.sort((first, second) -> first.getName().compareToIgnoreCase(second.getName()));
+        List<String> labels = new ArrayList<>();
+        for (File child : dirs) labels.add("📁 " + child.getName());
+        if (labels.isEmpty()) labels.add("（没有子目录）");
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(dir.getAbsolutePath())
+                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                    if (which < dirs.size()) showShareRootPicker(dirs.get(which));
+                })
+                .setPositiveButton("选择此目录", (dialog, which) -> applyShareRoot(dir))
+                .setNeutralButton("上一级", (dialog, which) -> {
+                    File parent = dir.getParentFile();
+                    if (parent != null) showShareRootPicker(parent);
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void applyShareRoot(File dir) {
+        boolean applied = SmbShareController.apply(this, dir, SmbShareController.user(this),
+                SmbShareController.password(this), SmbShareController.port(this));
+        if (!applied) {
+            Toast.makeText(this, "切换分享目录失败：目录不可读或端口被占用", Toast.LENGTH_LONG).show();
+            return;
+        }
+        setItems(hostLabels());
+        setStatus(SmbShareController.isSharing(this)
+                ? "分享目录已改为 " + dir.getAbsolutePath()
+                : "分享目录已设为 " + dir.getAbsolutePath());
+    }
+
+    /** 账号密码：两者都填才启用校验（匿名会被拒绝）；都留空就是匿名开放全部。 */
+    private void showShareAccountDialog() {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(22), dp(8), dp(22), 0);
+        EditText user = field("账号（留空=匿名开放）", InputType.TYPE_CLASS_TEXT);
+        EditText pass = secretField("密码（留空=匿名开放）");
+        user.setText(SmbShareController.user(this));
+        pass.setText(SmbShareController.password(this));
+        form.addView(user);
+        form.addView(pass);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("分享账号密码")
+                .setView(form)
+                .setNeutralButton("清除（改回匿名）", (dialog, which) -> applyShareAccount("", ""))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton("保存", (dialog, which) ->
+                        applyShareAccount(user.getText().toString().trim(), pass.getText().toString()))
+                .show();
+    }
+
+    private void applyShareAccount(String user, String password) {
+        if (user.isEmpty() != password.isEmpty()) {
+            Toast.makeText(this, "账号和密码要么都填，要么都留空", Toast.LENGTH_LONG).show();
+            return;
+        }
+        boolean applied = SmbShareController.apply(this, SmbShareController.root(this), user, password,
+                SmbShareController.port(this));
+        if (!applied) {
+            Toast.makeText(this, "保存账号密码失败：端口被占用", Toast.LENGTH_LONG).show();
+            return;
+        }
+        setItems(hostLabels());
+        setStatus(user.isEmpty() ? "已改回匿名开放（无账号密码）" : "分享账号密码已设置");
+    }
+
+    /** 密码输入框：刚敲下的那个字符短暂可见，600ms 后自动变回掩码。 */
+    private EditText secretField(String hint) {
+        EditText edit = field(hint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        edit.setTransformationMethod(new MaskAllTransformation());
+        edit.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence text, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence text, int start, int before, int count) {
+                if (count <= 0) return;
+                edit.setTransformationMethod(new RevealLastTransformation());
+                edit.postDelayed(() -> {
+                    edit.setTransformationMethod(new MaskAllTransformation());
+                    edit.setSelection(edit.getText().length());
+                }, 600);
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable text) {
+            }
+        });
+        return edit;
+    }
+
+    /** 全部字符显示为 *。 */
+    private static final class MaskAllTransformation implements android.text.method.TransformationMethod {
+        @Override
+        public CharSequence getTransformation(CharSequence source, android.view.View view) {
+            if (source == null) return null;
+            StringBuilder builder = new StringBuilder(source.length());
+            for (int i = 0; i < source.length(); i++) builder.append('*');
+            return builder.toString();
+        }
+
+        @Override
+        public void onFocusChanged(android.view.View view, CharSequence sourceText, boolean focused,
+                                   int direction, android.graphics.Rect previouslyFocusedRect) {
+        }
+    }
+
+    /** 只把最后一个字符露出来，其余显示为 *。 */
+    private static final class RevealLastTransformation implements android.text.method.TransformationMethod {
+        @Override
+        public CharSequence getTransformation(CharSequence source, android.view.View view) {
+            if (source == null) return null;
+            StringBuilder builder = new StringBuilder(source.length());
+            for (int i = 0; i < source.length(); i++) {
+                builder.append(i == source.length() - 1 ? source.charAt(i) : '*');
+            }
+            return builder.toString();
+        }
+
+        @Override
+        public void onFocusChanged(android.view.View view, CharSequence sourceText, boolean focused,
+                                   int direction, android.graphics.Rect previouslyFocusedRect) {
+        }
     }
 
     private void scanNetwork() {
@@ -1075,6 +1251,10 @@ public class SmbBrowserActivity extends AppCompatActivity {
 
     private void showAuthDialog() {
         loginAttempted = true;
+        if (isOwnShareHost(host)) {
+            showShareLoginDialog();
+            return;
+        }
         SmbCredentialStore.Stored stored = SmbCredentialStore.load(this, host);
         if (stored != null && username.isEmpty()) {
             username = stored.username;
@@ -1166,6 +1346,60 @@ public class SmbBrowserActivity extends AppCompatActivity {
                             runOnUiThread(() -> {
                                 setStatus(getString(R.string.smb_connect_failed) + "：" + shortError(e));
                                 showManualShareDialog();
+                            });
+                        }
+                    });
+                })
+                .show();
+    }
+
+    /**
+     * 访问自家分享：服务端只校验口令不校验用户名，所以固定用 guest 这类非空用户名走 NTLMv2，
+     * 真正的门槛是分享方设置的密码。
+     */
+    private void showShareLoginDialog() {
+        loginAttempted = true;
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(22), dp(8), dp(22), 0);
+        EditText user = field("账号（分享方设置的账号）", InputType.TYPE_CLASS_TEXT);
+        EditText pass = secretField("密码（分享方设置的密码）");
+        user.setText(username);
+        pass.setText(password);
+        form.addView(user);
+        form.addView(pass);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("访问分享 · " + host)
+                .setView(form)
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> setStatus(getString(R.string.smb_auth_failed)))
+                .setPositiveButton(R.string.smb_login, (dialog, which) -> {
+                    final String keeper = user.getText().toString().trim();
+                    final String secret = pass.getText().toString();
+                    if (keeper.isEmpty() || secret.isEmpty()) {
+                        Toast.makeText(this, "请填写分享方设置的账号和密码", Toast.LENGTH_LONG).show();
+                        loginAttempted = false;
+                        showShareLoginDialog();
+                        return;
+                    }
+                    worker.execute(() -> {
+                        try {
+                            SmbClient.listFiles(host, share.isEmpty() ? SmbShareController.SHARE : share,
+                                    "", keeper, secret, "");
+                            runOnUiThread(() -> {
+                                username = keeper;
+                                password = secret;
+                                domain = "";
+                                try {
+                                    SmbCredentialStore.save(this, host, username, password, domain);
+                                } catch (Exception ignored) {
+                                }
+                                connectHost(host, true);
+                            });
+                        } catch (Exception error) {
+                            runOnUiThread(() -> {
+                                setStatus(getString(R.string.smb_auth_failed) + "：" + shortError(error));
+                                loginAttempted = false;
+                                showShareLoginDialog();
                             });
                         }
                     });
@@ -1277,7 +1511,15 @@ public class SmbBrowserActivity extends AppCompatActivity {
                             : host + " / " + share + (path.isEmpty() ? "" : " / " + path));
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> setStatus(getString(R.string.smb_connect_failed) + "：" + shortError(e)));
+                runOnUiThread(() -> {
+                    // 自家分享开了口令，匿名访问会被拒：直接引导输入密码，而不是只报连接失败。
+                    if (isOwnShareHost(host) && !loginAttempted) {
+                        setStatus("需要访问口令");
+                        showAuthDialog();
+                        return;
+                    }
+                    setStatus(getString(R.string.smb_connect_failed) + "：" + shortError(e));
+                });
             }
         });
     }

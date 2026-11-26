@@ -12,6 +12,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -64,6 +65,7 @@ public final class SmbShareServer {
     private static final int STATUS_ACCESS_DENIED = 0xC0000022;
     private static final int STATUS_NOT_SUPPORTED = 0xC00000BB;
     private static final int STATUS_INVALID_INFO_CLASS = 0xC0000003;
+    private static final int STATUS_LOGON_FAILURE = 0xC000006D;
 
     private static final int MAX_READ = 8 * 1024 * 1024;
 
@@ -73,22 +75,34 @@ public final class SmbShareServer {
     private ServerSocket server;
     private File root;
     private int port = DEFAULT_PORT;
+    /** 账号密码都为空表示匿名开放全部；一旦设了账号密码，匿名访问直接拒绝。 */
+    private volatile String username = "";
+    private volatile String password = "";
 
     public synchronized boolean start(File root, int port) {
+        return start(root, port, "", "");
+    }
+
+    /** 账号密码任一为空就按匿名开放处理；两者都设了才要求账号密码，且匿名会被拒绝。 */
+    public synchronized boolean start(File root, int port, String username, String password) {
         stop();
         if (root == null || !root.isDirectory()) return false;
         try {
             ServerSocket socket = new ServerSocket();
             socket.setReuseAddress(true);
-            socket.bind(new InetSocketAddress(port));
+            // 运行中改设置要先 stop 再 start，旧连接的 TIME_WAIT 可能让端口短暂不可用，重试几次再认失败。
+            bindWithRetry(socket, port);
             this.server = socket;
             this.root = root;
             this.port = port;
+            this.username = username == null ? "" : username.trim();
+            this.password = password == null ? "" : password;
             this.running = true;
             Thread thread = new Thread(this::acceptLoop, "smb-share-accept");
             thread.setDaemon(true);
             thread.start();
-            log("start port=" + port + " root=" + root.getAbsolutePath());
+            log("start port=" + port + " root=" + root.getAbsolutePath()
+                    + " auth=" + (hasAccount() ? this.username : "anonymous"));
             return true;
         } catch (Exception error) {
             log("start failed port=" + port + " error=" + error);
@@ -114,12 +128,43 @@ public final class SmbShareServer {
         return running;
     }
 
+    /** 端口可能被刚断开的连接占在 TIME_WAIT 里，短暂重试几次。 */
+    private static void bindWithRetry(ServerSocket socket, int port) throws IOException {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                socket.bind(new InetSocketAddress(port));
+                return;
+            } catch (BindException busy) {
+                if (attempt >= 8) throw busy;
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw busy;
+                }
+            }
+        }
+    }
+
     public int getPort() {
         return port;
     }
 
     public File getRoot() {
         return root;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    /** 设了账号（且给了口令）就必须校验；否则匿名开放全部。 */
+    private boolean hasAccount() {
+        return !username.isEmpty() && !password.isEmpty();
     }
 
     private void acceptLoop() {
@@ -149,6 +194,8 @@ public final class SmbShareServer {
         private final AtomicLong nextHandle = new AtomicLong(1);
         private long sessionId;
         private int treeId;
+        /** 本次 Type2 下发的 8 字节 server challenge，校验 Type3 的 NTProofStr 要用。 */
+        private byte[] challenge;
 
         Connection(Socket socket, File root) {
             this.socket = socket;
@@ -303,9 +350,13 @@ public final class SmbShareServer {
                 return sessionReply(STATUS_MORE_PROCESSING_REQUIRED,
                         spnego ? spnegoTarg(1, challenge) : challenge);
             }
-            // Type 3（带账号的口令响应）：原型不校验口令，直接接受。
+            // Type 3（带账号的口令响应）：设了账号密码就按 NTLMv2 校验（账号密码都要对），否则放行。
+            if (hasAccount() && !NtlmV2Verifier.verify(buffer, challenge, username, password)) {
+                log("session setup denied: bad account");
+                return sessionReply(STATUS_LOGON_FAILURE, null);
+            }
             if (sessionId == 0) sessionId = newSessionId();
-            return sessionReply(STATUS_SUCCESS, null);
+            return sessionReply(STATUS_SUCCESS, spnego ? spnegoTarg(0, null) : null);
         }
 
         private Reply sessionReply(int status, byte[] security) {
@@ -375,7 +426,7 @@ public final class SmbShareServer {
             return out;
         }
 
-        /** NTLM Type2：只为了让客户端能算出 Type3；服务端不校验，challenge 随机给。 */
+        /** NTLM Type2：只为了让客户端能算出 Type3；challenge 随机生成并留作后续校验。 */
         private byte[] ntlmChallenge() {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             out.writeBytes("NTLMSSP\0".getBytes(StandardCharsets.US_ASCII));
@@ -385,7 +436,7 @@ public final class SmbShareServer {
             writeLe32(out, 0);                   // TargetNameOffset
             // 必须带上 128 位加密与扩展会话安全：smbj 的 NTLM 客户端缺了这两项会直接拒绝。
             writeLe32(out, 0x20880205);          // UNICODE|REQUEST_TARGET|NTLM|EXT_SESSION|128|TARGET_INFO
-            byte[] challenge = new byte[8];
+            challenge = new byte[8];
             new SecureRandom().nextBytes(challenge);
             out.writeBytes(challenge);
             out.writeBytes(new byte[8]);
