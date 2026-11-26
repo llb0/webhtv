@@ -53,6 +53,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
+import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.smb.SmbClient;
 import com.fongmi.android.tv.smb.SmbCredentialStore;
@@ -1392,7 +1393,11 @@ public class SmbBrowserActivity extends AppCompatActivity {
             return;
         }
         Vod vod = new Vod();
-        vod.setSiteKey(SiteApi.PUSH);
+        // 线路 key 必须落成 push_agent，和本地 file 推送进详情页同一个 key。
+        Site site = new Site();
+        site.setKey(SiteApi.PUSH);
+        site.setName("SMB");
+        vod.setSite(site);
         vod.setId(currentUrl);
         vod.setName(folder);
         vod.setPlayUrl(currentUrl);
