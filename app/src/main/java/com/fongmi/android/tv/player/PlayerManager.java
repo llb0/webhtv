@@ -3441,7 +3441,11 @@ public void resetTrack(int type) {
         }
     }
 
-    /** mpg/avi 这类 PS/AVI 系老容器，重开一次会话就要走一遍 ijk 的 stop/reset 回收。 */
+    /**
+     * mpg/avi 这类 PS/AVI 系老容器，重开一次会话就要走一遍 ijk 的 stop/reset 回收。
+     * 命中判定在下面统一 {@code toLowerCase}，所以光盘里大写的 {@code AVSEQ01.DAT} 一样命中；
+     * 小写 {@code .dat} 只是不会播放（视频判定只认大写），落在这里也不会有任何实际影响。
+     */
     private static final Set<String> LEGACY_IJK_CONTAINERS = Set.of(
             "mpg", "mpeg", "mpe", "vob", "avi", "wmv", "rm", "rmvb", "asf", "flv", "3gp", "f4v", "dat");
 
