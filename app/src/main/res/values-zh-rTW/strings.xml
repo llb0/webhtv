@@ -3290,4 +3290,7 @@
 <string name="following_calendar_hint">點選日期查看當天排期；週/月切換不會重新請求。</string>
 <string name="following_calendar_notice_filtered">「%1$s」不在目前篩選（%2$s）下，篩選已保留。</string>
 <string name="following_calendar_day_desc">%1$s，%2$d 集</string>
+<string name="following_calendar_week_range">%1$d月%2$d日 – %3$d月%4$d日</string>
+<string name="following_calendar_empty_month">本月沒有官方排期。可用左右箭頭切換範圍。</string>
+<string name="following_calendar_empty_week">本週沒有官方排期。可切到「月」或點選其它日期。</string>
 </resources>
