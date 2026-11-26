@@ -876,11 +876,18 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
     }
 
     private void stopInternal(boolean resetState) {
+        // 先把这块 surface 从引擎上摘下来，再 stop/reset。
+        // 电视上 mpg 快进退出的崩溃栈是：IjkMediaPlayer.reset → ijkmp_shutdown →
+        // ffp_wait_stop_l → SDL_WaitThread，同时 mali-utility-worker 线程 SIGSEGV；
+        // 也就是关闭时渲染线程还在用这块 surface，Mali 驱动在 EGL 上踩空了。
+        // 这里只摘引擎侧的绑定，surface/surfaceHolder 字段保留，reset 之后再绑回去。
+        unbindVideoOutput();
         try {
             if (playbackState != Player.STATE_IDLE) ijk.stop();
         } catch (Throwable ignored) {
         }
         ijk.reset();
+        rebindVideoOutput("reset");
         hlsProxy.clear();
         invalidateResourceObservation();
         currentDash = false;
@@ -1049,6 +1056,18 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         SpiderDebug.log("ijk",
                 "surface rebind reason=%s holder=%s valid=%s action=%s",
                 reason, hasHolder, hasSurface, action);
+    }
+
+    /** 只把显示目标从引擎上摘掉，保留 surface/surfaceHolder，便于 reset 后重新绑定。 */
+    private void unbindVideoOutput() {
+        try {
+            ijk.setDisplay(null);
+        } catch (Throwable ignored) {
+        }
+        try {
+            ijk.setSurface(null);
+        } catch (Throwable ignored) {
+        }
     }
 
     private void clearVideoOutput() {

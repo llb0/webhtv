@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.api;
 
+import android.net.Uri;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
@@ -9,6 +10,8 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Class;
+import com.fongmi.android.tv.bean.Episode;
+import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
@@ -20,6 +23,7 @@ import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.smb.SmbCastSource;
+import com.fongmi.android.tv.smb.SmbClient;
 import com.fongmi.android.tv.utils.PushParser;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -31,6 +35,7 @@ import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Prefers;
 import com.github.catvod.utils.Util;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -446,11 +451,52 @@ public class SiteApi {
         if (smb && !push.hasExplicitTitle()) vod.setName(SmbCastSource.titleOf(push.getUrl()));
         // 本地文件播放/推送到远程 app 时，把 file:/// 转成本机局域网代理地址，
         // 否则远程设备拿到 file:/// 无法访问（会崩）。与 fish 的 buildPushVod 一致。
-        vod.setPlayUrl(!smb && push.getUrl().startsWith("file://") ? toLanHttpUrl(push.getUrl()) : push.getUrl());
+        boolean localFile = !smb && push.getUrl().startsWith("file://");
+        vod.setPlayUrl(localFile ? toLanHttpUrl(push.getUrl()) : push.getUrl());
         vod.setPlayFrom(ResUtil.getString(R.string.push));
         vod.setPic(ResUtil.getString(R.string.push_image));
         Source.get().parse(vod.setFlags());
+        if (localFile) applyLocalFolderEpisodes(vod, push.getUrl());
         return Result.vod(vod);
+    }
+
+    /**
+     * 本地单文件改成“同目录剧集”：只对本地 file:// 生效，链接一律走和单文件相同的
+     * {@link #toLanHttpUrl}（本机 /file/ 代理），不改代理逻辑；点中的那个文件是当前集。
+     * 目录里只有一个视频时保持原样。
+     */
+    private static void applyLocalFolderEpisodes(Vod vod, String fileUrl) {
+        try {
+            String path = fileUrl.substring("file://".length());
+            File current = new File(Uri.parse(fileUrl).getPath() == null ? path : Uri.parse(fileUrl).getPath());
+            File dir = current.getParentFile();
+            if (dir == null || !dir.isDirectory()) return;
+            File[] files = dir.listFiles(f -> f.isFile() && SmbClient.isVideo(f.getName()));
+            if (files == null || files.length < 2) return;
+            Arrays.sort(files, (a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.getName(), b.getName()));
+            String flagName = ResUtil.getString(R.string.push);
+            String currentLan = toLanHttpUrl(fileUrl);
+            StringBuilder urls = new StringBuilder();
+            for (File file : files) {
+                if (urls.length() > 0) urls.append('#');
+                urls.append(stripFileExtension(file.getName())).append('$')
+                        .append(toLanHttpUrl("file://" + file.getAbsolutePath()));
+            }
+            // 当前集仍然用点中的那个文件（和单文件播放同一个代理地址）
+            vod.setPlayUrl(currentLan);
+            Flag flag = Flag.create(flagName, urls.toString());
+            for (Episode episode : flag.getEpisodes()) {
+                if (currentLan.equals(episode.getUrl())) episode.setSelected(true);
+            }
+            vod.getFlags().add(0, flag);
+        } catch (Exception ignored) {
+            // 目录拿不到就退回单文件，不影响播放
+        }
+    }
+
+    private static String stripFileExtension(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
     }
 
     /** 把 file:///绝对路径 转成本机 NanoHTTPD 的局域网 /file/ 代理地址。 */
