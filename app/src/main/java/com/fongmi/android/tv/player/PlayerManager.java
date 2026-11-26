@@ -2924,8 +2924,21 @@ public void resetTrack(int type) {
         IjkBufferController.Decision decision =
                 ijkBufferController.stageInitial(
                         playbackAutoSession, context.session(), policy);
+        IjkBufferPolicy.Config stagedConfig = decision.targetConfig();
+        if (isLegacyIjkContainer()) {
+            // 老容器不能靠运行期重开来把缓冲档位调大（重开要回收 SDL+EGL，会崩在 libijkplayer.so），
+            // 所以起播前就一次到位：档位顶到高水位（受内存天花板约束），水位 100/1000/5000ms。
+            // 这样“准备工作”全发生在 prepare 之前，播放中不再重启。
+            int ceiling = Math.max(IjkBufferPolicy.LOW_BUFFER_MB, decision.memoryCeilingMb());
+            stagedConfig = new IjkBufferPolicy.Config(
+                    Math.min(IjkBufferPolicy.HIGH_BUFFER_MB, ceiling), 100, 1_000, 5_000);
+            PlaybackTrace.log("ijk-buffer", playbackTrace.current(),
+                    "action=stage-initial-legacy config=%s ceiling=%d url=%s",
+                    stagedConfig.label(), decision.memoryCeilingMb(),
+                    spec == null ? "" : spec.getUrl());
+        }
         if (policy.managed()) {
-            ijk.stageAutomaticInputBufferConfig(decision.targetConfig());
+            ijk.stageAutomaticInputBufferConfig(stagedConfig);
         }
         IjkDecodePressureController.Decision decodeDecision =
                 ijkDecodePressureController.stageInitial(
