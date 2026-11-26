@@ -518,18 +518,29 @@ public class SeekPreviewStrip extends FrameLayout {
         final List<Long> missingList = missing;
         missingList.sort((a, b) -> Integer.compare(priority.indexOf(a), priority.indexOf(b)));
         final List<Long> all = positions;
+        // 把这一排的图从磁盘读出来贴上：只贴“位置没变”的格子，读到就刷一格。
+        // 这一步必须独立于“新抽到一格”的回调单独跑一遍——整片已经预抽过的时候，
+        // 窗口里每格都命中磁盘、一条 grab 都不会有，onFrame 永远不会来，
+        // 界面也就一格都不读，表现就是整排只有时间文字没有图。
+        final Runnable readMissing = () -> {
+            for (long position : missingList) {
+                Bitmap bitmap = TrickplayStore.read(context, media, position, width, height);
+                if (bitmap == null) continue;
+                final Bitmap found = bitmap;
+                final long at = position;
+                handler.post(() -> applyAt(all, at, found));
+            }
+        };
         TrickplayStore.ensureFrames(context, media, headers, missingList,
+                () -> TrickplayStore.io().execute(readMissing),
                 () -> TrickplayStore.io().execute(() -> {
-                    // 每落一格就只读这一格，贴上去；已贴过的格子不动。
-                    for (long position : missingList) {
-                        Bitmap bitmap = TrickplayStore.read(context, media, position, width, height);
-                        if (bitmap == null) continue;
-                        final Bitmap found = bitmap;
-                        final long at = position;
-                        handler.post(() -> applyAt(all, at, found));
-                    }
-                }),
-                () -> handler.post(() -> onWindowDone(context, all)));
+                    // 先按磁盘现状把这一排读一遍，再判断还缺哪几格：
+                    // 反过来的话，缓存齐全的片子会因为“读还没跑”被判成整排缺格，
+                    // 白白交接一轮再退到兜底图。
+                    readMissing.run();
+                    handler.post(() -> onWindowDone(context, all));
+                });
+        TrickplayStore.io().execute(readMissing);
     }
 
     /**
