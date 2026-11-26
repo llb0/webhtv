@@ -187,6 +187,11 @@
             android:stopWithTask="false" />
 
         <service
+            android:name=".share.SmbShareService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".lab.LabRuntimeService"
             android:exported="false"
             android:foregroundServiceType="dataSync"

@@ -23,6 +23,7 @@ import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.smb.SmbCastSource;
+import com.fongmi.android.tv.smb.SmbFolder;
 import com.fongmi.android.tv.smb.SmbClient;
 import com.fongmi.android.tv.utils.PushParser;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -442,6 +443,8 @@ public class SiteApi {
     }
 
     private static Result pushDetail(@NonNull String id, PushParser.Parsed push) throws Exception {
+        // SMB 目录剧集：id 是 smb:// 描述符，历史/重进都按它重新列目录，剧集表才不会只剩点的那一集。
+        if (SmbFolder.isDescriptor(push.getUrl())) return Result.vod(SmbFolder.detail(id, push.getName()));
         Vod vod = new Vod();
         vod.setId(id);
         vod.setName(push.getName());

@@ -160,12 +160,35 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         return group == null ? "" : group;
     }
 
+    /**
+     * 实际生效的分组：结果页上的分组下拉改的就是它。分组不是“显示过滤”，
+     * 它直接决定这次搜索把哪些站发给 worker（见 setSites）。
+     */
+    private String effectiveGroup() {
+        return TextUtils.isEmpty(mFilterGroup) ? getSearchGroup() : mFilterGroup;
+    }
+
+    /** 搜索页改作用域时同步给已经开着的搜索结果页，换范围后重搜。 */
+    public void setScope(String siteKey, String group) {
+        Bundle args = getArguments();
+        if (args == null) return;
+        args.putString("siteKey", siteKey == null ? "" : siteKey);
+        args.putString("group", group == null ? "" : group);
+        mFilterGroup = group == null ? "" : group;
+        if (mSites != null) {
+            setSites();
+            setWidth();
+            search();
+            requireActivity().invalidateOptionsMenu();
+        }
+    }
+
     private boolean isSiteSearch() {
         return !TextUtils.isEmpty(getSiteKey());
     }
 
     private boolean isGroupSearch() {
-        return !TextUtils.isEmpty(getSearchGroup());
+        return !TextUtils.isEmpty(effectiveGroup());
     }
 
     private String getPic() {
@@ -193,7 +216,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private String getTitleText() {
         if (isSiteSearch()) return getString(com.fongmi.android.tv.R.string.search_result_current, getKeyword());
-        if (isGroupSearch()) return getString(com.fongmi.android.tv.R.string.search_result_group, getSearchGroup(), getKeyword());
+        if (isGroupSearch()) return getString(com.fongmi.android.tv.R.string.search_result_group, effectiveGroup(), getKeyword());
         return getString(com.fongmi.android.tv.R.string.search_result_all, getKeyword());
     }
 
@@ -201,6 +224,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     protected void initView() {
         mScroller = new CustomScroller(this);
         mSimilarity = Setting.getSearchSimilarity();
+        mFilterGroup = getSearchGroup();
         setSites();
         setWidth();
         setRecyclerView();
@@ -238,11 +262,15 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private void setSites() {
         String siteKey = getSiteKey();
-        String group = getSearchGroup();
+        String group = effectiveGroup();
         mSites = new ArrayList<>();
+        List<Site> scopeSites = new ArrayList<>();
         for (Site site : VodConfig.get().getSites()) {
             if (!site.isSearchable()) continue;
             if (!TextUtils.isEmpty(siteKey) && !site.getKey().equals(siteKey)) continue;
+            scopeSites.add(site);
+            // 选了分组就只把该组的站发给 worker：以前是全部站都搜一遍、再按分组把结果藏起来，
+            // 白等一轮网络请求，还白占并发。
             if (!TextUtils.isEmpty(group) && !site.inGroup(group)) continue;
             mSites.add(site);
         }
@@ -250,7 +278,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         if (Setting.getSearchResultSort() != 1) SiteHealthStore.sortSites(mSites);
         mSiteOrder.clear();
         for (int i = 0; i < mSites.size(); i++) mSiteOrder.put(mSites.get(i).getKey(), i);
-        mGroups = isSiteSearch() || isGroupSearch() ? new ArrayList<>() : SiteGroupOrderStore.sort(Site.getGroups(mSites));
+        // 可切换的分组来自作用域内的全部站，不能从“已筛选后的站”里取，否则选完就只剩一组、换不回去。
+        mGroups = isSiteSearch() ? new ArrayList<>() : SiteGroupOrderStore.sort(Site.getGroups(scopeSites));
     }
 
     private void setWidth() {
@@ -557,7 +586,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     }
 
     private boolean canFilterGroup() {
-        return !isSiteSearch() && !isGroupSearch() && mGroups != null && !mGroups.isEmpty();
+        return !isSiteSearch() && mGroups != null && !mGroups.isEmpty();
     }
 
     private void onSimilarityFilter() {
@@ -704,7 +733,11 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private void setFilterGroup(String group) {
         mFilterGroup = group == null ? "" : group;
-        applyFilters(getActiveSiteKey());
+        // 记住选择，下次进搜索页直接沿用；然后按新范围重新建站列表、重搜。
+        Setting.putSearchScopeGroup(mFilterGroup);
+        setSites();
+        setWidth();
+        search();
         requireActivity().invalidateOptionsMenu();
     }
 

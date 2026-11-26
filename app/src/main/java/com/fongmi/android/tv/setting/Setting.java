@@ -47,6 +47,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 public class Setting {
 
@@ -1766,6 +1767,23 @@ public class Setting {
 
     public static void putSearchResultSort(int sort) {
         Prefers.put("search_result_sort", sort == 0 ? 0 : 1);
+    }
+
+    /** 搜索作用域：记忆上一次选的“当前站 / 分组”，下次进搜索页不再是“全部”。 */
+    public static boolean isSearchScopeCurrent() {
+        return Prefers.getBoolean("search_scope_current", false);
+    }
+
+    public static void putSearchScopeCurrent(boolean current) {
+        Prefers.put("search_scope_current", current);
+    }
+
+    public static String getSearchScopeGroup() {
+        return Objects.toString(Prefers.getString("search_scope_group", ""), "");
+    }
+
+    public static void putSearchScopeGroup(String group) {
+        Prefers.put("search_scope_group", Objects.toString(group, ""));
     }
 
     public static int getSearchSimilarity() {

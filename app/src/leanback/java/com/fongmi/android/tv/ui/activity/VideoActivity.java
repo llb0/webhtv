@@ -9616,7 +9616,10 @@ private boolean runtimeSourceOnly;
     private boolean hasRememberedFocus() {
         return mFocus2 != null && mFocus2.getVisibility() == View.VISIBLE
                 && PlayerControlFocusHelper.isDescendant(mBinding.control.getRoot(), mFocus2)
-                && mFocus2 != mBinding.control.action.opening && mFocus2 != mBinding.control.action.ending;
+                && mFocus2 != mBinding.control.action.opening && mFocus2 != mBinding.control.action.ending
+                // 「旋转」和片头/片尾一样不算记忆落点：这是一次性动作按钮，不是用户停驻的位置。
+                // 上次停在旋转上时，下次唤出控制栏应回到更早的记忆焦点；没有就落到第一颗可见按钮。
+                && mFocus2 != mBinding.control.action.rotate;
     }
 
     private View getFocus2() {

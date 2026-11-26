@@ -162,7 +162,10 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        mCurrentSite = !TextUtils.isEmpty(getSiteKey());
+        // 上次选的作用域留下来，别每次都回到“全部”。
+        mCurrentSite = !TextUtils.isEmpty(getSiteKey()) || Setting.isSearchScopeCurrent();
+        mScopeGroup = mCurrentSite ? "" : Setting.getSearchScopeGroup();
+        if (mCurrentSite && getHome().isEmpty()) mCurrentSite = false;
         CustomKeyboard.init(this, mBinding);
         setRecyclerView();
         checkKeyword();
@@ -175,7 +178,11 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
         super.onNewIntent(intent);
         setIntent(intent);
         // 连续语音搜索：同一个搜索页换关键词重查，不再叠页。
-        mCurrentSite = !TextUtils.isEmpty(getSiteKey());
+        // 新 intent 没带 siteKey 时保留用户记住的作用域，不要打回“全部”。
+        if (!TextUtils.isEmpty(getSiteKey())) {
+            mCurrentSite = true;
+            mScopeGroup = "";
+        }
         checkKeyword();
         setSearchScope();
         onSearch();
@@ -414,6 +421,9 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
     private void selectScope(boolean current, String group, PopupWindow popup) {
         mCurrentSite = current;
         mScopeGroup = group;
+        // 记住作用域；下次进来按这次选的来。
+        Setting.putSearchScopeCurrent(mCurrentSite);
+        Setting.putSearchScopeGroup(mScopeGroup);
         setSearchScope();
         popup.dismiss();
     }

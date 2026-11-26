@@ -2,7 +2,7 @@ package com.fongmi.android.tv.smb;
 
 /**
  * 局域网 SMB 主机扫描：只扫描物理网卡上的私有 IPv4 网段（最多按 /24 收窄），
- * 对 445 端口做带超时的 TCP 探测。扫描结果是主机 IP 列表，不在这里做登录或共享枚举；
+ * 对 445 / 4450 端口做带超时的 TCP 探测。扫描结果是主机 IP 列表，不在这里做登录或共享枚举；
  * 登录和共享选择由 {@link com.fongmi.android.tv.ui.activity.SmbBrowserActivity} 处理。
  */
 
@@ -69,13 +69,12 @@ public final class SmbNetworkScanner {
                 tasks.add(new Callable<String>() {
                     @Override
                     public String call() {
-                        try (Socket socket = new Socket()) {
-                            socket.setTcpNoDelay(true);
-                            socket.connect(new InetSocketAddress(host, 445), 180);
-                            return host;
-                        } catch (Exception ignored) {
-                            return null;
-                        }
+                        // 445 是标准 SMB 端口；4450 是本项目手机端分享用的高位端口
+                        // （非 root 绑不了 445）。扫到 4450 时主机名带上端口，
+                        // 浏览页据此直连共享、跳过 srvsvc 枚举。
+                        if (probe(host, 445)) return host;
+                        if (probe(host, 4450)) return host + ":4450";
+                        return null;
                     }
                 });
             }
@@ -96,8 +95,19 @@ public final class SmbNetworkScanner {
         }
     }
 
+    private static boolean probe(String host, int port) {
+        try (Socket socket = new Socket()) {
+            socket.setTcpNoDelay(true);
+            socket.connect(new InetSocketAddress(host, port), 180);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private static long ipValue(String value) {
-        String[] parts = value.split("\\.");
+        int cut = value.indexOf(':');
+        String[] parts = (cut > 0 ? value.substring(0, cut) : value).split("\\.");
         long result = 0;
         for (String part : parts) result = (result << 8) | Integer.parseInt(part);
         return result;

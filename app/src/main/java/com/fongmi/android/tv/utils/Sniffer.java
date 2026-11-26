@@ -186,19 +186,48 @@ public class Sniffer {
         int start = span.length();
         span.append(value);
         if (types.isEmpty()) return;
-        // 多条链接按"/"拆分名字，与数组顺序一一对应；条数对不上就整段挂第一项，避免拆出半截文本
-        String[] names = types.size() > 1 ? value.split("/") : new String[]{value};
-        if (names.length != types.size()) {
+        if (types.size() == 1) {
             span.setSpan(factory.apply(Result.type(types.get(0))), start, span.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             return;
         }
-        int offset = start;
-        for (int i = 0; i < names.length; i++) {
-            int begin = offset + (i > 0 ? 1 : 0);
-            int end = begin + names[i].length();
-            span.setSpan(factory.apply(Result.type(types.get(i))), begin, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            offset = end;
+        // 多个名字与多个链接按顺序一一对应；分隔符只认 / 、 , ，（站源三种写法都常见，
+        // 原来只认 "/"，用逗号写的名字会被当成一整段，结果只有第一个名字能点）。
+        List<int[]> ranges = nameRanges(value);
+        if (ranges.size() != types.size()) {
+            span.setSpan(factory.apply(Result.type(types.get(0))), start, span.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            return;
         }
+        for (int i = 0; i < ranges.size(); i++) {
+            int[] range = ranges.get(i);
+            int begin = start + range[0];
+            int end = start + range[1];
+            span.setSpan(factory.apply(Result.type(types.get(i))), begin, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+    }
+
+    /** 按 / 、 , ， 切出每个名字的起止下标（相对入参），两端空白不计入范围。 */
+    private static List<int[]> nameRanges(String value) {
+        List<int[]> ranges = new ArrayList<>();
+        int length = value.length();
+        int from = -1;
+        for (int index = 0; index <= length; index++) {
+            boolean separator = index == length || isNameSeparator(value.charAt(index));
+            if (!separator) {
+                if (from < 0 && !Character.isWhitespace(value.charAt(index))) from = index;
+                continue;
+            }
+            if (from >= 0) {
+                int to = index;
+                while (to > from && Character.isWhitespace(value.charAt(to - 1))) to--;
+                if (to > from) ranges.add(new int[]{from, to});
+                from = -1;
+            }
+        }
+        return ranges;
+    }
+
+    private static boolean isNameSeparator(char value) {
+        return value == '/' || value == '、' || value == ',' || value == '，';
     }
 
     // {…} 原样返回；[…] 按顶层大括号拆成多条，供逐个名字挂点击
