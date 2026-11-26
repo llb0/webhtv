@@ -861,11 +861,12 @@ public class SeekPreviewStrip extends FrameLayout {
         }
 
         void setFocused(boolean focused) {
-            focusRing.setVisibility(focused || highlight ? View.VISIBLE : View.GONE);
-            focusRing.setAlpha(focused ? 1f : 0.55f);
+            // 只有真正的焦点才画描边：以前“当前进度”那格也常亮淡描边，看着像焦点停在那格。
+            focusRing.setVisibility(focused ? View.VISIBLE : View.GONE);
+            focusRing.setAlpha(1f);
         }
 
-        /** 当前进度那一格常亮一个淡描边，一眼就能认出「现在在这」。 */
+        /** 当前进度那一格不再画描边，只把时间那一行提亮（字号+暖色）。 */
         void setHighlight(boolean on) {
             highlight = on;
             label.setTextColor(on ? 0xFFFFC08A : Color.WHITE);
