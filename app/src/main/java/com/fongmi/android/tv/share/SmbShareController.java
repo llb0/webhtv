@@ -27,7 +27,6 @@ public final class SmbShareController {
     private static final String KEY_ROOT = "root";
     private static final String KEY_PORT = "port";
     private static final String KEY_USER = "user";
-    private static final String KEY_SHARE = "share";
     private static final String KEY_PASSWORD = "password";
 
     private static final Object LOCK = new Object();
@@ -51,10 +50,12 @@ public final class SmbShareController {
         return prefs(context).getInt(KEY_PORT, SmbShareServer.DEFAULT_PORT);
     }
 
-    /** 共享名，默认 webhtv；改它只影响本机对外暴露的名字。 */
+    /**
+     * 共享名固定 webhtv，不再允许修改：改了只会让另一端的连接更难对上，
+     * 对“点一下就能连”没有任何收益（用户误以为那是主机名）。
+     */
     public static String share(Context context) {
-        String value = prefs(context).getString(KEY_SHARE, SmbShareServer.SHARE_NAME);
-        return value == null || value.trim().isEmpty() ? SmbShareServer.SHARE_NAME : value.trim();
+        return SmbShareServer.SHARE_NAME;
     }
 
     /** 分享账号：与口令一起设置；两者都为空时是匿名开放。 */
@@ -97,7 +98,7 @@ public final class SmbShareController {
         SmbShareServer instance = server(context);
         String account = user == null ? "" : user.trim();
         String secret = password == null ? "" : password;
-        String name = share == null || share.trim().isEmpty() ? SmbShareServer.SHARE_NAME : share.trim();
+        String name = SmbShareServer.SHARE_NAME;
         if (instance.isRunning()) {
             if (instance.getPort() == port && root != null && root.equals(instance.getRoot())
                     && account.equals(instance.getUsername()) && secret.equals(instance.getPassword())
@@ -111,7 +112,6 @@ public final class SmbShareController {
                     .putInt(KEY_PORT, port)
                     .putString(KEY_USER, account)
                     .putString(KEY_PASSWORD, secret)
-                    .putString(KEY_SHARE, instance.getShareName())
                     .apply();
         }
         return started;
@@ -119,23 +119,17 @@ public final class SmbShareController {
 
     /** 保存分享设置；已经开着分享就按新设置重启服务端，立刻生效。 */
     public static boolean apply(Context context, File root, String user, String password, int port) {
-        return apply(context, root, user, password, share(context), port);
-    }
-
-    public static boolean apply(Context context, File root, String user, String password, String share, int port) {
         File target = root != null && root.isDirectory() ? root : root(context);
         String account = user == null ? "" : user.trim();
         String secret = password == null ? "" : password;
-        String name = share == null || share.trim().isEmpty() ? SmbShareServer.SHARE_NAME : share.trim();
         prefs(context).edit()
                 .putString(KEY_ROOT, target.getAbsolutePath())
                 .putInt(KEY_PORT, port)
                 .putString(KEY_USER, account)
                 .putString(KEY_PASSWORD, secret)
-                .putString(KEY_SHARE, name)
                 .apply();
         if (!isSharing(context)) return true;
-        return startServer(context, target, port, account, secret, name);
+        return startServer(context, target, port, account, secret);
     }
 
     public static void stopServer(Context context) {

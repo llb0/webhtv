@@ -60,6 +60,7 @@ import com.fongmi.android.tv.share.SmbShareService;
 import com.fongmi.android.tv.smb.SmbClient;
 import com.fongmi.android.tv.smb.SmbCredentialStore;
 import com.fongmi.android.tv.smb.SmbNetworkScanner;
+import com.fongmi.android.tv.smb.SmbFolder;
 import com.fongmi.android.tv.smb.SmbPlaybackProxy;
 import com.fongmi.android.tv.smb.SmbRowAdapter;
 import com.fongmi.android.tv.smb.SmbThumbnailCache;
@@ -913,7 +914,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
         showShareSettings();
     }
 
-    /** 分享设置入口：开关、分享哪个目录、账号密码、共享名，运行中也能改（改完立即重启服务端生效）。 */
+    /** 分享设置入口：开关、分享哪个目录、账号密码。运行中也能改，改完立即重启服务端生效。 */
     private void showShareSettings() {
         boolean sharing = SmbShareController.isSharing(this);
         List<String> actions = new ArrayList<>();
@@ -932,8 +933,6 @@ public class SmbBrowserActivity extends AppCompatActivity {
         boolean secured = !account.isEmpty() && !secret.isEmpty();
         actions.add("账号密码：" + (secured ? account : "未设置（匿名可访问）"));
         tasks.add(this::showShareAccountDialog);
-        actions.add("共享名：" + SmbShareController.share(this) + "（点此修改）");
-        tasks.add(this::showShareNameDialog);
         actions.add("本机地址：" + SmbShareController.label(this));
         tasks.add(() -> Toast.makeText(this, SmbShareController.label(this), Toast.LENGTH_LONG).show());
 
@@ -969,29 +968,6 @@ public class SmbBrowserActivity extends AppCompatActivity {
             box.addView(row, params);
         }
         dialog.show();
-    }
-
-    private void showShareNameDialog() {
-        EditText input = field("共享名（默认 webhtv）", InputType.TYPE_CLASS_TEXT);
-        input.setText(SmbShareController.share(this));
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("共享名")
-                .setView(input)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton("保存", (dialog, which) -> applyShareName(input.getText().toString()))
-                .show();
-    }
-
-    private void applyShareName(String name) {
-        boolean applied = SmbShareController.apply(this, SmbShareController.root(this),
-                SmbShareController.user(this), SmbShareController.password(this),
-                name == null ? "" : name.trim(), SmbShareController.port(this));
-        if (!applied) {
-            Toast.makeText(this, "改共享名失败：端口被占用", Toast.LENGTH_LONG).show();
-            return;
-        }
-        setItems(hostLabels());
-        setStatus("共享名已改为 " + SmbShareController.share(this));
     }
 
     private void startShare() {
@@ -1062,9 +1038,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(22), dp(8), dp(22), 0);
         EditText user = field("账号（留空=匿名开放）", InputType.TYPE_CLASS_TEXT);
-        EditText pass = addSecretField(form, "密码（留空=匿名开放）", SmbShareController.password(this));
         user.setText(SmbShareController.user(this));
         form.addView(user);
+        EditText pass = addSecretField(form, "密码（留空=匿名开放）", SmbShareController.password(this));
         new MaterialAlertDialogBuilder(this)
                 .setTitle("分享账号密码")
                 .setView(form)
@@ -1211,7 +1187,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
             }
         }
         loginAttempted = false;
-        // 带端口的主机是本项目自家的分享（非 root 只能绑 4450）：共享名按本机记住的来，
+        // 带端口的主机是本项目自家的分享（非 root 只能绑 4450）：共享名固定 webhtv，
         // 而且自家服务端不实现 srvsvc 枚举，直接进共享目录，别再走 listShares。
         if (isOwnShareHost(value)) {
             share = ownShareName(value);
@@ -1363,39 +1339,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** 自家分享的共享名按主机记住，默认 webhtv（对方改过名就靠输入框更新）。 */
+    /** 自家分享的共享名固定 webhtv：改它只会让另一端更难连，没有意义，所以不再可配。 */
     private String ownShareName(String hostName) {
-        String value = getSharedPreferences("smb_hosts", MODE_PRIVATE).getString("share:" + hostName, null);
-        return value == null || value.trim().isEmpty() ? SmbShareController.SHARE : value.trim();
-    }
-
-    private void saveOwnShareName(String hostName, String shareName) {
-        getSharedPreferences("smb_hosts", MODE_PRIVATE).edit()
-                .putString("share:" + hostName, shareName).commit();
-    }
-
-    private boolean isShareNameError(Exception error) {
-        String message = String.valueOf(error.getMessage()) + " " + error.getClass().getSimpleName();
-        return message.contains("OBJECT_NAME_NOT_FOUND") || message.contains("c0000034")
-                || message.contains("0xC0000034");
-    }
-
-    private void showOwnShareNameDialog() {
-        EditText input = field("共享名（对方分享时设的名字）", InputType.TYPE_CLASS_TEXT);
-        input.setText(ownShareName(host));
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("连接分享 · " + host)
-                .setView(input)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton("连接", (dialog, which) -> {
-                    String name = input.getText().toString().trim();
-                    if (name.isEmpty()) return;
-                    saveOwnShareName(host, name);
-                    share = name;
-                    path = "";
-                    loadDirectory();
-                })
-                .show();
+        return SmbShareController.SHARE;
     }
 
     /**
@@ -1408,9 +1354,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(22), dp(8), dp(22), 0);
         EditText user = field("账号（分享方设置的账号）", InputType.TYPE_CLASS_TEXT);
-        EditText pass = addSecretField(form, "密码（分享方设置的密码）", password);
         user.setText(username);
         form.addView(user);
+        EditText pass = addSecretField(form, "密码（分享方设置的密码）", password);
         new MaterialAlertDialogBuilder(this)
                 .setTitle("访问分享 · " + host)
                 .setView(form)
@@ -1559,13 +1505,6 @@ public class SmbBrowserActivity extends AppCompatActivity {
                     if (isOwnShareHost(host) && !loginAttempted) {
                         setStatus("需要访问口令");
                         showAuthDialog();
-                        return;
-                    }
-                    // 对方改了共享名：旧名字会 TREE_CONNECT 失败（OBJECT_NAME_NOT_FOUND），
-                    // 这时让用户补一个共享名，记住后重试，别只丢一句连接失败。
-                    if (isOwnShareHost(host) && isShareNameError(e)) {
-                        setStatus("共享名不对，请填写对方的共享名");
-                        showOwnShareNameDialog();
                         return;
                     }
                     setStatus(getString(R.string.smb_connect_failed) + "：" + shortError(e));
@@ -1737,11 +1676,16 @@ public class SmbBrowserActivity extends AppCompatActivity {
         site.setKey(SiteApi.PUSH);
         site.setName("SMB");
         vod.setSite(site);
-        vod.setId(currentUrl);
-        vod.setName(folder);
+        // id 用稳定的目录描述符，不能用代理直链：直链 token 只在进程内存里活着，
+        // 历史点开时既恢复不出整张剧集表，也打不开原来那个文件。
+        String currentName = current.substring(current.lastIndexOf((char) 92) + 1);
+        vod.setId(SmbFolder.encode(host, share, path, currentName));
+        // 标题用点开的那一集（去扩展名），不再拿目录名冒充片名。
+        vod.setName(stripExtension(currentName));
         vod.setPlayUrl(currentUrl);
         vod.setPic(folderCover(currentUrl));
-        Flag flag = Flag.create("SMB", urls.toString());
+        // 线路名用目录名：一眼能看出这是哪一部（片名仍用点开的那一集）。
+        Flag flag = Flag.create(folder, urls.toString());
         for (Episode episode : flag.getEpisodes()) {
             if (currentUrl.equals(episode.getUrl())) episode.setSelected(true);
         }
