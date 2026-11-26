@@ -2133,6 +2133,8 @@ private void setupSeekPreview() {
      */
     private void driveSeekPreview(long offsetMs) {
         if (mSeekPreview == null) return;
+        // 只在全屏下弹预览条：竖屏/半屏拖动条上不该盖一排图。
+        if (!isFullscreen()) return;
         // 网络源不抽帧：保持原来的双箭头快进/快退，不弹预览条。
         if (!com.fongmi.android.tv.player.TrickplayStore.supports(player().getUrl())) return;
         mSeekPreviewOffset = offsetMs;
@@ -2153,7 +2155,7 @@ private void setupSeekPreview() {
         mSeekPreviewPending = false;
         if (!canPreviewSeek()) return;
         mSeekPreview.begin(player().getDuration(), mSeekPreviewBase + mSeekPreviewOffset,
-                mSeekPreviewOffset >= 0, player().getUrl(), mSeekPreviewHeaders);
+                player().getUrl(), mSeekPreviewHeaders);
     }
 
     private boolean canPreviewSeek() {
@@ -10844,6 +10846,12 @@ private void checkOrientation() {
 
     @Override
     protected void onBackInvoked() {
+        // 手势返回第一下先收预览条，不要直接退出全屏/结束播放。
+        if (mSeekPreview != null && mSeekPreview.isActive()) {
+            cancelPendingSeekPreview();
+            mSeekPreview.dismiss();
+            return;
+        }
         if (hasLutQuick() && mBinding.lutQuick.hideIfVisible()) {
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
