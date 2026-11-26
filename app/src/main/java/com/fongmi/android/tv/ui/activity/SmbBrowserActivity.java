@@ -937,32 +937,36 @@ public class SmbBrowserActivity extends AppCompatActivity {
         actions.add("本机地址：" + SmbShareController.label(this));
         tasks.add(() -> Toast.makeText(this, SmbShareController.label(this), Toast.LENGTH_LONG).show());
 
-        // 用按钮自己排间距：AlertDialog 的 setItems 会把多行条目挤成一团，辨识度太差。
+        // 纯文本行 + 上下 8dp 间隔：与现有 SMB 列表同一套风格，不加底块，只让多行条目别再挤在一起。
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(18), dp(6), dp(18), dp(6));
+        box.setPadding(dp(6), dp(4), dp(6), dp(4));
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle("本机文件分享")
                 .setView(box)
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
+        int rowColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, 0xFFFFFFFF);
         for (int index = 0; index < actions.size(); index++) {
-            MaterialButton button = themedButton(actions.get(index));
-            button.setAllCaps(false);
-            button.setSingleLine(false);
-            button.setMaxLines(2);
-            button.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-            button.setTextSize(16);
-            button.setPadding(dp(14), 0, dp(14), 0);
+            TextView row = new TextView(this);
+            row.setText(actions.get(index));
+            row.setTextColor(rowColor);
+            row.setTextSize(18);
+            row.setPadding(dp(16), dp(11), dp(16), dp(11));
+            row.setFocusable(true);
+            row.setClickable(true);
+            TypedValue ripple = new TypedValue();
+            getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
+            row.setBackgroundResource(ripple.resourceId);
             final Runnable task = tasks.get(index);
-            button.setOnClickListener(view -> {
+            row.setOnClickListener(view -> {
                 dialog.dismiss();
                 task.run();
             });
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
-            params.topMargin = dp(5);
-            params.bottomMargin = dp(5);
-            box.addView(button, params);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.topMargin = dp(8);
+            params.bottomMargin = dp(8);
+            box.addView(row, params);
         }
         dialog.show();
     }
@@ -1021,19 +1025,20 @@ public class SmbBrowserActivity extends AppCompatActivity {
             for (File child : found) if (!child.isHidden()) dirs.add(child);
         }
         dirs.sort((first, second) -> first.getName().compareToIgnoreCase(second.getName()));
+        File parent = dir.getParentFile();
         List<String> labels = new ArrayList<>();
+        // “上一级”放进列表首行：底部三个按钮在窄屏上会互相挤压，只留两个按钮就不截断了。
+        if (parent != null) labels.add("⬆ 上一级");
         for (File child : dirs) labels.add("📁 " + child.getName());
-        if (labels.isEmpty()) labels.add("（没有子目录）");
+        if (labels.isEmpty() || (parent == null && dirs.isEmpty())) labels.add("（没有子目录）");
         new MaterialAlertDialogBuilder(this)
                 .setTitle(dir.getAbsolutePath())
                 .setItems(labels.toArray(new String[0]), (dialog, which) -> {
-                    if (which < dirs.size()) showShareRootPicker(dirs.get(which));
+                    int index = parent != null ? which - 1 : which;
+                    if (parent != null && index < 0) showShareRootPicker(parent);
+                    else if (index >= 0 && index < dirs.size()) showShareRootPicker(dirs.get(index));
                 })
                 .setPositiveButton("选择此目录", (dialog, which) -> applyShareRoot(dir))
-                .setNeutralButton("上一级", (dialog, which) -> {
-                    File parent = dir.getParentFile();
-                    if (parent != null) showShareRootPicker(parent);
-                })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
@@ -1088,82 +1093,14 @@ public class SmbBrowserActivity extends AppCompatActivity {
     }
 
     /**
-     * 密码输入框：刚敲下的那个字符短暂可见，600ms 后自动变回掩码。
+     * 密码输入框：标准掩码（全部显示为 *）。
      *
-     * <p>注意 TextView.setTransformationMethod() 内部会回调 setText()，会再次触发 TextWatcher；
-     * 不掐断这条回环就会无限递归（实测 StackOverflowError），所以切换期间用 switching 标记屏蔽监听。</p>
+     * <p>曾做过“最后一个字符短暂可见”，实现必须在输入过程中反复切 setTransformationMethod()，
+     * 而它内部会 setText() 并触发 IME restartInput，MIUI 上会踩到布局未更新的 getFocusedRect，
+     * 实测两种崩溃（无限递归 / IndexOutOfBounds）。稳定性优先，回到系统密码框的标准行为。</p>
      */
     private EditText secretField(String hint) {
-        EditText edit = field(hint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        edit.setTransformationMethod(new MaskAllTransformation());
-        final boolean[] switching = { false };
-        final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
-        final Runnable remask = () -> {
-            switching[0] = true;
-            try {
-                edit.setTransformationMethod(new MaskAllTransformation());
-                edit.setSelection(edit.getText().length());
-            } finally {
-                switching[0] = false;
-            }
-        };
-        edit.addTextChangedListener(new android.text.TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence text, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence text, int start, int before, int count) {
-                if (count <= 0 || switching[0]) return;
-                switching[0] = true;
-                try {
-                    edit.setTransformationMethod(new RevealLastTransformation());
-                } finally {
-                    switching[0] = false;
-                }
-                handler.removeCallbacks(remask);
-                handler.postDelayed(remask, 600);
-            }
-
-            @Override
-            public void afterTextChanged(android.text.Editable text) {
-            }
-        });
-        return edit;
-    }
-
-    /** 全部字符显示为 *。 */
-    private static final class MaskAllTransformation implements android.text.method.TransformationMethod {
-        @Override
-        public CharSequence getTransformation(CharSequence source, android.view.View view) {
-            if (source == null) return null;
-            StringBuilder builder = new StringBuilder(source.length());
-            for (int i = 0; i < source.length(); i++) builder.append('*');
-            return builder.toString();
-        }
-
-        @Override
-        public void onFocusChanged(android.view.View view, CharSequence sourceText, boolean focused,
-                                   int direction, android.graphics.Rect previouslyFocusedRect) {
-        }
-    }
-
-    /** 只把最后一个字符露出来，其余显示为 *。 */
-    private static final class RevealLastTransformation implements android.text.method.TransformationMethod {
-        @Override
-        public CharSequence getTransformation(CharSequence source, android.view.View view) {
-            if (source == null) return null;
-            StringBuilder builder = new StringBuilder(source.length());
-            for (int i = 0; i < source.length(); i++) {
-                builder.append(i == source.length() - 1 ? source.charAt(i) : '*');
-            }
-            return builder.toString();
-        }
-
-        @Override
-        public void onFocusChanged(android.view.View view, CharSequence sourceText, boolean focused,
-                                   int direction, android.graphics.Rect previouslyFocusedRect) {
-        }
+        return field(hint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
     }
 
     private void scanNetwork() {
