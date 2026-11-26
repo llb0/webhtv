@@ -102,7 +102,11 @@ public final class IdjPluginStore {
             } catch (Throwable ignored) {
             }
         }
-        return result.toString(2);
+        try {
+            return result.toString(2);
+        } catch (Throwable e) {
+            return result.toString();
+        }
     }
 
     private static void verify(JSONObject manifest, String entry, String source) {
