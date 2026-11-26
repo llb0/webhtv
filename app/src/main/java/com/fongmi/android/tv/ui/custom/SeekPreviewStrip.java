@@ -213,6 +213,15 @@ public class SeekPreviewStrip extends FrameLayout {
 
     /** 长按开始：给定时长、起始游标、以及取帧用的媒体源。 */
     public void begin(long durationMs, long cursorMs, String mediaUrl, Map<String, String> mediaHeaders) {
+        begin(durationMs, cursorMs, 0, mediaUrl, mediaHeaders);
+    }
+
+    /**
+     * @param directionHint 这一次动作的方向（正=快进、负=快退、0=未知）。
+     *                      方向由手指/按键动作本身给，不靠“游标比大小”反推——反推
+     *                      在首帧游标还没更新时会算反，表现就是右滑弹出快退排。
+     */
+    public void begin(long durationMs, long cursorMs, int directionHint, String mediaUrl, Map<String, String> mediaHeaders) {
         boolean sameMedia = TextUtils.equals(mediaUrl, media);
         this.duration = Math.max(0, durationMs);
         this.cursor = clamp(cursorMs);
@@ -224,7 +233,7 @@ public class SeekPreviewStrip extends FrameLayout {
         }
         // 焦点停在下面这条进度游标上：左右键留给播放页原生的快进/快退，预览条只做显示。
         barFocused = true;
-        direction = DIR_FORWARD;
+        direction = directionOf(directionHint, DIR_FORWARD);
         focus = FOCUS_NONE;
         active = true;
         holdArmed = false;
@@ -237,12 +246,25 @@ public class SeekPreviewStrip extends FrameLayout {
 
     /** 按住期间的每次步进。 */
     public void update(long cursorMs) {
+        update(cursorMs, 0);
+    }
+
+    /** 按住期间的每次步进；directionHint 同 {@link #begin}，非 0 时以动作为准。 */
+    public void update(long cursorMs, int directionHint) {
         if (!active) return;
         long next = clamp(cursorMs);
-        if (next > cursor) direction = DIR_FORWARD;
+        if (directionHint > 0) direction = DIR_FORWARD;
+        else if (directionHint < 0) direction = DIR_REWIND;
+        else if (next > cursor) direction = DIR_FORWARD;
         else if (next < cursor) direction = DIR_REWIND;
         cursor = next;
         render();
+    }
+
+    private static int directionOf(int hint, int fallback) {
+        if (hint > 0) return DIR_FORWARD;
+        if (hint < 0) return DIR_REWIND;
+        return fallback;
     }
 
     /** 松手：进入选择窗口；缩略图还没出齐就先不收计时器。 */

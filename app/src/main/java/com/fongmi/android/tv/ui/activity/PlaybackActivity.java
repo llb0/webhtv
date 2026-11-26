@@ -497,6 +497,18 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         onError(msg);
     }
 
+    /**
+     * 起播后先把片源的宽高比探出来（只 open/close，不抽帧）：第一次长按弹出的略图排
+     * 就能按真实比例排格子，不会再先出现一排 16:9 的空壳。同一片源只探一次。
+     */
+    protected void warmTrickplayAspect() {
+        try {
+            String url = player().getUrl();
+            com.fongmi.android.tv.player.TrickplayStore.warm(this, url, player().getHeaders());
+        } catch (Throwable ignored) {
+        }
+    }
+
     protected void onPlayingChanged(boolean isPlaying) {
     }
 

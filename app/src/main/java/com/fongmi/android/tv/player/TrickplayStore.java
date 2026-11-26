@@ -71,6 +71,8 @@ public final class TrickplayStore {
     private static final Map<String, Long> DURATION = new java.util.concurrent.ConcurrentHashMap<>();
 
     private static final Map<String, Float> ASPECT = new ConcurrentHashMap<>();
+    /** 宽高比的落盘文件名：和该片源的其他抽帧缓存放在同一个目录。 */
+    private static final String ASPECT_FILE = "aspect";
     private static final Set<String> RUNNING = ConcurrentHashMap.newKeySet();
     private static final Map<String, Window> PENDING = new ConcurrentHashMap<>();
     private static final Set<String> ATTEMPTED = ConcurrentHashMap.newKeySet();
@@ -139,7 +141,12 @@ public final class TrickplayStore {
                         TrickplayNative.nativeAspect(handle), media);
             }
             if (handle != 0) {
-                rememberAspect(TrickplayStore.keyFor(media), TrickplayNative.nativeAspect(handle));
+                String key = TrickplayStore.keyFor(media);
+                float aspect = TrickplayNative.nativeAspect(handle);
+                rememberAspect(key, aspect);
+                // 宽高比也落盘：换集/重进页面后第一次长按不必再靠一次 open 才知道片子是什么比例，
+                // 否则第一次弹出的略图排只能按 16:9 撑格子（用户看到的“16:9 空格子”）。
+                persistAspect(this.context, key, aspect);
                 // 开文件时顺手把总时长取出来缓存：目录海报的时长副标题直接用它，
                 // 不必为了一个时长再 open/seek 一次（对 SMB 老容器那就是几秒）。
                 long durationMs = TrickplayNative.nativeDuration(handle);
@@ -535,8 +542,76 @@ public final class TrickplayStore {
 
     public static float aspect(Context context, String media) {
         if (TextUtils.isEmpty(media)) return 16f / 9f;
-        Float value = ASPECT.get(keyFor(media));
+        String key = keyFor(media);
+        Float value = ASPECT.get(key);
+        if (value == null || value <= 0) {
+            float disk = readAspect(context, key);
+            if (disk > 0.1f) {
+                ASPECT.put(key, disk);
+                value = disk;
+            }
+        }
         return value == null || value <= 0 ? 16f / 9f : value;
+    }
+
+    /**
+     * 起播后先探一次片源（只 open/close，不抽帧）：把宽高比（顺带总时长）提前拿到。
+     * 这样第一次长按弹出的略图排已经是真实比例，而不是先撑 16:9 空壳再换。
+     * 同一片源只探一次；网络源不探。
+     */
+    public static void warm(Context context, String media, Map<String, String> headers) {
+        if (context == null || TextUtils.isEmpty(media) || !supports(media)) return;
+        final Context app = context.getApplicationContext();
+        final String key = keyFor(media);
+        if (ASPECT.containsKey(key) || readAspect(app, key) > 0.1f) return;
+        IO.execute(() -> {
+            if (ASPECT.containsKey(key)) return;
+            Extractor extractor = null;
+            try {
+                extractor = new Extractor(app, media, headers);
+                if (!extractor.isValid()) return;
+                // 这次 open 已经付过代价了，别浪费：把它挂成预览用的可复用会话，
+                // 第一次长按的窗口直接「open reuse」，不再多等一次 open（SMB 老容器要 2–3 秒）。
+                synchronized (TrickplayStore.class) {
+                    // 已有别的会话就不抢，交给 acquire 的正常淘汰。
+                    if (rerunExtractor == null) {
+                        rerunExtractor = extractor;
+                        rerunMedia = media;
+                        rerunBusy = false;
+                        rerunAt = SystemClock.elapsedRealtime();
+                        traceOnce("warm hold key=%s", key.substring(0, Math.min(8, key.length())));
+                        extractor = null;
+                    }
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                if (extractor != null) extractor.close();
+            }
+        });
+    }
+
+    private static void persistAspect(Context context, String key, float ratio) {
+        if (context == null || TextUtils.isEmpty(key) || ratio <= 0.1f || ratio > 4f) return;
+        try {
+            File file = new File(dir(context, key), ASPECT_FILE);
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                out.write(String.format(Locale.US, "%.4f", ratio).getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static float readAspect(Context context, String key) {
+        if (context == null || TextUtils.isEmpty(key)) return 0f;
+        File file = new File(dir(context, key), ASPECT_FILE);
+        if (!file.isFile() || file.length() <= 0) return 0f;
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(new java.io.FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line = reader.readLine();
+            return line == null ? 0f : Float.parseFloat(line.trim());
+        } catch (Throwable ignored) {
+            return 0f;
+        }
     }
 
     private static void rememberAspect(String key, float ratio) {

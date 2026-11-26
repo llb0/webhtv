@@ -2103,6 +2103,7 @@ private void setupSeekPreview() {
                 SpiderDebug.log("playback", "preview-commit target=%d pos=%d canSeek=%b", positionMs,
                         player() == null ? -1 : player().getPosition(), canPreviewSeek());
                 if (!canPreviewSeek()) return;
+                boolean wasPlaying = player() != null && player().isPlaying();
                 onSeekStarted();
                 markPreviewSeek(positionMs);
                 pinSeekDisplay(positionMs);
@@ -2111,6 +2112,17 @@ private void setupSeekPreview() {
                 com.fongmi.android.tv.player.TrickplayStore.cancelAll();
                 controller().seekTo(positionMs);
                 controller().play();
+                // 点略图跳过去后必须继续播：起播/long-press 收尾那条路径可能把播放状态压回暂停，
+                // 这里在跳转后补一次确认，只在“点之前本来在播”时才补，不把用户主动暂停弄成自动播。
+                if (wasPlaying) App.post(() -> {
+                    try {
+                        if (player() != null && !player().isPlaying()) {
+                            controller().play();
+                            SpiderDebug.log("playback", "preview-commit resume state=replay");
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }, 900L);
                 logSeekVerify(positionMs);
                 previewCommitTarget = positionMs;
                 App.post(() -> retryPreviewCommitIfNeeded(positionMs), 900L);
@@ -2155,14 +2167,14 @@ private void setupSeekPreview() {
             }
             return;
         }
-        mSeekPreview.update(mSeekPreviewBase + offsetMs);
+        mSeekPreview.update(mSeekPreviewBase + offsetMs, (int) Math.signum(offsetMs));
     }
 
     private void showPendingSeekPreview() {
         if (!mSeekPreviewPending || mSeekPreview == null) return;
         mSeekPreviewPending = false;
         if (!canPreviewSeek()) return;
-        mSeekPreview.begin(player().getDuration(), mSeekPreviewBase + mSeekPreviewOffset,
+        mSeekPreview.begin(player().getDuration(), mSeekPreviewBase + mSeekPreviewOffset,(int) Math.signum(mSeekPreviewOffset),
                 player().getUrl(), mSeekPreviewHeaders);
     }
 
@@ -8758,6 +8770,7 @@ private void setupSeekPreview() {
 
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
+        if (isPlaying) warmTrickplayAspect();
         syncLyricsPlaybackState(isPlaying);
         syncKaraokePosition();
         boolean audioMode = syncPiPForPlaybackMode();
