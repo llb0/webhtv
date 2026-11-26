@@ -433,6 +433,12 @@ private boolean runtimeSourceOnly;
     private long mSeekPreviewBase;
     private long mSeekPreviewOffset;
     private boolean mSeekPreviewPending;
+    /**
+     * 这一排图属于「一次按住」：按下期间为 true，松手（onSeekEnd）/取消就归 false。
+     * 上一排还在停留窗口里、用户又开始新一次快进时，若还拿旧的起点算游标，
+     * 游标会先往回跳一步，方向和刷新次序就整排翻过来 —— 所以新会话第一下先把旧排收掉。
+     */
+    private boolean mSeekPreviewSessionStarted;
     private java.util.Map<String, String> mSeekPreviewHeaders;
     private final android.os.Handler mSeekPreviewHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable mSeekPreviewShow = this::showPendingSeekPreview;
@@ -9929,6 +9935,7 @@ private boolean runtimeSourceOnly;
     public void onSeekCancel() {
         hideCenter();
         cancelPendingSeekPreview();
+        mSeekPreviewSessionStarted = false;
         if (mSeekPreview != null) mSeekPreview.dismiss();
     }
 
@@ -9953,6 +9960,8 @@ private boolean runtimeSourceOnly;
         if (seekTo(time)) hideCenter();
         mKeyDown.reset();
         // 松手不立刻收起：留 3 秒让用户按上键进缩略图排挑图；单次点按没弹层的直接结束。
+        // 这一次按住到此为止，下一段快进要重新取起点。
+        mSeekPreviewSessionStarted = false;
         cancelPendingSeekPreview();
         if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();
     }
@@ -10243,6 +10252,14 @@ private boolean runtimeSourceOnly;
 
     @Override
     protected void onBackInvoked() {
+        // 返回键第一下只收预览条，别顺手退全屏/结束播放。
+        if (mSeekPreview != null && mSeekPreview.isActive()) {
+            cancelPendingSeekPreview();
+            mSeekPreviewSessionStarted = false;
+            mSeekPreview.dismiss();
+            hideCenter();
+            return;
+        }
         if (mBinding.lutQuick.hideIfVisible()) {
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
@@ -10589,8 +10606,16 @@ private void setupSeekPreview() {
      */
     private void driveSeekPreview(long offsetMs) {
         if (mSeekPreview == null) return;
+        // 只在全屏播放时弹预览条：详情页/半屏那层不该盖一排图。
+        if (!isFullscreen()) return;
         // 网络源不抽帧：保持原来的双箭头快进/快退，不弹预览条。
         if (!com.fongmi.android.tv.player.TrickplayStore.supports(player().getUrl())) return;
+        // 上一排还在停留窗口里就开始新一次快进：它记的是上一段的起点，先收掉重新定位。
+        if (mSeekPreview.isActive() && !mSeekPreviewSessionStarted) {
+            cancelPendingSeekPreview();
+            mSeekPreview.dismiss();
+        }
+        mSeekPreviewSessionStarted = true;
         mSeekPreviewOffset = offsetMs;
         if (!mSeekPreview.isActive()) {
             if (!mSeekPreviewPending) {

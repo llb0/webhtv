@@ -468,6 +468,8 @@ private int mAudioBackgroundRandomNonce;
     private long mSeekPreviewBase;
     private long mSeekPreviewOffset;
     private boolean mSeekPreviewPending;
+    /** 同上（电视端）：一排图只对应一次按住，松手即结束；下一段要重新取起点。 */
+    private boolean mSeekPreviewSessionStarted;
     private java.util.Map<String, String> mSeekPreviewHeaders;
     private final android.os.Handler mSeekPreviewHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable mSeekPreviewShow = this::showPendingSeekPreview;
@@ -2137,6 +2139,12 @@ private void setupSeekPreview() {
         if (!isFullscreen()) return;
         // 网络源不抽帧：保持原来的双箭头快进/快退，不弹预览条。
         if (!com.fongmi.android.tv.player.TrickplayStore.supports(player().getUrl())) return;
+        // 上一排还在停留窗口里就开始新一次拖动：它记的是上一段的起点，先收掉重新定位。
+        if (mSeekPreview.isActive() && !mSeekPreviewSessionStarted) {
+            cancelPendingSeekPreview();
+            mSeekPreview.dismiss();
+        }
+        mSeekPreviewSessionStarted = true;
         mSeekPreviewOffset = offsetMs;
         if (!mSeekPreview.isActive()) {
             if (!mSeekPreviewPending) {
@@ -10638,6 +10646,7 @@ private void checkOrientation() {
         // 松手这一刻要真跳转：先停掉在跑的补帧，别让它和这次 seek 抢同一条连接（电视上最明显）。
         com.fongmi.android.tv.player.TrickplayStore.cancelAll();
         seekTo(time);
+        mSeekPreviewSessionStarted = false;
         cancelPendingSeekPreview();
         if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();
     }
@@ -10849,6 +10858,7 @@ private void checkOrientation() {
         // 手势返回第一下先收预览条，不要直接退出全屏/结束播放。
         if (mSeekPreview != null && mSeekPreview.isActive()) {
             cancelPendingSeekPreview();
+            mSeekPreviewSessionStarted = false;
             mSeekPreview.dismiss();
             return;
         }
