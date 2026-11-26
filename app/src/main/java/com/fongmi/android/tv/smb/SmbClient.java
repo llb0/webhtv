@@ -116,7 +116,10 @@ public final class SmbClient {
                 || value.endsWith(".m2ts") || value.endsWith(".wmv") || value.endsWith(".flv")
                 || value.endsWith(".webm") || value.endsWith(".mpg") || value.endsWith(".mpeg")
                 || value.endsWith(".vob") || value.endsWith(".3gp") || value.endsWith(".3g2")
-                || value.endsWith(".mts") || value.endsWith(".mxf") || value.endsWith(".ogv");
+                || value.endsWith(".mts") || value.endsWith(".mxf") || value.endsWith(".ogv")
+                // 光盘数据区里的 .dat 就是 MPEG-PS 正片（VCD/SVCD 常见），改名 mpg 能放，
+                // 说明只是后缀没登记，不是容器不支持。
+                || value.endsWith(".dat");
     }
 
     public static boolean isAudio(String name) {

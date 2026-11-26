@@ -232,7 +232,9 @@ public class PlayerSetting {
         return lower.endsWith(".avi") || lower.endsWith(".wmv") || lower.endsWith(".asf")
                 || lower.endsWith(".rmvb") || lower.endsWith(".rm") || lower.endsWith(".vob")
                 || lower.endsWith(".f4v") || lower.endsWith(".mpg")
-                || lower.endsWith(".mpeg") || lower.endsWith(".divx") || lower.endsWith(".xvid");
+                || lower.endsWith(".mpeg") || lower.endsWith(".divx") || lower.endsWith(".xvid")
+                // 光盘 .dat 是 MPEG-PS，Exo 没有对应解复用器，必须走带 FFmpeg 的 IJK。
+                || lower.endsWith(".dat");
     }
 
     public static int kernelCount() {
