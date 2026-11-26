@@ -23,12 +23,8 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.content.res.ColorStateList;
 import android.os.Bundle;
-import android.os.Handler;
 import android.os.Build;
-import android.os.Looper;
-import android.text.Editable;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.view.Gravity;
 import android.util.TypedValue;
 import android.view.KeyEvent;
@@ -1102,48 +1098,16 @@ public class SmbBrowserActivity extends AppCompatActivity {
      * 实测两种崩溃（无限递归 / IndexOutOfBounds）。稳定性优先，回到系统密码框的标准行为。</p>
      */
     /**
-     * 密码输入框：本体始终是系统标准掩码，刚敲下的字符单独在下面一行小字里露 0.8 秒。
+     * 密码输入框：就用系统标准掩码输入框，和“分享设置”里那个账号密码框完全同一套处理。
      *
-     * <p>以前是把“最后一位可见”做在输入框自己的 setTransformationMethod 上，必须每敲一次就切一次，
-     * 而它内部会 setText() 并让 IME restartInput，MIUI 上会拿到过期 Layout（getFocusedRect /
-     * Paint.getRunAdvance 抛 IndexOutOfBounds），先后两种崩溃。现在完全不碰 EditText 的 transformation，
-     * 崩溃路径不存在，视觉上仍然是“敲一个字看一下”。</p>
+     * <p>之前试过“最后一位短暂可见”，需要在输入过程中反复切 setTransformationMethod()，
+     * 而它内部会 setText() 并让 IME restartInput，MIUI 上会拿到过期布局直接 IndexOutOfBounds。
+     * 稳定优先，两个入口统一成这一种写法。</p>
      */
     private EditText addSecretField(LinearLayout form, String hint, String initial) {
         EditText edit = field(hint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        // 先把旧密码塞进去，再挂监听：否则恢复已有密码时会把最后一位当成“刚输入”闪出来。
         if (initial != null && !initial.isEmpty()) edit.setText(initial);
-        TextView peek = new TextView(this);
-        peek.setTextSize(12);
-        peek.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, 0x99FFFFFF));
-        peek.setVisibility(View.GONE);
-        Handler handler = new Handler(Looper.getMainLooper());
-        Runnable hide = () -> peek.setVisibility(View.GONE);
-        edit.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence text, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence text, int start, int before, int count) {
-                // 只提示“新敲进来的字符”，删除不提示，避免把整段历史里的某个字符又泄出来。
-                if (count <= 0 || start + count > text.length()) {
-                    handler.removeCallbacksAndMessages(peek);
-                    hide.run();
-                    return;
-                }
-                peek.setText("刚输入：" + text.charAt(start + count - 1));
-                peek.setVisibility(View.VISIBLE);
-                handler.removeCallbacksAndMessages(peek);
-                handler.postDelayed(hide, peek, 800);
-            }
-
-            @Override
-            public void afterTextChanged(Editable editable) {
-            }
-        });
         form.addView(edit);
-        form.addView(peek);
         return edit;
     }
 
