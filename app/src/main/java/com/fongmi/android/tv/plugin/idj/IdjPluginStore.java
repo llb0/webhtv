@@ -74,6 +74,8 @@ public final class IdjPluginStore {
         if (!ID.matcher(id == null ? "" : id).matches()) throw new IllegalArgumentException("插件 id 非法");
         if (!TYPES.contains(manifest.optString("type"))) throw new IllegalArgumentException("只支持视频点播插件（video / shortdrama）");
 
+        boolean adult = manifest.optBoolean("adult", false);
+        if (adult && !Setting.isIdjAdultAllowed()) throw new IllegalArgumentException("成人插件已在来源屏蔽里被关掉");
         String entry = manifest.optString("entry");
         if (TextUtils.isEmpty(entry) || !files.has(entry)) throw new IllegalArgumentException("缺少入口文件");
         String source = files.optString(entry);

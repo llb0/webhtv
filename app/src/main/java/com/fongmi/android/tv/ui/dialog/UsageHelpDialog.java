@@ -202,12 +202,12 @@ public final class UsageHelpDialog {
                             """)),
             module("iDuanJu（idj1）视频插件", "把 iDuanJu 的 .idjplugin 视频点播插件当成普通站源用；不装商店、不做漫画/直播/弹幕。",
                     section("安装与入口", """
-                            把 xx.idjplugin 放进存储根目录的 /tvbox/idj/，重新加载点播配置；是否加载由「来源屏蔽 → iDuanJu 插件站点（含成人）」控制，默认开启，和 sites-js 无关。
+                            把 xx.idjplugin 放进存储根目录的 /tvbox/idj/，重新加载点播配置；是否加载由「来源屏蔽 → iDuanJu 插件站点」控制，默认开启，和 sites-js 无关。
                             站点列表里出现“插件名 | IDJ”；同名插件版本变了会自动重装；安装失败只跳过该插件，不影响别的站点。
                             """),
                     section("支持的插件", """
                             只支持清单 type 为 video / shortdrama、且 capabilities 同时声明 detail 与 play 的插件。
-                            adult 为 true 的插件跟随同一个开关，安装后站点名带 🔞；没有单独的成人开关。
+                            adult 为 true 的插件另由「来源屏蔽 → iDuanJu 成人插件」控制，默认开启，安装后站点名带 🔞。
                             插件自己的 home/category/search/detail/play 直接决定分类、搜索、详情和播放。
                             """),
                     section("宿主能力与限制", """
@@ -501,9 +501,9 @@ public final class UsageHelpDialog {
                             另有实验室、插件管理、本地小说漫画阅读、小说/漫画/音频/短剧源配置等扩展入口。
                             """),
                     section("来源屏蔽", """
-                            入口：设置 → 增强功能 → 来源屏蔽；前几项勾选＝屏蔽，末尾一项相反：勾选＝允许。
-                            「iDuanJu 插件站点（含成人）」只控制 /tvbox/idj/ 下的 idjplugin 站点，默认开启，与 sites-js 的屏蔽互不影响；adult:true 的包跟随这个开关，站点名带 🔞。
-                            摘要行会显示「已屏蔽 x / 7 · iDuanJu 插件站点：启用/禁用」。
+                            入口：设置 → 增强功能 → 来源屏蔽；前几项勾选＝屏蔽，末尾两项相反：勾选＝允许。
+                            「iDuanJu 插件站点」「iDuanJu 成人插件」只控制 /tvbox/idj/ 下的 idjplugin 站点，两项都默认开启、与 sites-js 的屏蔽互不影响；adult:true 的包受第二项控制，站点名带 🔞。
+                            摘要行会显示「已屏蔽 x / 7 · iDuanJu 插件：启用/禁用 · 成人：启用/禁用」。
                             """),
                     section("站点健康排序", """
                             健康排序会学习搜索、详情和播放成功率；默认保留用户配置顺序，可在站点弹窗中单独开启。
