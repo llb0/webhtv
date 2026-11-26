@@ -306,17 +306,72 @@ public class SeekPreviewStrip extends FrameLayout {
     }
 
     /**
-     * 遥控器按键：预览条只做显示，左右键留给播放页原生快进/快退（松手由原生跳转），
-     * 这里只吃掉返回键。
+     * 遥控器按键。默认焦点在下方进度游标上，左右键不在这里吃（留给播放页原生快进/快退）；
+     * 上键把焦点移到「当前帧」那格，排内左右选格、确定跳转，下键回游标，返回键先收预览条。
      */
     public boolean handleKey(int keyCode, boolean actionDown) {
         if (!active) return false;
-        if (keyCode == KeyEvent.KEYCODE_BACK && !actionDown) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (!actionDown) return true;
             dismiss();
             return true;
         }
-        return false;
+        if (barFocused) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                if (!actionDown) return true;
+                barFocused = false;
+                focus = anchorIndex();
+                render();
+                scheduleHold();
+                return true;
+            }
+            return false;
+        }
+        if (focus == FOCUS_NONE) {
+            if (keyCode != KeyEvent.KEYCODE_DPAD_UP) return false;
+            if (!actionDown) return true;
+            focus = anchorIndex();
+            render();
+            scheduleHold();
+            return true;
+        }
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (!actionDown) return true;
+                focus = anchorIndex();
+                render();
+                scheduleHold();
+                return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (!actionDown) return true;
+                barFocused = true;
+                focus = FOCUS_NONE;
+                render();
+                scheduleHold();
+                return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                if (!actionDown) return true;
+                focus = focus == 0 ? cellCount - 1 : focus - 1;
+                render();
+                scheduleHold();
+                return true;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (!actionDown) return true;
+                focus = focus == cellCount - 1 ? 0 : focus + 1;
+                render();
+                scheduleHold();
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (!actionDown) return true;
+                commit(cells.get(Math.min(focus, cells.size() - 1)).position);
+                return true;
+            default:
+                return false;
+        }
     }
+
 
 
     /**
