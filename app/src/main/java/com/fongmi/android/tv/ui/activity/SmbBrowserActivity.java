@@ -18,6 +18,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.provider.Settings;
 import android.graphics.Typeface;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.content.res.ColorStateList;
@@ -954,7 +955,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
             if (entry.directory) {
                 path = remotePath;
                 loadDirectory();
-            } else if (SmbClient.isVideo(entry.name) || SmbClient.isAudio(entry.name)) {
+            } else if (SmbClient.isVideo(entry.name)) {
+                showFolderPlaylist(remotePath);
+            } else if (SmbClient.isAudio(entry.name)) {
                 play(remotePath);
             } else if (SmbClient.isImage(entry.name)) {
                 showImage(remotePath);
@@ -1331,6 +1334,85 @@ public class SmbBrowserActivity extends AppCompatActivity {
         } catch (Exception e) {
             Toast.makeText(this, "无法打开 APK 安装程序：" + shortError(e), Toast.LENGTH_LONG).show();
         }
+    }
+
+    /**
+     * 点目录里的视频：把本目录的视频做成“剧集”列表，点中的那一集是当前集。
+     * 每集的链接仍然走 {@link SmbPlaybackProxy}（和现在单文件播放同一个入口、同一套代理），
+     * 详情图只用当前这一集的抽帧封面，不会为每集各抽一张。
+     */
+    private void showFolderPlaylist(String current) {
+        List<SmbClient.Entry> videos = new ArrayList<>();
+        for (SmbClient.Entry entry : visibleFiles) {
+            if (!entry.directory && SmbClient.isVideo(entry.name)) videos.add(entry);
+        }
+        videos.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.name, b.name));
+        if (videos.size() < 2) {
+            play(current);
+            return;
+        }
+        List<String> names = new ArrayList<>();
+        List<String> paths = new ArrayList<>();
+        int index = 0;
+        for (SmbClient.Entry entry : videos) {
+            String remote = path.isEmpty() ? entry.name : path + "\\" + entry.name;
+            if (current.equals(remote)) index = names.size();
+            names.add(stripExtension(entry.name));
+            paths.add(remote);
+        }
+        String folder = path.isEmpty() ? getString(R.string.smb_browser_title) : path.substring(path.lastIndexOf((char) 92) + 1);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        TextView header = new TextView(this);
+        header.setText(folder + " · " + videos.size());
+        header.setTextColor(Color.WHITE);
+        header.setTextSize(16);
+        header.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        header.setPadding(dp(16), dp(12), dp(16), dp(8));
+        content.addView(header, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        ImageView poster = new ImageView(this);
+        poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        poster.setBackgroundColor(Color.BLACK);
+        content.addView(poster, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(180)));
+        ListView list = new ListView(this);
+        list.setDivider(null);
+        list.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
+        list.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_list_item_activated_1, names));
+        list.setItemChecked(index, true);
+        list.setSelection(index);
+        content.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        Dialog dialog = new Dialog(this);
+        dialog.setContentView(content);
+        dialog.setOnShowListener(d -> list.requestFocus());
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            dialog.dismiss();
+            play(paths.get(position));
+        });
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        }
+        // 封面放后台抽：抽不出来就留黑底，列表照样能用（不对每集各抽一张）。
+        final String posterPath = paths.get(index);
+        worker.execute(() -> {
+            Bitmap cover = null;
+            try {
+                String posterUrl = SmbPlaybackProxy.createUrl(host, share, posterPath, username, password, domain);
+                cover = com.fongmi.android.tv.player.TrickplayStore.extractCover(this, posterUrl, null);
+            } catch (Exception ignored) {
+            }
+            final Bitmap bitmap = cover;
+            runOnUiThread(() -> {
+                if (bitmap == null || bitmap.isRecycled() || !dialog.isShowing()) return;
+                poster.setImageBitmap(bitmap);
+            });
+        });
+    }
+
+    private String stripExtension(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
     }
 
     private void play(String remotePath) {
