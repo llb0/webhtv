@@ -554,8 +554,9 @@
     <string name="source_sites_py">Folder: /tvbox/sites-py/</string>
     <string name="source_sites_raw">Folder: /tvbox/sites/ </string>
     <string name="source_lives_file">Folder: /tvbox/lives/ </string>
+    <string name="source_idj_sites">iDuanJu plugin sites (checked = allow)</string>
     <string name="source_idj_adult">iDuanJu adult plugins (checked = allow)</string>
-    <string name="setting_idj_adult_state">iDuanJu adult plugins: %1$s</string>
+    <string name="setting_idj_sites_state">iDuanJu plugins: %1$s · adult: %2$s</string>
     <string name="setting_site_health_sort">Site health ranking</string>
     <string name="setting_site_health_enable">Enable site health ranking</string>
     <string name="setting_site_health_dialog_sort">Sort site dialog</string>

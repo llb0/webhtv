@@ -1816,6 +1816,15 @@ public class Setting {
         putSourceBlockMask(mask);
     }
 
+    /** iDuanJu 插件站点独立开关：与 sites-js 分开，默认允许。 */
+    public static boolean isIdjSitesEnabled() {
+        return Prefers.getBoolean("idj_sites_enabled", true);
+    }
+
+    public static void putIdjSitesEnabled(boolean enabled) {
+        Prefers.put("idj_sites_enabled", enabled);
+    }
+
     /** iDuanJu 成人插件单独开关：默认不允许，不放进来源屏蔽掩码。 */
     public static boolean isIdjAdultAllowed() {
         return Prefers.getBoolean("idj_allow_adult", false);

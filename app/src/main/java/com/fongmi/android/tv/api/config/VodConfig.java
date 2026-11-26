@@ -759,10 +759,12 @@ public class VodConfig extends BaseConfig {
         }
         if (Setting.isSourceAllowed(Setting.SOURCE_SITES_JS)) {
             try { result.addAll(loadJsSites(globalSpider)); } catch (Throwable ignored) {}
-            try { result.addAll(IdjPluginStore.sites(globalSpider)); } catch (Throwable ignored) {}
         }
         if (Setting.isSourceAllowed(Setting.SOURCE_SITES_PY)) {
             try { result.addAll(loadPySites(globalSpider)); } catch (Throwable ignored) {}
+        }
+        if (Setting.isIdjSitesEnabled()) {
+            try { result.addAll(IdjPluginStore.sites(globalSpider)); } catch (Throwable ignored) {}
         }
         if (Setting.isSourceAllowed(Setting.SOURCE_SITES_RAW)) {
             try { result.addAll(loadRawSites(globalSpider)); } catch (Throwable ignored) {}

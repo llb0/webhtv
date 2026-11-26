@@ -5,8 +5,9 @@ webhtv 现在可以直接吃 iDuanJu 的 idj1 单文件插件包（`.idjplugin`�
 ## 怎么装
 
 1. 把 `xx.idjplugin` 放进应用的 `tvbox/idj/` 目录（设置页的远程文件管理、SMB 分享或系统文件管理都可以）。
-2. 重新加载点播接口（首页「更多 → 刷新」，或重进点播）。
-3. 站点列表里会出现 `插件名 | IDJ`，分类、搜索、详情、播放都按插件自己的实现走。
+2. 确认「设置 → 增强功能 → 来源屏蔽 → iDuanJu 插件站点（勾选＝允许）」是勾上的（独立开关，默认允许，和 sites-js 无关）。
+3. 重新加载点播接口（首页「更多 → 刷新」，或重进点播）。
+4. 站点列表里会出现 `插件名 | IDJ`，分类、搜索、详情、播放都按插件自己的实现走。
 
 同名插件包版本号变更会重新安装；安装失败只跳过该插件，不影响其它站点。
 
@@ -54,4 +55,4 @@ tvbox/idj/<id>/storage.json      host.storage 的私有 KV（上限 1MB）
 - `quickjs/src/main/assets/js/lib/idj-prelude.js`：idj1 的 `host` 前置脚本（移植自 iDuanJu，GPL-3.0）
 - `quickjs/src/main/assets/js/lib/idj-spider.js`：idj1 → CatVod 站点协议适配器
 - `app/src/main/java/com/fongmi/android/tv/plugin/idj/IdjPluginStore.java`：插件包安装、目录约定、站点生成
-- `app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java`：`loadFileSites()` 里与 `sites-js` 同一开关下加载
+- `app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java`：`loadFileSites()` 里按独立开关 `idj_sites_enabled` 加载（不再跟随 sites-js 的来源屏蔽）

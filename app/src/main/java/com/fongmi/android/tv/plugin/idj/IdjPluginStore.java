@@ -167,6 +167,7 @@ public final class IdjPluginStore {
     /** 生成站点：api 指向 tvbox/idj/&lt;id&gt;/source.js，由 quickjs Spider 走 idj1 适配器。 */
     public static List<Site> sites(String globalSpider) {
         List<Site> result = new ArrayList<>();
+        if (!Setting.isIdjSitesEnabled()) return result;
         File dir = root();
         if (!dir.exists() || !dir.isDirectory()) return result;
         sync();
