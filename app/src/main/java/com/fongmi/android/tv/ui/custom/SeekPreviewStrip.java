@@ -539,7 +539,7 @@ public class SeekPreviewStrip extends FrameLayout {
                     // 白白交接一轮再退到兜底图。
                     readMissing.run();
                     handler.post(() -> onWindowDone(context, all));
-                });
+                }));
         TrickplayStore.io().execute(readMissing);
     }
 
