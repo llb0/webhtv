@@ -142,6 +142,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
@@ -3004,6 +3005,16 @@ public void resetTrack(int type) {
         boolean applySucceeded = decision.action()
                 != IjkBufferController.Action.RELOAD;
         if (decision.requestsReload()) {
+            // 老容器（PS/AVI 系）整会话重载要在 stop/reset 里回收 SDL+EGL，这段回收本身在这些片子上
+            // 会崩（日志 reason=CRASH_NATIVE status=11，栈落在 libijkplayer.so 的 pthread_cond_wait）。
+            // 缓冲配置对这类片子收益有限：不重开，只记一条跳过，配置留给下一次自然重开时应用。
+            if (isLegacyIjkContainer() && !isSafetyReloadNote(decision)) {
+                PlaybackTrace.log("ijk-buffer", playbackTrace.current(),
+                        "action=reload skip=legacy-container url=%s reason=%s",
+                        spec == null ? "" : spec.getUrl(), decision.reason().label());
+                publishIjkBufferDecision(decision, request, trigger, false, false, now);
+                return;
+            }
             boolean safetyReload = decision.reason()
                     == IjkBufferController.Reason.SAFETY_RELOAD;
             PlaybackExperimentPolicy.Action reloadAction = safetyReload
@@ -3415,6 +3426,28 @@ public void resetTrack(int type) {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    /** mpg/avi 这类 PS/AVI 系老容器，重开一次会话就要走一遍 ijk 的 stop/reset 回收。 */
+    private static final Set<String> LEGACY_IJK_CONTAINERS = Set.of(
+            "mpg", "mpeg", "mpe", "vob", "avi", "wmv", "rm", "rmvb", "asf", "flv", "3gp", "f4v", "dat");
+
+    private boolean isLegacyIjkContainer() {
+        if (spec == null || TextUtils.isEmpty(spec.getUrl())) return false;
+        String path = spec.getUrl();
+        int cut = path.indexOf('?');
+        if (cut >= 0) path = path.substring(0, cut);
+        int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        String name = slash >= 0 ? path.substring(slash + 1) : path;
+        int dot = name.lastIndexOf('.');
+        if (dot < 0) return false;
+        return LEGACY_IJK_CONTAINERS.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT));
+    }
+
+    /** 安全重载是兜底手段（不重开可能一直卡 buffering），老容器也保留这一条。 */
+    private static boolean isSafetyReloadNote(IjkBufferController.Decision decision) {
+        return decision != null
+                && decision.reason() == IjkBufferController.Reason.SAFETY_RELOAD;
     }
 
     private boolean restartIjkBuffer(

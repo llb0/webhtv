@@ -476,8 +476,15 @@ public class SiteApi {
             Arrays.sort(files, (a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.getName(), b.getName()));
             String flagName = ResUtil.getString(R.string.push);
             String currentLan = toLanHttpUrl(fileUrl);
-            StringBuilder urls = new StringBuilder();
+            // 点中的那个文件排第一：起播位置跟第一位走，不依赖 isSelected 在“线路重建”后
+            // 还活着（这条链路里 setEpisodes 会重建条目、布尔位丢）。
+            List<File> ordered = new ArrayList<>(files.length);
+            ordered.add(current);
             for (File file : files) {
+                if (!file.getAbsolutePath().equals(current.getAbsolutePath())) ordered.add(file);
+            }
+            StringBuilder urls = new StringBuilder();
+            for (File file : ordered) {
                 if (urls.length() > 0) urls.append('#');
                 urls.append(stripFileExtension(file.getName())).append('$')
                         .append(toLanHttpUrl("file://" + file.getAbsolutePath()));

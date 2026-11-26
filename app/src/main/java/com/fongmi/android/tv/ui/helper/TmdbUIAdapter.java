@@ -765,6 +765,13 @@ public class TmdbUIAdapter {
         captureSourceSeason(vod, videoName);
         cancelActivePrefetch();
         detailPrefetch.cancel();
+        // 本地文件与 SMB 目录不接 TMDB：片名就是文件名/目录名，自动匹配只会把详情和封面拉偏，
+        // 还会在进页时额外打一次 AI/TMDB 网络请求。双端共用这条闸。
+        if (isLocalOrSmbVod(vod)) {
+            SpiderDebug.log("tmdb", "skip auto match: local/smb source name=%s", videoName);
+            notifyLoadComplete(vod, generation);
+            return;
+        }
         if (SiteApi.PUSH.equals(cacheSiteKey(vod)) && !TmdbMatchPolicy.shouldAutoMatchPushTitle(videoName)) {
             SpiderDebug.log("tmdb", "skip push auto match: generic title=%s", videoName);
             notifyLoadComplete(vod, generation);
@@ -817,8 +824,27 @@ public class TmdbUIAdapter {
         });
     }
 
-    private TmdbItem searchResolvedMatch(String videoName, Vod vod, String searchKeyword) {
-        MediaTitleRequest request = buildTitleRequest(videoName, vod, searchKeyword, false);
+    /** 本地文件（file://、本机 /file/ 与 9978 代理）和 SMB（smbcast://、本机 ?smb=1 代理）都算本地源。 */
+    private static boolean isLocalOrSmbVod(Vod vod) {
+        if (vod == null) return false;
+        if (isLocalOrSmbUrl(vod.getPlayUrl())) return true;
+        for (Flag flag : vod.getFlags()) {
+            for (Episode episode : flag.getEpisodes()) {
+                if (isLocalOrSmbUrl(episode.getUrl())) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isLocalOrSmbUrl(String url) {
+        if (TextUtils.isEmpty(url)) return false;
+        String lower = url.trim().toLowerCase(Locale.ROOT);
+        return lower.startsWith("file:") || lower.startsWith("smb:")
+                || lower.startsWith("smbcast:") || lower.contains("?smb=1")
+                || lower.contains("/file/") || lower.contains(":9978/");
+    }
+
+    private TmdbItem searchResolvedMatch(String videoName, Vod vod, String searchKeyword) {        MediaTitleRequest request = buildTitleRequest(videoName, vod, searchKeyword, false);
         MediaTitleResolver resolver = new MediaTitleResolver();
         MediaTitleResolution resolution = resolver.resolve(request);
         List<String> attempted = new ArrayList<>();
