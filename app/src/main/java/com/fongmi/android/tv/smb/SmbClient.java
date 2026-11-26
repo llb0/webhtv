@@ -36,6 +36,27 @@ public final class SmbClient {
     private SmbClient() {
     }
 
+    /**
+     * host 里允许带端口（{@code 192.168.0.5:4450}）：手机端做共享时绑不了 445，只能退到
+     * 4450 这类高位端口，地址不带端口的话 smbj 会固定连 445。只认最后一段冒号后的数字，
+     * 避免把 IPv6 字面量误切。
+     */
+    private static Connection connect(SMBClient client, String host) throws Exception {
+        if (host == null || host.isEmpty()) throw new IllegalArgumentException("empty host");
+        int cut = host.lastIndexOf(':');
+        if (cut > 0 && cut < host.length() - 1) {
+            String name = host.substring(0, cut);
+            String tail = host.substring(cut + 1);
+            if (tail.chars().allMatch(Character::isDigit)) {
+                int port = Integer.parseInt(tail);
+                if (port > 0 && port <= 65535 && !name.contains(":") && !name.isEmpty()) {
+                    return client.connect(name, port);
+                }
+            }
+        }
+        return client.connect(host);
+    }
+
     private static AuthenticationContext auth(String username, String password, String domain) {
         // 空用户名使用真正的 SMB 匿名会话；部分 NAS 会把 Guest 与 Anonymous 区分处理。
         if (username == null || username.trim().isEmpty()) return AuthenticationContext.anonymous();
@@ -57,7 +78,7 @@ public final class SmbClient {
     public static List<String> listShares(String host, String username, String password, String domain) throws Exception {
         List<String> result = new ArrayList<>();
         try (SMBClient client = new SMBClient();
-             Connection connection = client.connect(host);
+             Connection connection = connect(client, host);
              Session session = authenticate(connection, username, password, domain)) {
             RPCTransport transport = SMBTransportFactories.SRVSVC.getTransport(session);
             ServerService service = new ServerService(transport);
@@ -78,7 +99,7 @@ public final class SmbClient {
                                         String username, String password, String domain) throws Exception {
         List<Entry> result = new ArrayList<>();
         try (SMBClient client = new SMBClient();
-             Connection connection = client.connect(host);
+             Connection connection = connect(client, host);
              Session session = authenticate(connection, username, password, domain)) {
             Share remote = session.connectShare(shareName);
             if (!(remote instanceof DiskShare)) {
@@ -155,7 +176,7 @@ public final class SmbClient {
         DiskShare share = null;
         com.hierynomus.smbj.share.File file = null;
         try {
-            connection = client.connect(host);
+            connection = connect(client, host);
             session = authenticate(connection, username, password, domain);
             Share remote = session.connectShare(shareName);
             if (!(remote instanceof DiskShare)) throw new IllegalStateException("Not a disk share");
@@ -235,7 +256,7 @@ public final class SmbClient {
             Session session = null;
             DiskShare share = null;
             try {
-                connection = client.connect(host);
+                connection = connect(client, host);
                 session = authenticate(connection, username, password, domain);
                 Share remote = session.connectShare(shareName);
                 if (!(remote instanceof DiskShare)) {

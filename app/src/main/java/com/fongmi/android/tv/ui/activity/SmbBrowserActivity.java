@@ -55,6 +55,8 @@ import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.share.SmbShareController;
+import com.fongmi.android.tv.share.SmbShareService;
 import com.fongmi.android.tv.smb.SmbClient;
 import com.fongmi.android.tv.smb.SmbCredentialStore;
 import com.fongmi.android.tv.smb.SmbNetworkScanner;
@@ -830,6 +832,10 @@ public class SmbBrowserActivity extends AppCompatActivity {
             String note = savedHosts.get(host);
             labels.add((note == null ? "" : "★ ") + host + (note == null || note.isEmpty() ? "" : "  ·  " + note));
         }
+        // 末尾固定一行「分享本机」：手机把本机目录分享出去，另一端的 SMB 浏览就能搜到。
+        boolean sharing = SmbShareController.isSharing(this);
+        labels.add(sharing ? "■ 停止分享  ·  " + SmbShareController.label(this)
+                : "＋ 分享本机文件（SMB 只读）");
         return labels;
     }
 
@@ -895,6 +901,30 @@ public class SmbBrowserActivity extends AppCompatActivity {
         adapter.setRows(rows);
     }
 
+    private boolean isOwnShareHost(String value) {
+        if (value == null) return false;
+        int cut = value.lastIndexOf(':');
+        return cut > 0 && value.substring(cut + 1).chars().allMatch(Character::isDigit);
+    }
+
+    private void toggleShare() {
+        if (SmbShareController.isSharing(this)) {
+            SmbShareService.stop(this);
+            SmbShareController.stopServer(this);
+            setItems(hostLabels());
+            setStatus("已停止分享本机文件");
+            return;
+        }
+        java.io.File root = SmbShareController.root(this);
+        if (!SmbShareController.startServer(this, root, SmbShareController.port(this))) {
+            Toast.makeText(this, "分享启动失败：端口被占用或目录不可读", Toast.LENGTH_LONG).show();
+            return;
+        }
+        SmbShareService.start(this);
+        setItems(hostLabels());
+        setStatus("正在分享：" + SmbShareController.label(this));
+    }
+
     private void scanNetwork() {
         if (Build.VERSION.SDK_INT >= 37
                 && checkSelfPermission(LOCAL_NETWORK_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
@@ -945,6 +975,10 @@ public class SmbBrowserActivity extends AppCompatActivity {
         if(showingFavorites) { openFavorite(position); return; }
         if(showingHiddenHosts||showingHiddenFolders) { openHiddenItem(position); return; }
         if (mode == Mode.HOSTS) {
+            if (position == hosts.size()) {
+                toggleShare();
+                return;
+            }
             if (position < hosts.size()) connectHost(hosts.get(position), false);
             return;
         }
@@ -991,6 +1025,19 @@ public class SmbBrowserActivity extends AppCompatActivity {
             }
         }
         loginAttempted = false;
+        // 带端口的主机是本项目自家的分享（非 root 只能绑 4450）：共享名固定、
+        // 而且自家服务端不实现 srvsvc 枚举，直接进共享目录，别再走 listShares。
+        if (isOwnShareHost(value)) {
+            share = SmbShareController.SHARE;
+            path = "";
+            mode = Mode.FILES;
+            showingFavorites = false;
+            showingHiddenHosts = false;
+            showingHiddenFolders = false;
+            title.setText(value);
+            loadDirectory();
+            return;
+        }
         setStatus("正在连接 " + value + " …");
         worker.execute(() -> {
             try {
@@ -1718,6 +1765,13 @@ public class SmbBrowserActivity extends AppCompatActivity {
                 int cut = path.lastIndexOf('\\');
                 path = cut < 0 ? "" : path.substring(0, cut);
                 loadDirectory();
+            } else if (isOwnShareHost(host)) {
+                // 自家分享不走共享枚举，这里没有 share 列表可回，直接回主机列表。
+                mode = Mode.HOSTS;
+                title.setText(getString(R.string.smb_browser_title));
+                setItems(hostLabels());
+                setStatus(hosts.isEmpty() ? getString(R.string.smb_no_servers)
+                        : getString(R.string.smb_server_count, hosts.size()));
             } else {
                 mode = Mode.SHARES;
                 title.setText(host);
