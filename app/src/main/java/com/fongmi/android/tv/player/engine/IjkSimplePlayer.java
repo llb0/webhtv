@@ -583,8 +583,11 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             long actual = Math.max(0, ijk.getCurrentPosition());
             boolean landed = Math.abs(actual - target) <= 1500;
             SpiderDebug.log("ijk", "open start-at target=%d actual=%d fallback=%b", target, actual, !landed);
-            // 起播位置在 prepare 之前已经交给 ijk，这里不再补 seek：如果没落到目标点，那是引擎侧的问题，
-            // 日志里的 fallback=true 就是查它的入口，不在这里用第二次 seek 掩盖。
+            // seek-at-start 只是优化项：mpg（MPEG-PS）这类老容器上它不生效，日志里
+            // `open start-at target=739316 actual=0 fallback=true` 就是证据，结果是从 0 起播。
+            // 不在这里立刻补跳：位置在 onPrepared 这一拍本来可能还没刷新。等一小段再判一次，
+            // 仍停在起点才补一次正式 seekTo（每次 open 最多补一次）。
+            if (!landed && target > 0) retryStartAt(target);
             updateCurrentCues(target);
             // 对外位置在引擎真正落到起播点之前一直是这个起播位置（exo 的 MediaItem 起播位置天生如此），
             // 这是引擎状态的定义而不是屏显造假：否则 prepare 到出首帧这段，界面读到的就是 0。
@@ -597,6 +600,22 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         if (playWhenReady) ijk.start();
         invalidateState();
         startStateRefresh();
+    }
+
+    /** 起播位置没落住时，等一拍再确认，仍停在起点就补一次 seekTo。 */
+    private void retryStartAt(long target) {
+        App.post(() -> {
+            if (pendingSeekPositionMs != target) return; // 期间已经换源/重新起播/用户自己跳了
+            if (playbackState != Player.STATE_READY) return;
+            long current = Math.max(0, ijk.getCurrentPosition());
+            SpiderDebug.log("ijk", "open start-at-settled target=%d actual=%d", target, current);
+            // 只有还停在片头才算失败：avi/mpg 上 seek-at-start 是“打开后异步落位”，
+            // 09:25 那次 avi 的 target=454307 在 prepared 时读到 0，4 秒后才读到 449945。
+            // 落在起点附近（几秒容差）就说明定位成功了，不再补跳。
+            if (current > 1000 || Math.abs(current - target) <= 5000) return;
+            SpiderDebug.log("ijk", "open start-at-retry target=%d actual=%d", target, current);
+            ijk.seekTo(target);
+        }, 3000);
     }
 
     @Override
