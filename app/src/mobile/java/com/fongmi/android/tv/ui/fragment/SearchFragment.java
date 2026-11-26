@@ -21,6 +21,7 @@ import android.widget.PopupWindow;
 import android.widget.ScrollView;
 
 import androidx.annotation.NonNull;
+import androidx.fragment.app.Fragment;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.LinearLayoutCompat;
@@ -149,8 +150,11 @@ public class SearchFragment extends BaseFragment implements MenuProvider, WordAd
 
     @Override
     protected void initView() {
-        mCurrentSite = !TextUtils.isEmpty(getSiteKey());
-        mGroup = "";
+        // 上次选的作用域要留下来：每次进搜索页都回到“全部”，等于强制重选一遍。
+        // 从详情页带 siteKey 进来的那次仍然以 intent 为准。
+        mCurrentSite = !TextUtils.isEmpty(getSiteKey()) || Setting.isSearchScopeCurrent();
+        mGroup = mCurrentSite ? "" : Setting.getSearchScopeGroup();
+        if (mCurrentSite && getHome().isEmpty()) mCurrentSite = false;
         setRecyclerView();
         checkKeyword();
         search();
@@ -415,8 +419,17 @@ public class SearchFragment extends BaseFragment implements MenuProvider, WordAd
             mGroup = groups.get(index);
             Notify.show(getString(R.string.search_scope_group_hint, mGroup));
         }
+        Setting.putSearchScopeCurrent(mCurrentSite);
+        Setting.putSearchScopeGroup(mGroup);
+        applyScopeToResults();
         requireActivity().invalidateOptionsMenu();
         return true;
+    }
+
+    /** 作用域改了要把已经开着的搜索结果页一起换掉，否则它还在跑旧范围。 */
+    private void applyScopeToResults() {
+        Fragment result = getParentFragmentManager().findFragmentByTag(CollectFragment.class.getSimpleName());
+        if (result instanceof CollectFragment) ((CollectFragment) result).setScope(getSearchSiteKey(), getSearchGroup());
     }
 
     private interface HotSaver {

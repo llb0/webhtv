@@ -165,6 +165,14 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         return Objects.toString(getIntent().getStringExtra("group"), "");
     }
 
+    /**
+     * 实际生效的分组：结果页上的分组下拉改的就是它，直接决定这一轮把哪些站发给 worker，
+     * 而不是“全部搜完再藏结果”。
+     */
+    private String effectiveGroup() {
+        return TextUtils.isEmpty(mFilterGroup) ? getGroup() : mFilterGroup;
+    }
+
     private String getPic() {
         return Objects.toString(getIntent().getStringExtra("pic"), "");
     }
@@ -183,7 +191,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         super.onNewIntent(intent);
         getIntent().putExtras(intent);
         if (mViewModel != null) mViewModel.stopSearch();
-        mFilterGroup = "";
+        mFilterGroup = getGroup();
         mSimilarity = Setting.getSearchSimilarity();
         saveKeyword();
         setSites();
@@ -195,6 +203,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     @Override
     protected void initView(Bundle savedInstanceState) {
         mSimilarity = Setting.getSearchSimilarity();
+        mFilterGroup = getGroup();
         setRecyclerView();
         setViewModel();
         saveKeyword();
@@ -335,16 +344,20 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
 
     private void setSites() {
         String siteKey = getSiteKey();
-        String group = getGroup();
+        String group = effectiveGroup();
         mSites = new ArrayList<>();
+        List<Site> scopeSites = new ArrayList<>();
         for (Site site : VodConfig.get().getSites()) {
             if (!site.isSearchable()) continue;
             if (!siteKey.isEmpty() && !site.getKey().equals(siteKey)) continue;
+            scopeSites.add(site);
+            // 选了分组就只把该组的站发给 worker，别再全站搜一轮。
             if (!group.isEmpty() && !site.inGroup(group)) continue;
             mSites.add(site);
         }
         if (Setting.getSearchResultSort() != 1) SiteHealthStore.sortSites(mSites);
-        mGroups = TextUtils.isEmpty(siteKey) && TextUtils.isEmpty(group) ? SiteGroupOrderStore.sort(Site.getGroups(mSites)) : new ArrayList<>();
+        // 可切换的分组从作用域内的全部站来算，否则选完分组就只剩这一组、换不回去。
+        mGroups = siteKey.isEmpty() ? SiteGroupOrderStore.sort(Site.getGroups(scopeSites)) : new ArrayList<>();
     }
 
     private boolean focusBelowTop() {
@@ -358,7 +371,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     }
 
     private boolean canFilterGroup() {
-        return TextUtils.isEmpty(getSiteKey()) && TextUtils.isEmpty(getGroup()) && !mGroups.isEmpty();
+        return TextUtils.isEmpty(getSiteKey()) && !mGroups.isEmpty();
     }
 
     private String getSimilarityFilterTitle() {
@@ -466,8 +479,11 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         String activeSiteKey = getActiveSiteKey();
         mSearchPositions.clear();
         mFilterGroup = Objects.toString(group, "");
+        Setting.putSearchScopeGroup(mFilterGroup);
         updateFilterControls();
-        applyFilters(activeSiteKey);
+        // 分组换了一次就要按新范围重建站点列表并重搜，不能只把已有结果过滤一遍。
+        setSites();
+        search();
         if (!mFilterGroup.isEmpty()) Notify.show(getString(R.string.search_scope_group_hint, mFilterGroup));
     }
 
@@ -610,7 +626,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     }
 
     private String getResultTitle() {
-        if (!getGroup().isEmpty()) return getString(R.string.search_result_group, getGroup(), getKeyword());
+        if (!effectiveGroup().isEmpty()) return getString(R.string.search_result_group, effectiveGroup(), getKeyword());
         if (!getSiteKey().isEmpty()) return getString(R.string.search_result_current, getKeyword());
         return getString(R.string.collect_result, getKeyword());
     }
