@@ -913,7 +913,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
         showShareSettings();
     }
 
-    /** 分享设置入口：开关、分享哪个目录、要不要口令，运行中也能改（改完立即重启服务端生效）。 */
+    /** 分享设置入口：开关、分享哪个目录、账号密码、共享名，运行中也能改（改完立即重启服务端生效）。 */
     private void showShareSettings() {
         boolean sharing = SmbShareController.isSharing(this);
         List<String> actions = new ArrayList<>();
@@ -932,16 +932,62 @@ public class SmbBrowserActivity extends AppCompatActivity {
         boolean secured = !account.isEmpty() && !secret.isEmpty();
         actions.add("账号密码：" + (secured ? account : "未设置（匿名可访问）"));
         tasks.add(this::showShareAccountDialog);
-        String address = SmbShareController.label(this);
-        actions.add("本机地址：" + address);
-        tasks.add(() -> Toast.makeText(this, address, Toast.LENGTH_LONG).show());
+        actions.add("共享名：" + SmbShareController.share(this) + "（点此修改）");
+        tasks.add(this::showShareNameDialog);
+        actions.add("本机地址：" + SmbShareController.label(this));
+        tasks.add(() -> Toast.makeText(this, SmbShareController.label(this), Toast.LENGTH_LONG).show());
 
-        List<Runnable> finalTasks = tasks;
-        new MaterialAlertDialogBuilder(this)
+        // 用按钮自己排间距：AlertDialog 的 setItems 会把多行条目挤成一团，辨识度太差。
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(6), dp(18), dp(6));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle("本机文件分享")
-                .setItems(actions.toArray(new String[0]), (dialog, which) -> finalTasks.get(which).run())
+                .setView(box)
                 .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        for (int index = 0; index < actions.size(); index++) {
+            MaterialButton button = themedButton(actions.get(index));
+            button.setAllCaps(false);
+            button.setSingleLine(false);
+            button.setMaxLines(2);
+            button.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+            button.setTextSize(16);
+            button.setPadding(dp(14), 0, dp(14), 0);
+            final Runnable task = tasks.get(index);
+            button.setOnClickListener(view -> {
+                dialog.dismiss();
+                task.run();
+            });
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+            params.topMargin = dp(5);
+            params.bottomMargin = dp(5);
+            box.addView(button, params);
+        }
+        dialog.show();
+    }
+
+    private void showShareNameDialog() {
+        EditText input = field("共享名（默认 webhtv）", InputType.TYPE_CLASS_TEXT);
+        input.setText(SmbShareController.share(this));
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("共享名")
+                .setView(input)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton("保存", (dialog, which) -> applyShareName(input.getText().toString()))
                 .show();
+    }
+
+    private void applyShareName(String name) {
+        boolean applied = SmbShareController.apply(this, SmbShareController.root(this),
+                SmbShareController.user(this), SmbShareController.password(this),
+                name == null ? "" : name.trim(), SmbShareController.port(this));
+        if (!applied) {
+            Toast.makeText(this, "改共享名失败：端口被占用", Toast.LENGTH_LONG).show();
+            return;
+        }
+        setItems(hostLabels());
+        setStatus("共享名已改为 " + SmbShareController.share(this));
     }
 
     private void startShare() {
@@ -1220,10 +1266,10 @@ public class SmbBrowserActivity extends AppCompatActivity {
             }
         }
         loginAttempted = false;
-        // 带端口的主机是本项目自家的分享（非 root 只能绑 4450）：共享名固定、
+        // 带端口的主机是本项目自家的分享（非 root 只能绑 4450）：共享名按本机记住的来，
         // 而且自家服务端不实现 srvsvc 枚举，直接进共享目录，别再走 listShares。
         if (isOwnShareHost(value)) {
-            share = SmbShareController.SHARE;
+            share = ownShareName(value);
             path = "";
             mode = Mode.FILES;
             showingFavorites = false;
@@ -1372,6 +1418,41 @@ public class SmbBrowserActivity extends AppCompatActivity {
                 .show();
     }
 
+    /** 自家分享的共享名按主机记住，默认 webhtv（对方改过名就靠输入框更新）。 */
+    private String ownShareName(String hostName) {
+        String value = getSharedPreferences("smb_hosts", MODE_PRIVATE).getString("share:" + hostName, null);
+        return value == null || value.trim().isEmpty() ? SmbShareController.SHARE : value.trim();
+    }
+
+    private void saveOwnShareName(String hostName, String shareName) {
+        getSharedPreferences("smb_hosts", MODE_PRIVATE).edit()
+                .putString("share:" + hostName, shareName).commit();
+    }
+
+    private boolean isShareNameError(Exception error) {
+        String message = String.valueOf(error.getMessage()) + " " + error.getClass().getSimpleName();
+        return message.contains("OBJECT_NAME_NOT_FOUND") || message.contains("c0000034")
+                || message.contains("0xC0000034");
+    }
+
+    private void showOwnShareNameDialog() {
+        EditText input = field("共享名（对方分享时设的名字）", InputType.TYPE_CLASS_TEXT);
+        input.setText(ownShareName(host));
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("连接分享 · " + host)
+                .setView(input)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton("连接", (dialog, which) -> {
+                    String name = input.getText().toString().trim();
+                    if (name.isEmpty()) return;
+                    saveOwnShareName(host, name);
+                    share = name;
+                    path = "";
+                    loadDirectory();
+                })
+                .show();
+    }
+
     /**
      * 访问自家分享：服务端只校验口令不校验用户名，所以固定用 guest 这类非空用户名走 NTLMv2，
      * 真正的门槛是分享方设置的密码。
@@ -1402,7 +1483,7 @@ public class SmbBrowserActivity extends AppCompatActivity {
                     }
                     worker.execute(() -> {
                         try {
-                            SmbClient.listFiles(host, share.isEmpty() ? SmbShareController.SHARE : share,
+                            SmbClient.listFiles(host, share.isEmpty() ? ownShareName(host) : share,
                                     "", keeper, secret, "");
                             runOnUiThread(() -> {
                                 username = keeper;
@@ -1535,6 +1616,13 @@ public class SmbBrowserActivity extends AppCompatActivity {
                     if (isOwnShareHost(host) && !loginAttempted) {
                         setStatus("需要访问口令");
                         showAuthDialog();
+                        return;
+                    }
+                    // 对方改了共享名：旧名字会 TREE_CONNECT 失败（OBJECT_NAME_NOT_FOUND），
+                    // 这时让用户补一个共享名，记住后重试，别只丢一句连接失败。
+                    if (isOwnShareHost(host) && isShareNameError(e)) {
+                        setStatus("共享名不对，请填写对方的共享名");
+                        showOwnShareNameDialog();
                         return;
                     }
                     setStatus(getString(R.string.smb_connect_failed) + "：" + shortError(e));

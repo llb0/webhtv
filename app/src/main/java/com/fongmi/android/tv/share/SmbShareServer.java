@@ -78,13 +78,19 @@ public final class SmbShareServer {
     /** 账号密码都为空表示匿名开放全部；一旦设了账号密码，匿名访问直接拒绝。 */
     private volatile String username = "";
     private volatile String password = "";
+    /** 共享名，默认 {@link #SHARE_NAME}，可改；接客户端 TREE_CONNECT 时按它比对。 */
+    private volatile String shareName = SHARE_NAME;
 
     public synchronized boolean start(File root, int port) {
-        return start(root, port, "", "");
+        return start(root, port, "", "", SHARE_NAME);
+    }
+
+    public synchronized boolean start(File root, int port, String username, String password) {
+        return start(root, port, username, password, SHARE_NAME);
     }
 
     /** 账号密码任一为空就按匿名开放处理；两者都设了才要求账号密码，且匿名会被拒绝。 */
-    public synchronized boolean start(File root, int port, String username, String password) {
+    public synchronized boolean start(File root, int port, String username, String password, String shareName) {
         stop();
         if (root == null || !root.isDirectory()) return false;
         try {
@@ -97,11 +103,13 @@ public final class SmbShareServer {
             this.port = port;
             this.username = username == null ? "" : username.trim();
             this.password = password == null ? "" : password;
+            this.shareName = normalizeShareName(shareName);
             this.running = true;
             Thread thread = new Thread(this::acceptLoop, "smb-share-accept");
             thread.setDaemon(true);
             thread.start();
             log("start port=" + port + " root=" + root.getAbsolutePath()
+                    + " share=" + this.shareName
                     + " auth=" + (hasAccount() ? this.username : "anonymous"));
             return true;
         } catch (Exception error) {
@@ -152,6 +160,17 @@ public final class SmbShareServer {
 
     public File getRoot() {
         return root;
+    }
+
+    public String getShareName() {
+        return shareName;
+    }
+
+    /** 共享名只做去空白和去非法分隔符，空则回默认名。 */
+    private static String normalizeShareName(String value) {
+        if (value == null) return SHARE_NAME;
+        String name = value.trim().replace("/", "").replace("\\", "");
+        return name.isEmpty() ? SHARE_NAME : name;
     }
 
     public String getUsername() {
@@ -457,8 +476,17 @@ public final class SmbShareServer {
             String share = path;
             int cut = Math.max(share.lastIndexOf('\\'), share.lastIndexOf('/'));
             if (cut >= 0) share = share.substring(cut + 1);
-            if (TextUtils.isEmpty(share) || !share.equalsIgnoreCase(SHARE_NAME)) {
-                return simple(STATUS_OBJECT_NAME_NOT_FOUND, 9);
+            if (TextUtils.isEmpty(share) || !share.equalsIgnoreCase(shareName)) {
+                // 错误回复也要按 TREE_CONNECT 的结构给足 16 字节，否则客户端连状态码都反序列化不了，
+                // 只会报 Unable to deserialize，看不到 OBJECT_NAME_NOT_FOUND。
+                Reply deny = new Reply(STATUS_OBJECT_NAME_NOT_FOUND);
+                deny.u16(16);
+                deny.u8(0);
+                deny.u8(0);
+                deny.u32(0);
+                deny.u32(0);
+                deny.u32(0);
+                return deny;
             }
             int id = (int) (System.nanoTime() & 0x7fffffff);
             treeId = id == 0 ? 1 : id;
