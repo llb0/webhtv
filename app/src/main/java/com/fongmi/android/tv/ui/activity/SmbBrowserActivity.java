@@ -1041,10 +1041,26 @@ public class SmbBrowserActivity extends AppCompatActivity {
         setStatus(user.isEmpty() ? "已改回匿名开放（无账号密码）" : "分享账号密码已设置");
     }
 
-    /** 密码输入框：刚敲下的那个字符短暂可见，600ms 后自动变回掩码。 */
+    /**
+     * 密码输入框：刚敲下的那个字符短暂可见，600ms 后自动变回掩码。
+     *
+     * <p>注意 TextView.setTransformationMethod() 内部会回调 setText()，会再次触发 TextWatcher；
+     * 不掐断这条回环就会无限递归（实测 StackOverflowError），所以切换期间用 switching 标记屏蔽监听。</p>
+     */
     private EditText secretField(String hint) {
         EditText edit = field(hint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         edit.setTransformationMethod(new MaskAllTransformation());
+        final boolean[] switching = { false };
+        final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        final Runnable remask = () -> {
+            switching[0] = true;
+            try {
+                edit.setTransformationMethod(new MaskAllTransformation());
+                edit.setSelection(edit.getText().length());
+            } finally {
+                switching[0] = false;
+            }
+        };
         edit.addTextChangedListener(new android.text.TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence text, int start, int count, int after) {
@@ -1052,12 +1068,15 @@ public class SmbBrowserActivity extends AppCompatActivity {
 
             @Override
             public void onTextChanged(CharSequence text, int start, int before, int count) {
-                if (count <= 0) return;
-                edit.setTransformationMethod(new RevealLastTransformation());
-                edit.postDelayed(() -> {
-                    edit.setTransformationMethod(new MaskAllTransformation());
-                    edit.setSelection(edit.getText().length());
-                }, 600);
+                if (count <= 0 || switching[0]) return;
+                switching[0] = true;
+                try {
+                    edit.setTransformationMethod(new RevealLastTransformation());
+                } finally {
+                    switching[0] = false;
+                }
+                handler.removeCallbacks(remask);
+                handler.postDelayed(remask, 600);
             }
 
             @Override
