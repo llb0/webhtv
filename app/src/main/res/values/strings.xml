@@ -3402,4 +3402,5 @@
 <string name="following_calendar_week_range">%1$d/%2$d – %3$d/%4$d</string>
 <string name="following_calendar_empty_week">No episodes scheduled this week. Switch to Month, or pick another date.</string>
 <string name="following_calendar_empty_month">No episodes scheduled this month. Use the arrows to change range.</string>
+<string name="following_calendar_month_scroll">Month view: swipe the calendar to see the whole month.</string>
 </resources>
