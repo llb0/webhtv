@@ -4,6 +4,7 @@ import android.content.Context;
 
 import com.fongmi.quickjs.method.Console;
 import com.fongmi.quickjs.method.Global;
+import com.fongmi.quickjs.method.IdjHost;
 import com.fongmi.quickjs.method.Local;
 import com.fongmi.quickjs.utils.Async;
 import com.fongmi.quickjs.utils.JSUtil;
@@ -11,6 +12,7 @@ import com.fongmi.quickjs.utils.Module;
 import com.fongmi.quickjs.utils.ProxyResponse;
 import com.github.catvod.utils.Asset;
 import com.github.catvod.utils.Json;
+import com.github.catvod.utils.Path;
 import com.github.catvod.utils.UriUtil;
 import com.github.catvod.utils.Util;
 import com.whl.quickjs.wrapper.JSArray;
@@ -40,12 +42,23 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private QuickJSContext ctx;
     private JSObject jsObject;
     private Global global;
+    private IdjHost idjHost;
     private boolean cat;
 
     public Spider(String api, DexClassLoader dex) {
         this.executor = Executors.newSingleThreadExecutor();
         this.api = api;
         this.dex = dex;
+    }
+
+    /** clan://idj/&lt;id&gt;/source.js 是 iDuanJu idj1 插件，走专门的宿主桥与适配器。 */
+    private boolean isIdj() {
+        return api != null && api.replace("clan://", "/").contains("/idj/") && api.endsWith(".js");
+    }
+
+    private java.io.File idjDir() {
+        java.io.File file = Path.local(api);
+        return file == null ? null : file.getParentFile();
     }
 
     private <T> Future<T> submit(Callable<T> callable) {
@@ -166,6 +179,13 @@ public class Spider extends com.github.catvod.crawler.Spider {
         ctx.setConsole(new Console());
         ctx.evaluate(Asset.read("js/lib/http.js"));
         ctx.getGlobalObject().setProperty("local", Local.class);
+        if (isIdj()) {
+            java.io.File dir = idjDir();
+            if (dir != null && dir.isDirectory()) {
+                idjHost = IdjHost.create(dir);
+                ctx.getGlobalObject().setProperty("__host", args -> idjHost.call(String.valueOf(args[0]), args.length > 1 && args[1] != null ? String.valueOf(args[1]) : "null"));
+            }
+        }
         ctx.setModuleLoader(new QuickJSContext.BytecodeModuleLoader() {
             @Override
             public String moduleNormalizeName(String baseModuleName, String moduleName) {
@@ -193,6 +213,13 @@ public class Spider extends com.github.catvod.crawler.Spider {
         String global = "globalThis." + spider;
         String content = Module.get().fetch(api);
         if (content == null) throw new IllegalStateException("JS source not found: " + api);
+        if (isIdj()) {
+            ctx.evaluate(Asset.read("js/lib/idj-prelude.js"));
+            ctx.evaluate(content.replaceFirst("export\\s+default\\s*", "globalThis.__IDJ__ = "));
+            ctx.evaluate(Asset.read("js/lib/idj-spider.js"));
+            jsObject = (JSObject) ctx.getProperty(ctx.getGlobalObject(), spider);
+            return;
+        }
         cat = content.contains("__jsEvalReturn");
         ctx.evaluateModule(content.replace(spider, global), api);
         ctx.evaluateModule(String.format(Asset.read("js/lib/spider.js"), api));

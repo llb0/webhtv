@@ -18,6 +18,7 @@ import com.fongmi.android.tv.bean.HlsAdRule;
 import com.fongmi.android.tv.bean.Parse;
 import com.fongmi.android.tv.bean.Rule;
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.plugin.idj.IdjPluginStore;
 import com.fongmi.android.tv.bean.TmdbConfig;
 import com.fongmi.android.tv.bean.Style;
 import com.fongmi.android.tv.event.ConfigEvent;
@@ -758,6 +759,7 @@ public class VodConfig extends BaseConfig {
         }
         if (Setting.isSourceAllowed(Setting.SOURCE_SITES_JS)) {
             try { result.addAll(loadJsSites(globalSpider)); } catch (Throwable ignored) {}
+            try { result.addAll(IdjPluginStore.sites(globalSpider)); } catch (Throwable ignored) {}
         }
         if (Setting.isSourceAllowed(Setting.SOURCE_SITES_PY)) {
             try { result.addAll(loadPySites(globalSpider)); } catch (Throwable ignored) {}
