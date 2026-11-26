@@ -23,8 +23,12 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.content.res.ColorStateList;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.Build;
+import android.os.Looper;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.util.TypedValue;
 import android.view.KeyEvent;
@@ -1062,11 +1066,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(22), dp(8), dp(22), 0);
         EditText user = field("账号（留空=匿名开放）", InputType.TYPE_CLASS_TEXT);
-        EditText pass = secretField("密码（留空=匿名开放）");
+        EditText pass = addSecretField(form, "密码（留空=匿名开放）", SmbShareController.password(this));
         user.setText(SmbShareController.user(this));
-        pass.setText(SmbShareController.password(this));
         form.addView(user);
-        form.addView(pass);
         new MaterialAlertDialogBuilder(this)
                 .setTitle("分享账号密码")
                 .setView(form)
@@ -1099,8 +1101,50 @@ public class SmbBrowserActivity extends AppCompatActivity {
      * 而它内部会 setText() 并触发 IME restartInput，MIUI 上会踩到布局未更新的 getFocusedRect，
      * 实测两种崩溃（无限递归 / IndexOutOfBounds）。稳定性优先，回到系统密码框的标准行为。</p>
      */
-    private EditText secretField(String hint) {
-        return field(hint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+    /**
+     * 密码输入框：本体始终是系统标准掩码，刚敲下的字符单独在下面一行小字里露 0.8 秒。
+     *
+     * <p>以前是把“最后一位可见”做在输入框自己的 setTransformationMethod 上，必须每敲一次就切一次，
+     * 而它内部会 setText() 并让 IME restartInput，MIUI 上会拿到过期 Layout（getFocusedRect /
+     * Paint.getRunAdvance 抛 IndexOutOfBounds），先后两种崩溃。现在完全不碰 EditText 的 transformation，
+     * 崩溃路径不存在，视觉上仍然是“敲一个字看一下”。</p>
+     */
+    private EditText addSecretField(LinearLayout form, String hint, String initial) {
+        EditText edit = field(hint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        // 先把旧密码塞进去，再挂监听：否则恢复已有密码时会把最后一位当成“刚输入”闪出来。
+        if (initial != null && !initial.isEmpty()) edit.setText(initial);
+        TextView peek = new TextView(this);
+        peek.setTextSize(12);
+        peek.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, 0x99FFFFFF));
+        peek.setVisibility(View.GONE);
+        Handler handler = new Handler(Looper.getMainLooper());
+        Runnable hide = () -> peek.setVisibility(View.GONE);
+        edit.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence text, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence text, int start, int before, int count) {
+                // 只提示“新敲进来的字符”，删除不提示，避免把整段历史里的某个字符又泄出来。
+                if (count <= 0 || start + count > text.length()) {
+                    handler.removeCallbacksAndMessages(peek);
+                    hide.run();
+                    return;
+                }
+                peek.setText("刚输入：" + text.charAt(start + count - 1));
+                peek.setVisibility(View.VISIBLE);
+                handler.removeCallbacksAndMessages(peek);
+                handler.postDelayed(hide, peek, 800);
+            }
+
+            @Override
+            public void afterTextChanged(Editable editable) {
+            }
+        });
+        form.addView(edit);
+        form.addView(peek);
+        return edit;
     }
 
     private void scanNetwork() {
@@ -1400,11 +1444,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(22), dp(8), dp(22), 0);
         EditText user = field("账号（分享方设置的账号）", InputType.TYPE_CLASS_TEXT);
-        EditText pass = secretField("密码（分享方设置的密码）");
+        EditText pass = addSecretField(form, "密码（分享方设置的密码）", password);
         user.setText(username);
-        pass.setText(password);
         form.addView(user);
-        form.addView(pass);
         new MaterialAlertDialogBuilder(this)
                 .setTitle("访问分享 · " + host)
                 .setView(form)
