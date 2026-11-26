@@ -206,7 +206,8 @@ public final class UsageHelpDialog {
                             同名插件版本变了会自动重装；安装失败只跳过该插件，不影响别的站点。
                             """),
                     section("支持的插件", """
-                            只支持清单 type 为 video / shortdrama、且 capabilities 同时声明 detail 与 play 的插件；adult 为 true 的插件不安装。
+                            只支持清单 type 为 video / shortdrama、且 capabilities 同时声明 detail 与 play 的插件。
+                            adult 为 true 的插件默认不安装；要用来「设置 → 增强功能 → 来源屏蔽 → iDuanJu 成人插件（勾选＝允许）」打开，站点名会带 🔞。
                             插件自己的 home/category/search/detail/play 直接决定分类、搜索、详情和播放。
                             """),
                     section("宿主能力与限制", """

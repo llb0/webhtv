@@ -41,7 +41,7 @@ tvbox/idj/<id>/storage.json      host.storage 的私有 KV（上限 1MB）
 ## 已知限制
 
 - 只支持 `type` 为 `video` / `shortdrama`、且 `capabilities` 同时包含 `detail` 与 `play` 的插件；`comic`、`live` 会直接跳过。
-- `adult: true` 的插件不安装（webhtv 没有成人内容门控）。
+- `adult: true` 的插件默认不安装：需在「设置 → 增强功能 → 来源屏蔽」里勾上「iDuanJu 成人插件（勾选＝允许）」并重新加载点播，站点名会带 🔞 标识；关掉开关后站点立即从列表消失（已安装目录保留，再打开不用重装）。
 - `streams[].proxy`（`stripFakeHeader` / `hlsKey` / `segmentDecrypt` / `drm` / `rewriteHosts`）不会被执行，只按原样直链播放；需要这些处理的流可能播不了。
 - 弹幕（`danmaku()`）、播放进度跳过（`skip`）、图片解密（`transform`）不接入。
 - 插件源码按「单文件 + `export default`」解析；带 `import` 的多文件插件、`eval` / `new Function` 一律不支持（quickjs 侧也不开放）。

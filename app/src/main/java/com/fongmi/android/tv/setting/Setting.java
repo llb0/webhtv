@@ -1816,6 +1816,15 @@ public class Setting {
         putSourceBlockMask(mask);
     }
 
+    /** iDuanJu 成人插件单独开关：默认不允许，不放进来源屏蔽掩码。 */
+    public static boolean isIdjAdultAllowed() {
+        return Prefers.getBoolean("idj_allow_adult", false);
+    }
+
+    public static void putIdjAdultAllowed(boolean allow) {
+        Prefers.put("idj_allow_adult", allow);
+    }
+
     public static int getSourceBlockedCount() {
         int mask = getSourceBlockMask();
         int count = 0;

@@ -3,6 +3,7 @@ package com.fongmi.android.tv.plugin.idj;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.quickjs.utils.Module;
 import com.github.catvod.utils.Path;
 
@@ -72,7 +73,8 @@ public final class IdjPluginStore {
         String id = manifest.optString("id");
         if (!ID.matcher(id == null ? "" : id).matches()) throw new IllegalArgumentException("插件 id 非法");
         if (!TYPES.contains(manifest.optString("type"))) throw new IllegalArgumentException("只支持视频点播插件（video / shortdrama）");
-        if (manifest.optBoolean("adult", false)) throw new IllegalArgumentException("成人内容插件不在支持范围");
+        boolean adult = manifest.optBoolean("adult", false);
+        if (adult && !Setting.isIdjAdultAllowed()) throw new IllegalArgumentException("成人插件未开启（增强功能 → 来源屏蔽 → iDuanJu 成人插件）");
         String entry = manifest.optString("entry");
         if (TextUtils.isEmpty(entry) || !files.has(entry)) throw new IllegalArgumentException("缺少入口文件");
         String source = files.optString(entry);
@@ -176,6 +178,8 @@ public final class IdjPluginStore {
             if (!new File(pluginDir, "source.js").exists()) continue;
             if (TextUtils.isEmpty(manifest.optString("name"))) continue;
             if (!TYPES.contains(manifest.optString("type"))) continue;
+            boolean adult = manifest.optBoolean("adult", false);
+            if (adult && !Setting.isIdjAdultAllowed()) continue;
             JSONArray capabilities = manifest.optJSONArray("capabilities");
             boolean search = false;
             if (capabilities != null) for (int i = 0; i < capabilities.length(); i++) if ("search".equals(capabilities.optString(i))) search = true;
@@ -183,7 +187,7 @@ public final class IdjPluginStore {
             site.setType(3);
             site.setApi("clan://" + DIR + "/" + pluginDir.getName() + "/source.js");
             site.setJar(globalSpider);
-            site.setName(manifest.optString("name") + " | IDJ");
+            site.setName(manifest.optString("name") + (adult ? " 🔞" : "") + " | IDJ");
             site.setSearchable(search);
             site.setChangeable(true);
             result.add(site);
