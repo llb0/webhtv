@@ -213,7 +213,7 @@ public final class UsageHelpDialog {
                             宿主提供 HTTP 请求（按清单 permissions.http 做域名白名单，禁 IP 直连与非 80/443 端口）、CSS 选择器解析、md5/sha1/sha256/sha512/HMAC/AES、base64/hex/gunzip、m3u8 解析、插件私有 KV 和设置项。
                             rsa、unpackPacker、cloudflare、login 不提供（host.has 返回 false）；streams 里的 proxy 处理不执行，只按直链播放，弹幕和图片解密也不接入。
                             设置项可在 /tvbox/idj/<id>/settings.json 手改。
-                            """),
+                            """)),
             module("演员/导演超链接（站源接口规范）", "站源可以在详情里把演员、导演写成可点标记；webhtv 负责渲染，并把点击回的 id 交回站源处理。",
                     section("标记格式", """
                             标记写在详情返回的 vod_actor 或 vod_director 里，形如 [a=cr:{...}/]演员A/演员B[/a]。
