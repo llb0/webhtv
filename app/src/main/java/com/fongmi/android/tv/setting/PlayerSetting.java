@@ -233,8 +233,9 @@ public class PlayerSetting {
                 || lower.endsWith(".rmvb") || lower.endsWith(".rm") || lower.endsWith(".vob")
                 || lower.endsWith(".f4v") || lower.endsWith(".mpg")
                 || lower.endsWith(".mpeg") || lower.endsWith(".divx") || lower.endsWith(".xvid")
-                // 光盘 .dat 是 MPEG-PS，Exo 没有对应解复用器，必须走带 FFmpeg 的 IJK。
-                || lower.endsWith(".dat");
+                // 光盘数据区的大写 .DAT 是 MPEG-PS，Exo 没有对应解复用器，必须走带 FFmpeg 的 IJK；
+                // 小写 .dat（电脑上的纯数据）不在此列，别把无关文件也切到 IJK。
+                || path.endsWith(".DAT");
     }
 
     public static int kernelCount() {

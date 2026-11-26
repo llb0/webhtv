@@ -33,7 +33,9 @@ public class Sniffer {
     public static final Pattern SNIFFER = Pattern.compile("https?://[^\\s]{12,}\\.(?:m3u8|mp4|mkv|flv|mp3|m4a|aac|mpd)(?:\\?.*)?|https?://.*?video/tos[^\\s]*|rtmp:[^\\s]+");
     // /file 是 WebHTV 本机文件代理，必须按真实后缀判直链；否则 avi/wmv 等会被当成网页，
     // 走 WebView 嗅探 30 秒后报“播放地址解析失败”。
-    public static final Pattern LOCAL_FILE_VIDEO = Pattern.compile("\\.(?:avi|wmv|asf|rmvb|rm|vob|mpg|mpeg|divx|xvid|f4v|ts|m2ts|3gp|webm|mov|dat)(?:\\?.*)?$", Pattern.CASE_INSENSITIVE);
+    public static final Pattern LOCAL_FILE_VIDEO = Pattern.compile("\\.(?:avi|wmv|asf|rmvb|rm|vob|mpg|mpeg|divx|xvid|f4v|ts|m2ts|3gp|webm|mov)(?:\\?.*)?$", Pattern.CASE_INSENSITIVE);
+    /** 光盘数据区的大写 .DAT（MPEG-PS 正片）。小写 .dat 多为纯数据，不当视频直链。 */
+    public static final Pattern LOCAL_FILE_DISC_DAT = Pattern.compile("\\.DAT(?:\\?.*)?$");
 
     public static String getUrl(String text) {
         // 携带请求头的推送串：不能走 AI_PUSH 正则，否则 json 里的空格会把地址截断
@@ -143,7 +145,8 @@ public class Sniffer {
         if (url.startsWith("http://127.0.0.1:") && url.contains("smb=1")) return true;
         // 推送串带 @Headers= 时同样要剥掉，否则 .m3u8@Headers= 匹配不上
         url = pushUrl(url);
-        if (url.contains("/file/") && LOCAL_FILE_VIDEO.matcher(url).find()) return true;
+        if (url.contains("/file/")
+                && (LOCAL_FILE_VIDEO.matcher(url).find() || LOCAL_FILE_DISC_DAT.matcher(url).find())) return true;
         Rule rule = getRule(UrlUtil.uri(url));
         for (String exclude : rule.getExclude()) if (url.contains(exclude)) return false;
         for (String exclude : rule.getExclude()) if (Pattern.compile(exclude).matcher(url).find()) return false;

@@ -117,9 +117,10 @@ public final class SmbClient {
                 || value.endsWith(".webm") || value.endsWith(".mpg") || value.endsWith(".mpeg")
                 || value.endsWith(".vob") || value.endsWith(".3gp") || value.endsWith(".3g2")
                 || value.endsWith(".mts") || value.endsWith(".mxf") || value.endsWith(".ogv")
-                // 光盘数据区里的 .dat 就是 MPEG-PS 正片（VCD/SVCD 常见），改名 mpg 能放，
-                // 说明只是后缀没登记，不是容器不支持。
-                || value.endsWith(".dat");
+                // 只认大写 .DAT：光盘数据区里的 .DAT 是 MPEG-PS 正片（VCD/SVCD 常见，
+                // AVSEQ01.DAT 这类文件名都是大写）；电脑上的纯数据文件一般用小写 .dat，
+                // 不能一起当视频列进目录剧集。这里用原始文件名判大小写，不走上面那个小写串。
+                || name.endsWith(".DAT");
     }
 
     public static boolean isAudio(String name) {
