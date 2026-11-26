@@ -25,14 +25,14 @@ public class SourceBlockDialog {
                 context.getString(R.string.source_lives_file)
         };
         for (int i = 0; i < blockedNames.length; i++) names[i] = blockedNames[i];
-        // 末两项语义相反：勾选=允许，独立存 idj_*，不进来源屏蔽掩码
+        // 末两项同样「勾选=屏蔽」，但独立存 idj_*（取反），不进来源屏蔽掩码
         names[sources.length] = context.getString(R.string.source_idj_sites);
         names[sources.length + 1] = context.getString(R.string.source_idj_adult);
         boolean[] checked = new boolean[sources.length + 2];
         int mask = Setting.getSourceBlockMask();
         for (int i = 0; i < sources.length; i++) checked[i] = (mask & sources[i]) != 0;
-        checked[sources.length] = Setting.isIdjSitesEnabled();
-        checked[sources.length + 1] = Setting.isIdjAdultAllowed();
+        checked[sources.length] = !Setting.isIdjSitesEnabled();
+        checked[sources.length + 1] = !Setting.isIdjAdultAllowed();
         new MaterialAlertDialogBuilder(context)
                 .setTitle(R.string.setting_source_block_dialog_title)
                 .setMultiChoiceItems(names, checked, (dialog, which, isChecked) -> checked[which] = isChecked)
@@ -40,8 +40,8 @@ public class SourceBlockDialog {
                     int newMask = 0;
                     for (int i = 0; i < sources.length; i++) if (checked[i]) newMask |= sources[i];
                     Setting.putSourceBlockMask(newMask);
-                    Setting.putIdjSitesEnabled(checked[sources.length]);
-                    Setting.putIdjAdultAllowed(checked[sources.length + 1]);
+                    Setting.putIdjSitesEnabled(!checked[sources.length]);
+                    Setting.putIdjAdultAllowed(!checked[sources.length + 1]);
                     if (callback != null) callback.onConfirm();
                 })
                 .setNegativeButton(R.string.dialog_negative, null)

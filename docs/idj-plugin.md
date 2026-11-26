@@ -5,7 +5,7 @@ webhtv 现在可以直接吃 iDuanJu 的 idj1 单文件插件包（`.idjplugin`�
 ## 怎么装
 
 1. 把 `xx.idjplugin` 放进应用的 `tvbox/idj/` 目录（设置页的远程文件管理、SMB 分享或系统文件管理都可以）。
-2. 确认「设置 → 增强功能 → 来源屏蔽」里「iDuanJu 插件站点（勾选＝允许）」是勾上的（独立开关，默认开启，和 sites-js 无关）；成人插件另有「iDuanJu 成人插件」开关，默认也开启。
+2. 确认「设置 → 增强功能 → 来源屏蔽」里「iDuanJu 插件站点」没有被勾上（勾选＝屏蔽，默认不屏蔽，和 sites-js 无关）；成人插件另有「iDuanJu 成人插件」，默认就是屏蔽的。
 3. 重新加载点播接口（首页「更多 → 刷新」，或重进点播）。
 4. 站点列表里会出现 `插件名 | IDJ`，分类、搜索、详情、播放都按插件自己的实现走。
 
@@ -42,7 +42,7 @@ tvbox/idj/<id>/storage.json      host.storage 的私有 KV（上限 1MB）
 ## 已知限制
 
 - 只支持 `type` 为 `video` / `shortdrama`、且 `capabilities` 同时包含 `detail` 与 `play` 的插件；`comic`、`live` 会直接跳过。
-- `adult: true` 的插件由「iDuanJu 成人插件」单独控制（默认开启），站点名带 🔞；关掉任一开关后对应站点立即从列表消失（已安装目录保留，再打开不用重装）。
+- `adult: true` 的插件由「iDuanJu 成人插件」单独控制（默认屏蔽，取消勾选＝允许），站点名带 🔞；勾上「iDuanJu 插件站点」会屏蔽全部 idj 站点（已安装目录保留，取消屏蔽后不用重装）。
 - `streams[].proxy`（`stripFakeHeader` / `hlsKey` / `segmentDecrypt` / `drm` / `rewriteHosts`）不会被执行，只按原样直链播放；需要这些处理的流可能播不了。
 - 弹幕（`danmaku()`）、播放进度跳过（`skip`）、图片解密（`transform`）不接入。
 - 插件源码按「单文件 + `export default`」解析；带 `import` 的多文件插件、`eval` / `new Function` 一律不支持（quickjs 侧也不开放）。

@@ -1825,9 +1825,9 @@ public class Setting {
         Prefers.put("idj_sites_enabled", enabled);
     }
 
-    /** iDuanJu 成人插件独立开关：默认开启，单独于站点开关与来源屏蔽掩码。 */
+    /** iDuanJu 成人插件独立开关：默认屏蔽（不允许），单独于站点开关与来源屏蔽掩码。 */
     public static boolean isIdjAdultAllowed() {
-        return Prefers.getBoolean("idj_allow_adult", true);
+        return Prefers.getBoolean("idj_allow_adult", false);
     }
 
     public static void putIdjAdultAllowed(boolean allow) {
