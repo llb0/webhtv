@@ -18,6 +18,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.provider.Settings;
 import android.graphics.Typeface;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.content.res.ColorStateList;
@@ -50,6 +51,10 @@ import com.bumptech.glide.load.resource.bitmap.DownsampleStrategy;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.bean.Episode;
+import com.fongmi.android.tv.bean.Flag;
+import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.smb.SmbClient;
 import com.fongmi.android.tv.smb.SmbCredentialStore;
 import com.fongmi.android.tv.smb.SmbNetworkScanner;
@@ -68,6 +73,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import org.json.JSONObject;
@@ -953,7 +959,9 @@ public class SmbBrowserActivity extends AppCompatActivity {
             if (entry.directory) {
                 path = remotePath;
                 loadDirectory();
-            } else if (SmbClient.isVideo(entry.name) || SmbClient.isAudio(entry.name)) {
+            } else if (SmbClient.isVideo(entry.name)) {
+                openFolderVod(remotePath);
+            } else if (SmbClient.isAudio(entry.name)) {
                 play(remotePath);
             } else if (SmbClient.isImage(entry.name)) {
                 showImage(remotePath);
@@ -1139,6 +1147,19 @@ public class SmbBrowserActivity extends AppCompatActivity {
         return edit;
     }
 
+    /** 同名历史里取一个已知的总时长；没有播放过就返回 0（海报不显示副标题）。 */
+    private long longestKnownDuration(String name) {
+        try {
+            long best = 0;
+            for (com.fongmi.android.tv.bean.History history : com.fongmi.android.tv.bean.History.findByName(name)) {
+                best = Math.max(best, history.getDuration());
+            }
+            return best;
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
     private void openShare(String value) {
         showingFavorites = false;
         share = value;
@@ -1158,6 +1179,14 @@ public class SmbBrowserActivity extends AppCompatActivity {
         worker.execute(() -> {
             try {
                 List<SmbClient.Entry> found = SmbClient.listFiles(host, share, path, username, password, domain);
+                // 目录海报的时长副标题：只从最近观看里取已知时长（播放过才有），查不到就不显示。
+                // 放在这里（worker 线程）查，别让主线程为每一行跑一次数据库。
+                Map<String, Long> durations = new HashMap<>();
+                for (SmbClient.Entry entry : found) {
+                    if (entry.directory || !SmbClient.isVideo(entry.name)) continue;
+                    long value = longestKnownDuration(entry.name);
+                    if (value > 0) durations.put(entry.name, value);
+                }
                 runOnUiThread(() -> {
                     files.clear();
                     files.addAll(found);
@@ -1171,18 +1200,19 @@ public class SmbBrowserActivity extends AppCompatActivity {
                             rows.add(SmbRowAdapter.Row.icon(entry.name, "", "📁"));
                         } else if (SmbClient.isVideo(entry.name)) {
                             // 视频行给缩略图：取帧走缩略图专用 token 池，不会挤掉正在播放的直链。
-                            // 只有 IJK 能播的老容器（avi/wmv/rmvb 等）系统取帧器解不出来，直接按小图标显示。
+                            // 老容器（avi/wmv/rmvb 等）系统取帧器（MMR）解不出来，但内置 FFmpeg 能解，
+                            // 所以这里一律允许取帧；MMR 那条只作兜底，解不了就等播放时补图。
                             String thumbUrl = null;
                             try {
                                 thumbUrl = SmbPlaybackProxy.createThumbUrl(host, share, remotePath, username, password, domain);
                             } catch (IOException ignored) {
                                 thumbUrl = null;
                             }
-                            boolean legacy = PlayerSetting.isLegacyContainer(entry.name);
+                            long durationMs = durations.getOrDefault(entry.name, 0L);
                             rows.add(thumbUrl == null
                                     ? SmbRowAdapter.Row.icon(entry.name, "", "▶")
                                     : SmbRowAdapter.Row.video(entry.name, "",
-                                    SmbThumbnailCache.key(host, share, remotePath), thumbUrl, !legacy));
+                                    SmbThumbnailCache.key(host, share, remotePath), thumbUrl, true, durationMs));
                         } else if (SmbClient.isAudio(entry.name)) {
                             rows.add(SmbRowAdapter.Row.icon(entry.name, "", "♫"));
                         } else if (SmbClient.isImage(entry.name)) {
@@ -1308,6 +1338,95 @@ public class SmbBrowserActivity extends AppCompatActivity {
         } catch (Exception e) {
             Toast.makeText(this, "无法打开 APK 安装程序：" + shortError(e), Toast.LENGTH_LONG).show();
         }
+    }
+
+    /**
+     * 点目录里的视频：本目录的视频做成“剧集”，点中的那一集是当前集。
+     * 每集的链接仍然走 {@link SmbPlaybackProxy}（和现在单文件播放同一个入口、同一套代理），
+     * 详情图只用当前这一集的抽帧封面，不会为每集各抽一张。
+     *
+     * 目录里的视频做成一个真 {@link Vod} 直接进原生详情页：线路里每集都是本机代理地址，
+     * 点中的那集排在第一位（当前集），封面用点中文件已经抽好的那张缩略图。
+     * 目录里只有一个视频时退回单文件播放。
+     */
+    private void openFolderVod(String current) {
+        List<SmbClient.Entry> videos = new ArrayList<>();
+        for (SmbClient.Entry entry : visibleFiles) {
+            if (!entry.directory && SmbClient.isVideo(entry.name)) videos.add(entry);
+        }
+        videos.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.name, b.name));
+        if (videos.size() < 2) {
+            play(current);
+            return;
+        }
+        String folder = path.isEmpty() ? getString(R.string.smb_browser_title)
+                : path.substring(path.lastIndexOf((char) 92) + 1);
+        // 点中的那集排第一：详情页的当前集、起播位置都跟着第一位走，不依赖 isSelected 在
+        // 线路重建后还活着（这条链路里它会丢）。
+        List<SmbClient.Entry> ordered = new ArrayList<>();
+        ordered.add(null);
+        for (SmbClient.Entry entry : videos) {
+            String remote = path.isEmpty() ? entry.name : path + "\\" + entry.name;
+            if (current.equals(remote)) ordered.set(0, entry);
+            else ordered.add(entry);
+        }
+        // SmbPlaybackProxy 的直链池只有 24 条（超了会挤掉最早注册的那条，正好是当前集），
+        // 超过 24 个视频就按前 24 个做剧集，当前集始终在里面。
+        while (ordered.size() > 24) ordered.remove(ordered.size() - 1);
+        StringBuilder urls = new StringBuilder();
+        String currentUrl = null;
+        try {
+            for (SmbClient.Entry entry : ordered) {
+                if (entry == null) continue;
+                String remote = path.isEmpty() ? entry.name : path + "\\" + entry.name;
+                String url = SmbPlaybackProxy.createUrl(host, share, remote, username, password, domain);
+                if (current.equals(remote)) currentUrl = url;
+                if (urls.length() > 0) urls.append('#');
+                urls.append(stripExtension(entry.name)).append('$').append(url);
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, getString(R.string.smb_connect_failed) + "：" + shortError(e), Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (currentUrl == null) {
+            play(current);
+            return;
+        }
+        Vod vod = new Vod();
+        // 线路 key 必须落成 push_agent，和本地 file 推送进详情页同一个 key。
+        Site site = new Site();
+        site.setKey(SiteApi.PUSH);
+        site.setName("SMB");
+        vod.setSite(site);
+        vod.setId(currentUrl);
+        vod.setName(folder);
+        vod.setPlayUrl(currentUrl);
+        vod.setPic(folderCover(currentUrl));
+        Flag flag = Flag.create("SMB", urls.toString());
+        for (Episode episode : flag.getEpisodes()) {
+            if (currentUrl.equals(episode.getUrl())) episode.setSelected(true);
+        }
+        vod.setFlags(new ArrayList<>());
+        vod.getFlags().add(flag);
+        VideoActivity.startDirectResolved(this, vod);
+    }
+
+    /** 详情图用点中文件已经抽好落盘的缩略图；没有就不传，留空比塞错图强。 */
+    private String folderCover(String currentUrl) {
+        try {
+            String key = SmbPlaybackProxy.keyForUrl(currentUrl);
+            if (key == null) return "";
+            File thumb = SmbThumbnailCache.file(this, key);
+            if (thumb == null || !thumb.isFile() || thumb.length() <= 0) return "";
+            return "file://" + thumb.getAbsolutePath();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String stripExtension(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
     }
 
     private void play(String remotePath) {

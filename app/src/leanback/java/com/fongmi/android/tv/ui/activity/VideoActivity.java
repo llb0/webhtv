@@ -94,6 +94,7 @@ import com.fongmi.android.tv.player.PlaybackExperimentPolicy;
 import com.fongmi.android.tv.player.PlaybackResourceClassifier;
 import com.fongmi.android.tv.player.PlayerHelper;
 import com.fongmi.android.tv.player.PlayerManager;
+import com.fongmi.android.tv.player.TrickplayStore;
 import com.fongmi.android.tv.player.lut.LutPreset;
 import com.fongmi.android.tv.player.lut.LutStore;
 import com.fongmi.android.tv.service.AiAdDetectionService;
@@ -133,6 +134,7 @@ import com.fongmi.android.tv.ui.adapter.QualityAdapter;
 import com.fongmi.android.tv.ui.adapter.QuickAdapter;
 import com.fongmi.android.tv.ui.audio.AudioPlaybackResolver;
 import com.fongmi.android.tv.ui.custom.CustomKeyDownVod;
+import com.fongmi.android.tv.ui.custom.SeekPreviewStrip;
 import com.fongmi.android.tv.ui.custom.CustomMovement;
 import com.fongmi.android.tv.ui.custom.CustomSeekView;
 import com.fongmi.android.tv.ui.custom.PlayerOsdController;
@@ -426,6 +428,20 @@ private boolean runtimeSourceOnly;
     private static final long TV_TOUCH_SEEK_SCALE = 50L;
 
     private CustomKeyDownVod mKeyDown;
+    /** 长按快进/快退时的缩略图预览层（与手机端同一实现）。 */
+    private SeekPreviewStrip mSeekPreview;
+    private long mSeekPreviewBase;
+    private long mSeekPreviewOffset;
+    private boolean mSeekPreviewPending;
+    /**
+     * 这一排图属于「一次按住」：按下期间为 true，松手（onSeekEnd）/取消就归 false。
+     * 上一排还在停留窗口里、用户又开始新一次快进时，若还拿旧的起点算游标，
+     * 游标会先往回跳一步，方向和刷新次序就整排翻过来 —— 所以新会话第一下先把旧排收掉。
+     */
+    private boolean mSeekPreviewSessionStarted;
+    private java.util.Map<String, String> mSeekPreviewHeaders;
+    private final android.os.Handler mSeekPreviewHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable mSeekPreviewShow = this::showPendingSeekPreview;
     private AudioManager mTvAudioManager;
     private int mTvTouchAxis;
     private boolean mTvTouchMulti;
@@ -659,7 +675,8 @@ private boolean runtimeSourceOnly;
     private String playHealthKey;
     private long detailStartTime;
     private long playerStartTime;
-    private long pendingResumeSeekMs = C.TIME_UNSET;
+    /** 点缩略图刚跳过的目标点，用于 0.9 秒后复核补跳。 */
+    private long previewCommitTarget = C.TIME_UNSET;
     private boolean tmdbHistoryResumePending;
     private boolean pendingLutImport;
     private boolean playerKernelSwitchRefreshing;
@@ -1898,6 +1915,7 @@ private boolean runtimeSourceOnly;
         mPiP = mPlayerUi.pip();
         setupAudioStageOverlay();
         mKeyDown = CustomKeyDownVod.create(this);
+        setupSeekPreview();
         mTvAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         mObserveDetail = this::setDetail;
         mObservePlayer = this::setPlayer;
@@ -3772,6 +3790,8 @@ private boolean runtimeSourceOnly;
     private void setPlayer(Result result) {
         invalidateAutoDanmaku();
         cancelKeySeek();
+        cancelPendingSeekPreview();
+        if (mSeekPreview != null) mSeekPreview.dismiss();
         // null 结果表示这次取流请求已被作废（SiteViewModel.cancelPlayerContent 会向 PLAYER
         // LiveData 写入 null），不会再有结果回调来收圈。守卫若留在这里，onStateChanged 与
         // hidePlaybackProgressIfStale 两条清除路径会永久被挡下，圈再无任何清除路径。
@@ -3893,7 +3913,7 @@ private boolean runtimeSourceOnly;
                 || !player().supportsPlaylistQueue() || !PreloadSetting.isPreload(PlayerSetting.EXO)) return false;
         if (MultiThreadProxySetting.get().enabled() || player().isRepeatOne() || mHistory == null
                 || mHistory.getOpening() > 0 || mHistory.getEnding() > 0
-                || pendingResumeSeekMs != C.TIME_UNSET || tmdbHistoryResumePending
+                || tmdbHistoryResumePending
                 || isAudioOnly() || shouldUseImmersiveAudio()) return false;
         Flag flag = getFlag();
         if (flag == null || flag.getEpisodes().size() < 2 || result == null || result.hasMsg()
@@ -5924,6 +5944,8 @@ private boolean runtimeSourceOnly;
         if (mBinding == null || mHistory == null) return;
         mBinding.control.action.opening.setText(openingLabel());
         mBinding.control.action.ending.setText(endingLabel());
+        // 屏显左下角的总时长跟着扣掉手设的片尾；没设/不匹配时这里传 0，照真实片长显示。
+        if (mOsd != null) mOsd.setEnding(mHistory.getEnding());
     }
 
     private String openingLabel() {
@@ -6265,7 +6287,7 @@ private boolean runtimeSourceOnly;
         showTopInfo();
         mBinding.widget.center.setVisibility(View.VISIBLE);
         mBinding.widget.duration.setText(getTimelineDurationTime());
-        mBinding.widget.position.setText(player().getPositionTime(0));
+        mBinding.widget.position.setText(com.fongmi.android.tv.utils.Util.timeMs(Math.max(0, player().getPosition())));
     }
 
     private void showTopInfo() {
@@ -6326,6 +6348,14 @@ private boolean runtimeSourceOnly;
     private void setArtwork() {
         if (mHistory == null) return;
         setArtwork(mHistory.getVodPic());
+    }
+
+    /** SMB 缩略图写进历史后，详情背景也立刻换成这张，不再停在纸飞机占位。 */
+    @Override
+    protected void applyThumbnailArtwork(String uri) {
+        if (TextUtils.isEmpty(uri)) return;
+        if (mHistory != null) mHistory.setVodPic(uri);
+        setArtwork(uri);
     }
 
     private void loadArtwork(String url) {
@@ -7060,7 +7090,6 @@ private boolean runtimeSourceOnly;
 
         long position = Math.max(mHistory.getOpening(), mHistory.getPosition());
         if (position > 0) {
-            pendingResumeSeekMs = position;
             tmdbHistoryResumePending = true;
         }
         if (!targetFlag.isSelected() || !targetEpisode.isSelected()) {
@@ -7073,7 +7102,7 @@ private boolean runtimeSourceOnly;
         alignHistoryWithSelectedEpisode(targetFlag, targetEpisode);
         if (position > 0) {
             setPosition();
-            applyPendingResumeSeek();
+            seekToResumePosition(position);
         }
     }
 
@@ -7414,6 +7443,8 @@ private boolean runtimeSourceOnly;
         if (state == Player.STATE_READY) renewAutoDanmaku();
         switch (state) {
             case Player.STATE_BUFFERING:
+                // 缓冲/卡顿时挂起后台抽帧，别和播放抢带宽
+                TrickplayStore.setPlayerBusy(true);
                 showProgress();
                 break;
             case Player.STATE_READY:
@@ -7425,12 +7456,14 @@ private boolean runtimeSourceOnly;
                 // 仍可能宣称 READY，那正是「拖拽后先卡画面」的那一帧。圈已由 onSeekStarted
                 // 亮起，这里不收它就仍在屏上，由最小可见计时器与网速 ticker 收尾。
                 if (canHideSeekProgress()) showPlaybackContent();
-                boolean pendingResumeSeekApplied = applyPendingResumeSeek();
+                // 起播不卡之后就在后台把缩略图抽出来（先抽片头应急段），不必等第一次快进
+                TrickplayStore.setPlayerBusy(false);
+                TrickplayStore.startBackground(this, player().getUrl(), player().getHeaders(), player().getDuration());
                 refreshLyrics();
                 player().reset();
                 applyShortDramaMode();
                 requestIntroSkipPlan();
-                if (!pendingResumeSeekApplied) applyAutoIntroSkip();
+                applyAutoIntroSkip();
                 setAdFeedbackVisible(); // 播放地址确定后按格式刷新"有广告"按钮
                 if (!mShortDramaQueueSessionActive) beginShortDramaQueue();
                 updateVideoCover();
@@ -7469,6 +7502,7 @@ private boolean runtimeSourceOnly;
 
     @Override
     protected void onPlayingChanged(boolean isPlaying) {
+        if (isPlaying) warmTrickplayAspect();
         if (!isPlaying && isPaused()) cancelKeySeek();
         syncKaraokePosition();
         checkAudioPlayImg(isPlaying);
@@ -7552,6 +7586,10 @@ private boolean runtimeSourceOnly;
     @Override
     protected void onSeekStarted() {
         App.removeCallbacks(mSeekProgressFallback);
+        // 用户自己拖/点了跳转，就取消启动时的「续播位置」：以前这条在 READY 后仍会再跳一次，
+        // 把刚跳好的位置拉回原处（屏显到了、画面却还在原位）。
+        tmdbHistoryResumePending = false;
+        previewCommitTarget = C.TIME_UNSET;
         // 窗口必须在 showProgress() 之前打开：它内部会立刻投递网速 ticker，
         // 那个 ticker 的兜底收口会读到尚未开始 seek 的 READY。
         mSeekProgressPending = true;
@@ -9198,25 +9236,39 @@ private boolean runtimeSourceOnly;
         finish();
     }
 
-    private boolean applyPendingResumeSeek() {
-        if (pendingResumeSeekMs == C.TIME_UNSET || controller() == null) return false;
-        long target = pendingResumeSeekMs;
-        pendingResumeSeekMs = C.TIME_UNSET;
-        tmdbHistoryResumePending = false;
-        if (Math.abs(player().getPosition() - target) < 1500) return false;
-        controller().seekTo(target);
-        return true;
+    /** 续播补跳的回读：1 秒后打印引擎实际位置，日志里能直接看出补跳有没有落地。 */
+    private void logResumeSeekVerify(long target) {
+        App.post(() -> {
+            if (controller() == null) return;
+            SpiderDebug.log("playback", "resume-seek verify target=%d actual=%d duration=%d", target, player().getPosition(), player().getDuration());
+        }, 1000L);
+    }
+
+    /** 点缩略图后 0.9 秒复核：引擎没真的到目标点就再补一次。 */
+    private void retryPreviewCommitIfNeeded(long target) {
+        if (controller() == null) return;
+        if (previewCommitTarget != target) return;
+        previewCommitTarget = C.TIME_UNSET;
+        long pos = player().getPosition();
+        SpiderDebug.log("playback", "preview-commit verify target=%d actual=%d", target, pos);
+        if (Math.abs(pos - target) > 3000) {
+            SpiderDebug.log("playback", "preview-commit retry target=%d actual=%d", target, pos);
+            pinSeekDisplay(target);
+            controller().seekTo(target);
+        }
+    }
+
+    /** 历史进度在播放后才就绪（TMDB 匹配回来得晚）：此刻显式跳一次，位置取自历史，不读引擎回填值。 */
+    private void seekToResumePosition(long positionMs) {
+        if (controller() == null) return;
+        pinSeekDisplay(positionMs);
+        controller().seekTo(positionMs);
+        SpiderDebug.log("playback", "resume-seek explicit target=%d", positionMs);
     }
 
     private void setPosition() {
         if (mHistory == null || hasDiscMenu()) return;
         long position = resolveInitialPlaybackPosition();
-        if (position <= 0) return;
-        if (mInitialPlaybackPosition == position) {
-            SpiderDebug.log("video-flow", "skip duplicate restore seek position=%d key=%s", position, getHistoryKey());
-            mInitialPlaybackPosition = C.TIME_UNSET;
-            return;
-        }
         if (position == C.TIME_UNSET || position <= 0) {
             tmdbHistoryResumePending = false;
             mInitialPlaybackPosition = C.TIME_UNSET;
@@ -9229,14 +9281,11 @@ private boolean runtimeSourceOnly;
             tmdbHistoryResumePending = false;
             return;
         }
-        mInitialPlaybackPosition = C.TIME_UNSET;
-        if (player().isIjk()) pendingResumeSeekMs = position;
-        else {
-            long start = System.currentTimeMillis();
-            player().seekTo(position);
-            SpiderDebug.log("video-flow", "restore seek position=%d cost=%dms key=%s", position, System.currentTimeMillis() - start, getHistoryKey());
-            tmdbHistoryResumePending = false;
-        }
+        // 起播位置只有这一份：直接作为播放器的起播位置交下去，exo 与 ijk 都在 prepare 之前生效。
+        // 起播之后不补跳、不复核——引擎若真没落到这个位置，那要看 open start-at 日志查引擎原因，
+        // 不在这里用 seekTo 掩盖。
+        mInitialPlaybackPosition = position;
+        pinSeekDisplay(position);
     }
 
     private void setSpeed() {
@@ -9249,7 +9298,33 @@ private boolean runtimeSourceOnly;
     }
 
     private void checkEnded(boolean notify) {
+        // 先把已播完的本集进度归零再切集：顺序不能反，切完 mHistory 已经是下一集了。
+        resetFinishedEpisodeProgress();
         checkNext(notify);
+    }
+
+    /**
+     * 本集播完（自然结束或快进越过片尾）时清掉这一集的进度。
+     *
+     * <p>不清的话，位置缓存里留着「已越过片尾」的位置，切回上一集时一开播就又满足片尾判据、
+     * 立刻被自动推进下一集，用户除非删掉历史否则再也进不去这一集。
+     * 只有存在上一集/下一集可切（多集）时才动，单集/电影不适用（没有「再切回来」这回事）。
+     */
+    private void resetFinishedEpisodeProgress() {
+        if (mHistory == null) return;
+        Flag flag = getFlag();
+        if (flag == null || flag.getEpisodes().size() < 2) return;
+        String cacheName = getCurrentHistoryEpisodeCacheName();
+        if (!TextUtils.isEmpty(cacheName) && !skipEpisodePositionCache()) {
+            // 位置写 0 而不是删记录：删了会被「保存进度」用旧的播放器位置再写回来。
+            EpisodePositionCache.get().put(getKey(), getId(), flag.getFlag(), cacheName, 0, mHistory.getDuration());
+            Task.execute(() -> EpisodePositionCache.get().save());
+        }
+        mHistory.setPosition(0);
+        syncHistory();
+        if (SpiderDebug.isEnabled()) {
+            SpiderDebug.log("playback-ending", "action=reset-progress episode=%s key=%s", cacheName, getKey());
+        }
     }
 
     private void setTrackVisible() {
@@ -9640,6 +9715,27 @@ private boolean runtimeSourceOnly;
                     || keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
                     || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) return true;
         }
+        // 预览层只接管「上键进缩略图排」以及焦点已在排内的导航；
+        // 左右键仍要留给按住快进会话，否则松手时它拿不到 UP，既不快进、界面也只剩一下闪现。
+        if (mSeekPreview != null && mSeekPreview.isActive()) {
+            int previewKey = event.getKeyCode();
+            boolean previewDown = KeyUtil.isActionDown(event);
+            // OK 键在预览条上永远归预览条：不管焦点有没有进排，都跳选中那一格。
+            // 以前焦点没进排时 OK 会漏到控制栏，用户点了缩略图却什么都没发生。
+            if (KeyUtil.isEnterKey(event)) {
+                if (previewDown) mSeekPreview.commitCurrent();
+                return true;
+            }
+            if (mSeekPreview.isRowFocused()) {
+                if (mSeekPreview.handleKey(previewKey, previewDown)) return true;
+            } else if (previewKey == KeyEvent.KEYCODE_DPAD_UP) {
+                if (previewDown) mSeekPreview.handleKey(previewKey, true);
+                return true;
+            } else if (KeyUtil.isBackKey(event)) {
+                if (previewDown) mSeekPreview.dismiss();
+                return true;
+            }
+        }
         if (KeyUtil.isActionDown(event) && (!isFullscreen() || isVisible(mBinding.control.getRoot()) || isVisible(mBinding.lutQuick) || (!KeyUtil.isLeftKey(event) && !KeyUtil.isRightKey(event) && !KeyUtil.isBackKey(event)))) cancelKeySeek();
         if (KeyUtil.isActionDown(event) && KeyUtil.isBackKey(event)) {
             boolean preview = isVisible(mBinding.widget.center);
@@ -9839,21 +9935,36 @@ private boolean runtimeSourceOnly;
     @Override
     public void onSeekCancel() {
         hideCenter();
+        cancelPendingSeekPreview();
+        mSeekPreviewSessionStarted = false;
+        if (mSeekPreview != null) mSeekPreview.dismiss();
     }
 
     @Override
     public void onSeeking(long time) {
+        driveSeekPreview(time);
         mBinding.widget.center.setVisibility(View.VISIBLE);
         mBinding.widget.duration.setText(getTimelineDurationTime());
-        mBinding.widget.position.setText(player().getPositionTime(time));
+        // 快进/快退期间引擎可能还报 0（尤其是刚起播或 SMB 正在定位），
+        // 屏显一律用「游标起点 + 本次偏移」，绝不留成 00:00。
+        long shownAt = Math.max(0, player().getPosition()) + time;
+        if (shownAt <= 0 && mSeekPreviewBase > 0) shownAt = mSeekPreviewBase + time;
+        mBinding.widget.position.setText(com.fongmi.android.tv.utils.Util.timeMs(Math.max(0, shownAt)));
         mBinding.widget.action.setImageResource(time > 0 ? R.drawable.ic_widget_forward : R.drawable.ic_widget_rewind);
         hideProgress();
     }
 
     @Override
     public void onSeekEnd(long time) {
+        // 松手这一刻要真跳转：先停掉在跑的补帧，别让它和这次 seek 抢同一条连接（电视上最明显）。
+        com.fongmi.android.tv.player.TrickplayStore.cancelAll();
         if (seekTo(time)) hideCenter();
         mKeyDown.reset();
+        // 松手不立刻收起：留 3 秒让用户按上键进缩略图排挑图；单次点按没弹层的直接结束。
+        // 这一次按住到此为止，下一段快进要重新取起点。
+        mSeekPreviewSessionStarted = false;
+        cancelPendingSeekPreview();
+        if (mSeekPreview != null && mSeekPreview.isActive()) mSeekPreview.hold();
     }
 
     @Override
@@ -10142,6 +10253,14 @@ private boolean runtimeSourceOnly;
 
     @Override
     protected void onBackInvoked() {
+        // 返回键第一下只收预览条，别顺手退全屏/结束播放。
+        if (mSeekPreview != null && mSeekPreview.isActive()) {
+            cancelPendingSeekPreview();
+            mSeekPreviewSessionStarted = false;
+            mSeekPreview.dismiss();
+            hideCenter();
+            return;
+        }
         if (mBinding.lutQuick.hideIfVisible()) {
             return;
         } else if (isVisible(mBinding.control.getRoot())) {
@@ -10186,6 +10305,7 @@ private boolean runtimeSourceOnly;
 
     @Override
     protected void onDestroy() {
+        TrickplayStore.stopBackground();
         invalidateShortDramaQueue("destroy");
         cancelPendingEpisodeGridFocus();
         cancelPendingArrayFocus();
@@ -10442,7 +10562,100 @@ private void disableLeanbackDesktopLyrics() {
         if (PlayerSetting.isDesktopLyrics()) PlayerSetting.putDesktopLyrics(false);
     }
 
-private void setupAudioStageOverlay() {
+private void setupSeekPreview() {
+        if (mSeekPreview != null) return;
+        mSeekPreview = new SeekPreviewStrip(this);
+        mSeekPreview.setListener(new SeekPreviewStrip.Listener() {
+            @Override
+            public void onCommit(long positionMs) {
+                SpiderDebug.log("playback", "preview-commit target=%d pos=%d canSeek=%b", positionMs,
+                        player() == null ? -1 : player().getPosition(), canSeek());
+                if (!canSeek()) return;
+                boolean wasPlaying = player() != null && player().isPlaying();
+                onSeekStarted();
+                markPreviewSeek(positionMs);
+                pinSeekDisplay(positionMs);
+                // 先停掉正在跑的补帧会话，把 SMB 连接让给这次跳转；否则抽帧和 seek 抢同一条连接，
+                // 表现就是「卡的时候点略图不跳」。
+                com.fongmi.android.tv.player.TrickplayStore.cancelAll();
+                controller().seekTo(positionMs);
+                controller().play();
+                // 点略图跳过去后必须继续播：起播/long-press 收尾那条路径可能把播放状态压回暂停，
+                // 这里在跳转后补一次确认，只在“点之前本来在播”时才补，不把用户主动暂停弄成自动播。
+                if (wasPlaying) App.post(() -> {
+                    try {
+                        if (player() != null && !player().isPlaying()) {
+                            controller().play();
+                            SpiderDebug.log("playback", "preview-commit resume state=replay");
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }, 900L);
+                hideCenter();
+                logSeekVerify(positionMs);
+                previewCommitTarget = positionMs;
+                App.post(() -> retryPreviewCommitIfNeeded(positionMs), 900L);
+            }
+
+            @Override
+            public void onDismiss() {
+            }
+        });
+        android.view.ViewGroup content = findViewById(android.R.id.content);
+        if (content == null) return;
+        android.widget.FrameLayout.LayoutParams params = new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT);
+        content.addView(mSeekPreview, params);
+    }
+
+    /**
+     * 长按期间按偏移量驱动游标。起始位置只取一次：进度条跟的是「原位置 + 累计步进」，
+     * 不是引擎已经跳过的位置。
+     */
+    /**
+     * 单次点按不弹预览层（否则每次快进 10 秒都会闪一排图）；按住超过 450ms 才展示，
+     * 也就是等遥控器出重复键之后，露出「游标 + 缩略图」。
+     */
+    private void driveSeekPreview(long offsetMs) {
+        if (mSeekPreview == null) return;
+        // 只在全屏播放时弹预览条：详情页/半屏那层不该盖一排图。
+        if (!isFullscreen()) return;
+        // 网络源不抽帧：保持原来的双箭头快进/快退，不弹预览条。
+        if (!com.fongmi.android.tv.player.TrickplayStore.supports(player().getUrl())) return;
+        // 上一排还在停留窗口里就开始新一次快进：它记的是上一段的起点，先收掉重新定位。
+        if (mSeekPreview.isActive() && !mSeekPreviewSessionStarted) {
+            cancelPendingSeekPreview();
+            mSeekPreview.dismiss();
+        }
+        mSeekPreviewSessionStarted = true;
+        mSeekPreviewOffset = offsetMs;
+        if (!mSeekPreview.isActive()) {
+            if (!mSeekPreviewPending) {
+                mSeekPreviewBase = Math.max(0, player().getPosition());
+                mSeekPreviewHeaders = player().getHeaders();
+                mSeekPreviewPending = true;
+                mSeekPreviewHandler.postDelayed(mSeekPreviewShow, 450L);
+            }
+            return;
+        }
+        mSeekPreview.update(mSeekPreviewBase + offsetMs, (int) Math.signum(offsetMs));
+    }
+
+    private void showPendingSeekPreview() {
+        if (!mSeekPreviewPending || mSeekPreview == null) return;
+        mSeekPreviewPending = false;
+        if (!canSeek()) return;
+        mSeekPreview.begin(player().getDuration(), mSeekPreviewBase + mSeekPreviewOffset,(int) Math.signum(mSeekPreviewOffset),
+                player().getUrl(), mSeekPreviewHeaders);
+    }
+
+    private void cancelPendingSeekPreview() {
+        mSeekPreviewHandler.removeCallbacks(mSeekPreviewShow);
+        mSeekPreviewPending = false;
+    }
+
+    private void setupAudioStageOverlay() {
         mBinding.audioStage.setSaveFromParentEnabled(false);
         ViewGroup parent = (ViewGroup) mBinding.audioStage.getParent();
         if (parent != null) parent.removeView(mBinding.audioStage);

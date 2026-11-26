@@ -22,6 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import com.fongmi.android.tv.player.TrickplayStore;
+
 /**
  * SMB 视频缩略图：从文件本身取一帧非黑屏画面，落盘到 {@code cache/smb_thumbs}。
  *
@@ -105,7 +107,13 @@ public final class SmbThumbnailCache {
             try {
                 File file = file(app, key);
                 // 磁盘上的图永远先用：不管之前取帧失败没失败、列表是从哪个目录重新进来的。
-                if (file.isFile()) bitmap = readDisk(file, width, height);
+                if (file.isFile()) {
+                    bitmap = readDisk(file, width, height);
+                    // 老缓存只有图没有时长（.duration 是后加的）：补一次，只读 header 不抽帧。
+                    if (bitmap != null && allowGenerate && url != null && duration(app, key) <= 0) {
+                        writeDuration(app, key, TrickplayStore.probeDuration(app, url, null));
+                    }
+                }
                 if (bitmap == null && allowGenerate && url != null && !recentlyFailed(key)) {
                     tried = true;
                     bitmap = generate(app, key, url, file);
@@ -167,6 +175,47 @@ public final class SmbThumbnailCache {
         return new File(dir(context), key + ".jpg");
     }
 
+    /** 时长副标题的落盘文件名：和图放在一起，清理缓存时一起清掉。 */
+    private static File durationFile(Context context, String key) {
+        return new File(dir(context), key + ".duration");
+    }
+
+    /** 已知的影片总时长（毫秒）；没生成过海报或读不到就返回 0。 */
+    public static long duration(Context context, String key) {
+        if (context == null || key == null) return 0;
+        try {
+            File file = durationFile(context, key);
+            if (!file.isFile()) return 0;
+            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(file));
+            try {
+                String line = reader.readLine();
+                if (line == null) return 0;
+                return Math.max(0L, Long.parseLong(line.trim()));
+            } finally {
+                reader.close();
+            }
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    /** 生成海报时顺手把总时长存下来：下次进目录不必再开一次文件。 */
+    private static void writeDuration(Context context, String key, long durationMs) {
+        if (context == null || key == null || durationMs <= 0) return;
+        try {
+            File file = durationFile(context, key);
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            java.io.FileWriter writer = new java.io.FileWriter(file, false);
+            try {
+                writer.write(Long.toString(durationMs));
+            } finally {
+                writer.close();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static boolean recentlyFailed(String key) {
         Long at = FAILED.get(key);
         if (at == null) return false;
@@ -190,6 +239,23 @@ public final class SmbThumbnailCache {
     }
 
     private static Bitmap generate(Context context, String key, String url, File target) {
+        // 先用 ffmpeg 抽一张（关键帧直取，比 MMR 快，还能解 MMR 打不开的 avi/rmvb/wmv/HLS）；
+        // 抽不到再退回 MMR，两条路都失败就交给「播放时补图」。
+        Bitmap cover = null;
+        try {
+            cover = TrickplayStore.extractCover(context, url, null);
+        } catch (Throwable ignored) {
+            cover = null;
+        }
+        if (cover != null && !cover.isRecycled()) {
+            Bitmap scaled = scale(cover, TARGET_WIDTH, 0);
+            if (scaled != cover) cover.recycle();
+            write(scaled, target);
+            // 抽封面那次 open 已经拿到时长，顺手存下来给左下角副标题用。
+            writeDuration(context, key, TrickplayStore.durationOf(url));
+            trim(context);
+            return scaled;
+        }
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         Bitmap chosen = null;
         double bestLuma = -1;
@@ -229,6 +295,7 @@ public final class SmbThumbnailCache {
             Bitmap scaled = scale(chosen, TARGET_WIDTH, 0);
             if (scaled != chosen) chosen.recycle();
             write(scaled, target);
+            writeDuration(context, key, duration);
             trim(context);
             return scaled;
         } finally {

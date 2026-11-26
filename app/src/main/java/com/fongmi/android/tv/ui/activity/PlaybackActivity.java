@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Display;
@@ -112,14 +113,24 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private ExoSubtitleSession attachedSubtitleSession;
     private final com.fongmi.android.tv.player.SurfaceDiagnosticCollector surfaceDiagnostics =
             new com.fongmi.android.tv.player.SurfaceDiagnosticCollector();
-    private static final long[] WEBHOME_SNAPSHOT_DELAYS = {2500L, 2000L, 2000L};
+    /**
+     * 无图历史的兜底截图按「当前进度」判断：进度只要过了 60 秒就截，不是从起播开始计时。
+     * 前 60 秒常是片头广告和黑场，起播时没到 60 秒就先等到那一刻；用户手动跳广告直接跳到
+     * 1 分 20 秒时进度已经够了，就按跳转后的进度立刻补截。黑屏帧由取帧端丢掉，取不到就隔几秒再补。
+     */
+    private static final long SNAPSHOT_MIN_POSITION_MS = 60000L;
+    /** 起播或 seek 后稍等一下，避免截到解码还没出图的帧。 */
+    private static final long SNAPSHOT_SETTLE_MS = 800L;
+    private static final long SNAPSHOT_RETRY_MS = 5000L;
+    private static final int SNAPSHOT_MAX_ATTEMPTS = 3;
     private final Handler webHomeSnapshotHandler = new Handler(Looper.getMainLooper());
     private String webHomeSnapshotKey;
     private int webHomeSnapshotAttempt;
     private boolean webHomeSnapshotRunning;
     private boolean webHomeSnapshotDone;
-    /** SMB 视频缩略图补图：只有 IJK 能解的老容器列表阶段取不到帧，播过一次再补。 */
-    private static final long[] SMB_THUMB_DELAYS = {4000L, 8000L, 16000L};
+    /** 播放画面抓不到时，ffmpeg 封面兜底每次播放只试一次。 */
+    private boolean webHomeCoverTried;
+    /** SMB 视频缩略图补图：只有 IJK 能解的老容器列表阶段取不到帧，播过一次再补，时间点与历史截图同一套。 */
     private final Handler smbThumbHandler = new Handler(Looper.getMainLooper());
     private String smbThumbKey;
     private int smbThumbAttempt;
@@ -486,6 +497,18 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         onError(msg);
     }
 
+    /**
+     * 起播后先把片源的宽高比探出来（只 open/close，不抽帧）：第一次长按弹出的略图排
+     * 就能按真实比例排格子，不会再先出现一排 16:9 的空壳。同一片源只探一次。
+     */
+    protected void warmTrickplayAspect() {
+        try {
+            String url = player().getUrl();
+            com.fongmi.android.tv.player.TrickplayStore.warm(this, url, player().getHeaders());
+        } catch (Throwable ignored) {
+        }
+    }
+
     protected void onPlayingChanged(boolean isPlaying) {
     }
 
@@ -518,20 +541,44 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (!needsPlaybackSnapshot(history)) return;
         if (TextUtils.equals(history.getKey(), webHomeSnapshotKey)) {
             if (webHomeSnapshotDone || webHomeSnapshotRunning
-                    || webHomeSnapshotAttempt >= WEBHOME_SNAPSHOT_DELAYS.length) return;
+                    || webHomeSnapshotAttempt >= SNAPSHOT_MAX_ATTEMPTS) return;
         } else {
             webHomeSnapshotKey = history.getKey();
             webHomeSnapshotAttempt = 0;
             webHomeSnapshotDone = false;
+            webHomeCoverTried = false;
         }
-        webHomeSnapshotHandler.removeCallbacksAndMessages(null);
-        scheduleNextWebHomeSnapshot();
+        armWebHomeSnapshot(-1L);
     }
 
-    private void scheduleNextWebHomeSnapshot() {
-        if (webHomeSnapshotDone || webHomeSnapshotAttempt >= WEBHOME_SNAPSHOT_DELAYS.length) return;
-        long delay = WEBHOME_SNAPSHOT_DELAYS[webHomeSnapshotAttempt++];
-        webHomeSnapshotHandler.postDelayed(this::captureWebHomeSnapshot, delay);
+    /** delay 传负数表示按当前进度现算：没到 60 秒就等到那一刻，到了就只等画面稳定。 */
+    private void armWebHomeSnapshot(long delay) {
+        if (webHomeSnapshotDone) return;
+        webHomeSnapshotHandler.removeCallbacksAndMessages(null);
+        long actual = delay < 0 ? snapshotDelayFromPosition() : delay;
+        webHomeSnapshotHandler.postDelayed(this::captureWebHomeSnapshot, actual);
+    }
+
+    private long currentPlaybackPosition() {
+        try {
+            return Math.max(0L, player().getPosition());
+        } catch (Throwable ignored) {
+            return 0L;
+        }
+    }
+
+    private long snapshotDelayFromPosition() {
+        long position = currentPlaybackPosition();
+        if (position >= SNAPSHOT_MIN_POSITION_MS) return SNAPSHOT_SETTLE_MS;
+        return SNAPSHOT_MIN_POSITION_MS - position + SNAPSHOT_SETTLE_MS;
+    }
+
+    /** seek 后按新进度重排：跳广告跳到 60 秒之后能立刻截，往回拖则重新等到 60 秒。 */
+    private void rescheduleSnapshotsForPosition() {
+        if (webHomeSnapshotKey != null && !webHomeSnapshotDone && !webHomeSnapshotRunning
+                && webHomeSnapshotAttempt < SNAPSHOT_MAX_ATTEMPTS) armWebHomeSnapshot(-1L);
+        if (smbThumbKey != null && !smbThumbDone && !smbThumbRunning
+                && smbThumbAttempt < SNAPSHOT_MAX_ATTEMPTS) armSmbThumbnail(-1L);
     }
 
     /**
@@ -546,15 +593,64 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             smbThumbAttempt = 0;
             smbThumbDone = false;
         }
-        if (smbThumbDone || smbThumbAttempt >= SMB_THUMB_DELAYS.length) return;
+        if (smbThumbDone || smbThumbAttempt >= SNAPSHOT_MAX_ATTEMPTS) return;
         boolean already = com.fongmi.android.tv.smb.SmbThumbnailCache.hasThumb(this, key);
         if (already) {
             smbThumbDone = true;
+            applySmbThumbnailArtwork(key);
             return;
         }
+        armSmbThumbnail(-1L);
+    }
+
+    /**
+     * 列表里已经有这张缩略图时，直接拿它当本集的历史封面（详情图）。
+     *
+     * <p>以前只有播放到 60 秒后截帧一条路，SMB 老容器在头一分钟里既没图也没法提前截图；
+     * 现在进目录抽的那张已经在盘上，开播就能用，也就不再需要播放时补截。
+     * 用原子 UPDATE 只在字段仍为空/占位时写，不会覆盖 TMDB 海报。
+     */
+    private void applySmbThumbnailArtwork(String key) {
+        History history = getPlaybackHistory();
+        if (history == null) return;
+        String existing = history.getVodPic();
+        if (!History.isMissingArtwork(existing)) {
+            // 历史里已经有图（可能是之前写进去的、或来自别的来源）：不用落库，
+            // 但播放页背景还停在占位图上，得把这张直接用上。
+            applyThumbnailArtwork(existing);
+            if (SpiderDebug.isEnabled()) {
+                SpiderDebug.log("smb-thumb", "action=artwork-existing key=%s", key.substring(0, 8));
+            }
+            return;
+        }
+        java.io.File file = com.fongmi.android.tv.smb.SmbThumbnailCache.file(App.get(), key);
+        if (!file.isFile() || file.length() <= 0) return;
+        // 复制一份到历史封面目录，而不是直接引用缩略图缓存：缓存有上限和过期清理，
+        // 清掉之后历史图会全失效；复制也保证目录预览那份不受任何影响。
+        String uri = PlaybackFrameSnapshot.importArtwork(file);
+        if (TextUtils.isEmpty(uri)) return;
+        history.setVodPic(uri);
+        final int cid = history.getCid();
+        final String historyKey = history.getKey();
+        Task.execute(() -> {
+            History.updateVodPicIfEmptyOrPlaceholder(cid, historyKey, uri, ResUtil.getString(R.string.push_image));
+            RefreshEvent.history();
+        });
+        // 历史卡片刷新了不等于播放页背景会跟着换：详情背景是进页时按占位图加载好的，
+        // 不重新下发一次就一直是纸飞机。交给子类去套用（电视端/手机端的 setArtwork）。
+        applyThumbnailArtwork(uri);
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("smb-thumb", "action=artwork-from-thumb key=%s", key.substring(0, 8));
+    }
+
+    /** 子类覆盖：SMB 缩略图已写进历史后，把它同时套到播放页的详情背景上。 */
+    protected void applyThumbnailArtwork(String uri) {
+    }
+
+    private void armSmbThumbnail(long delay) {
+        if (smbThumbDone) return;
         smbThumbHandler.removeCallbacksAndMessages(null);
-        long delay = SMB_THUMB_DELAYS[smbThumbAttempt++];
-        smbThumbHandler.postDelayed(this::captureSmbThumbnail, delay);
+        long actual = delay < 0 ? snapshotDelayFromPosition() : delay;
+        smbThumbHandler.postDelayed(this::captureSmbThumbnail, actual);
     }
 
     private String smbThumbnailKey() {
@@ -571,11 +667,14 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         if (smbThumbDone || smbThumbRunning || isFinishing() || isDestroyed()) return;
         final String key = smbThumbnailKey();
         if (key == null || !key.equals(smbThumbKey)) return;
+        if (smbThumbAttempt >= SNAPSHOT_MAX_ATTEMPTS) return;
+        smbThumbAttempt++;
         smbThumbRunning = true;
         com.fongmi.android.tv.player.PlaybackFrameSnapshot.captureBitmap(this, getExoView(), bitmap -> {
             smbThumbRunning = false;
             if (bitmap == null) {
-                scheduleSmbThumbnail();
+                // 黑屏或还没出图：隔几秒再补，次数用尽就作罢，等下次播放再试。
+                if (!smbThumbDone && smbThumbAttempt < SNAPSHOT_MAX_ATTEMPTS) armSmbThumbnail(SNAPSHOT_RETRY_MS);
                 return;
             }
             final String target = key;
@@ -586,6 +685,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
                 } finally {
                     bitmap.recycle();
                 }
+                // 刚截到的这张同时当历史封面用，免得历史卡片还要再等下一次截图。
+                App.post(() -> applySmbThumbnailArtwork(target));
             });
             smbThumbDone = true;
             smbThumbHandler.removeCallbacksAndMessages(null);
@@ -600,6 +701,8 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         final int cid = history.getCid();
         final String vodId = history.getVodId();
         final String siteKey = history.getSiteKey();
+        if (webHomeSnapshotAttempt >= SNAPSHOT_MAX_ATTEMPTS) return;
+        webHomeSnapshotAttempt++;
         webHomeSnapshotRunning = true;
         PlaybackFrameSnapshot.capture(this, getExoView(), uri -> {
             webHomeSnapshotRunning = false;
@@ -607,11 +710,37 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
             History current = getPlaybackHistory();
             if (current == null || !TextUtils.equals(current.getKey(), key)) return;
             if (TextUtils.isEmpty(uri)) {
-                scheduleNextWebHomeSnapshot();
+                // 黑屏或还没出图：先从片源直接抽一帧兜底（网页叠层/黑屏时也能拿到图），
+                // 抽不到再隔几秒补截图，次数用尽就作罢，等下次播放再试。
+                if (!webHomeCoverTried) captureWebHomeCover(key, cid, vodId, siteKey);
+                if (!webHomeSnapshotDone && webHomeSnapshotAttempt < SNAPSHOT_MAX_ATTEMPTS) armWebHomeSnapshot(SNAPSHOT_RETRY_MS);
                 return;
             }
             webHomeSnapshotDone = true;
             persistWebHomeSnapshot(cid, key, vodId, siteKey, uri);
+        });
+    }
+
+    /** ffmpeg 封面兜底：从当前片源抽一帧，当作历史卡片图。 */
+    private void captureWebHomeCover(String key, int cid, String vodId, String siteKey) {
+        webHomeCoverTried = true;
+        final String media = player().getUrl();
+        final java.util.Map<String, String> headers = player().getHeaders();
+        Task.execute(() -> {
+            String uri = "";
+            try {
+                uri = PlaybackFrameSnapshot.captureFromSource(this, media, headers);
+            } catch (Throwable ignored) {
+            }
+            final String result = uri;
+            App.post(() -> {
+                if (isFinishing() || isDestroyed() || TextUtils.isEmpty(result)) return;
+                History current = getPlaybackHistory();
+                if (current == null || !TextUtils.equals(current.getKey(), key)) return;
+                webHomeSnapshotDone = true;
+                persistWebHomeSnapshot(cid, key, vodId, siteKey, result);
+                webHomeSnapshotHandler.removeCallbacksAndMessages(null);
+            });
         });
     }
 
@@ -651,7 +780,27 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         });
     }
 
+    private long previewSeekAtMs;
+    private long previewSeekTargetMs = -1L;
+
     protected void onSeekStarted() {
+    }
+
+    /** 预览条自己提交了一次跳转：记下目标与时刻，供同页其他跳转入口让路。 */
+    protected final void markPreviewSeek(long targetMs) {
+        previewSeekAtMs = SystemClock.elapsedRealtime();
+        previewSeekTargetMs = targetMs;
+        SpiderDebug.log("playback", "seek-commit source=preview target=%d", targetMs);
+    }
+
+    /**
+     * 预览条刚跳完，别处的跳转（控件游标残留值、手势累计值）再来「补一刀」就会把位置抢走：
+     * 1.5 秒内、且目标差一分钟以上的跳转一律丢弃，只留日志。
+     */
+    private boolean isStraySeek(long targetMs) {
+        if (previewSeekAtMs <= 0L || previewSeekTargetMs < 0L) return false;
+        if (SystemClock.elapsedRealtime() - previewSeekAtMs > 1500L) return false;
+        return Math.abs(targetMs - previewSeekTargetMs) > 60_000L;
     }
 
     protected void showResizeModeDialog(int currentMode, IntConsumer action) {
@@ -864,9 +1013,42 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         long targetMs = Math.max(0, player().getPosition() + deltaMs);
         long durationMs = player().getDuration();
         boolean seekToEnd = durationMs > 0 && targetMs >= durationMs;
-        mController.seekTo(seekToEnd ? durationMs : targetMs);
+        long finalTarget = seekToEnd ? durationMs : targetMs;
+        if (isStraySeek(finalTarget)) {
+            SpiderDebug.log("playback", "seek-stray drop target=%d keeper=%d delta=%d", finalTarget, previewSeekTargetMs, deltaMs);
+            return false;
+        }
+        pinSeekDisplay(finalTarget);
+        mController.seekTo(finalTarget);
         if (!seekToEnd) mController.play();
+        logSeekVerify(finalTarget);
         return seekToEnd;
+    }
+
+    /**
+     * 屏显上的时间是「请求值」，引擎没跳成功时它照样显示目标点位，过一会又被真实位置拉回去。
+     * 这里跳完 1.2 秒回读一次引擎位置，日志里 seek-verify 给出 target / actual / duration，
+     * 一眼就能分清「没跳成」和「跳成了只是播放慢」。
+     */
+    protected final void pinSeekDisplay(long targetMs) {
+        try {
+            CustomSeekView seek = getSeekView();
+            if (seek != null) seek.pinSeekPosition(targetMs);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    protected final void logSeekVerify(long targetMs) {
+        if (!SpiderDebug.isEnabled()) return;
+        App.post(() -> {
+            try {
+                PlayerManager p = player();
+                if (p == null || isFinishing() || isDestroyed()) return;
+                long actual = p.getPosition();
+                SpiderDebug.log("playback", "seek-verify target=%d actual=%d duration=%d state=%d", targetMs, actual, p.getDuration(), p.getPlaybackState());
+            } catch (Throwable ignored) {
+            }
+        }, 1200L);
     }
 
     protected void startPlayer(String key, Result result, boolean useParse, long timeout, MediaMetadata metadata) {
@@ -1485,7 +1667,10 @@ public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
 
     @Override
     public void onPositionDiscontinuity(Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
-        if (isOwner()) onPlayerPositionDiscontinuity(oldPosition, newPosition, reason);
+        if (isOwner()) {
+            onPlayerPositionDiscontinuity(oldPosition, newPosition, reason);
+            rescheduleSnapshotsForPosition();
+        }
     }
 
     @Override

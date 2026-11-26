@@ -142,6 +142,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
@@ -264,6 +265,12 @@ public class PlayerManager implements ParseCallback {
     private volatile boolean liveDanmakuPlaybackActive;
     private long pendingSwitchPositionMs = C.TIME_UNSET;
     private long pendingInitialStartPositionMs = C.TIME_UNSET;
+    /**
+     * 本次起播请求的历史进度。ijk 起播阶段做 buffer/解码的安全重载时，
+     * {@code player.getCurrentPosition()} 还是 0，以前直接拿 0 重开，历史进度就被丢掉、
+     * 从片头开始播。这里记一份，重载时若当前位置还在片头附近就沿用它。
+     */
+    private long mediaStartPositionMs = C.TIME_UNSET;
     /**
      * 宿主从 History 里恢复出来的外挂字幕，等本次起播前注入。
      *
@@ -2917,8 +2924,21 @@ public void resetTrack(int type) {
         IjkBufferController.Decision decision =
                 ijkBufferController.stageInitial(
                         playbackAutoSession, context.session(), policy);
+        IjkBufferPolicy.Config stagedConfig = decision.targetConfig();
+        if (isLegacyIjkContainer()) {
+            // 老容器不能靠运行期重开来把缓冲档位调大（重开要回收 SDL+EGL，会崩在 libijkplayer.so），
+            // 所以起播前就一次到位：档位顶到高水位（受内存天花板约束），水位 100/1000/5000ms。
+            // 这样“准备工作”全发生在 prepare 之前，播放中不再重启。
+            int ceiling = Math.max(IjkBufferPolicy.LOW_BUFFER_MB, decision.policy().memoryCeilingMb());
+            stagedConfig = new IjkBufferPolicy.Config(
+                    Math.min(IjkBufferPolicy.HIGH_BUFFER_MB, ceiling), 100, 1_000, 5_000);
+            PlaybackTrace.log("ijk-buffer", playbackTrace.current(),
+                    "action=stage-initial-legacy config=%s ceiling=%d url=%s",
+                    stagedConfig.label(), decision.policy().memoryCeilingMb(),
+                    spec == null ? "" : spec.getUrl());
+        }
         if (policy.managed()) {
-            ijk.stageAutomaticInputBufferConfig(decision.targetConfig());
+            ijk.stageAutomaticInputBufferConfig(stagedConfig);
         }
         IjkDecodePressureController.Decision decodeDecision =
                 ijkDecodePressureController.stageInitial(
@@ -2998,6 +3018,16 @@ public void resetTrack(int type) {
         boolean applySucceeded = decision.action()
                 != IjkBufferController.Action.RELOAD;
         if (decision.requestsReload()) {
+            // 老容器（PS/AVI 系）整会话重载要在 stop/reset 里回收 SDL+EGL，这段回收本身在这些片子上
+            // 会崩（日志 reason=CRASH_NATIVE status=11，栈落在 libijkplayer.so 的 pthread_cond_wait）。
+            // 缓冲配置对这类片子收益有限：不重开，只记一条跳过，配置留给下一次自然重开时应用。
+            if (isLegacyIjkContainer() && !isSafetyReloadNote(decision)) {
+                PlaybackTrace.log("ijk-buffer", playbackTrace.current(),
+                        "action=reload skip=legacy-container url=%s reason=%s",
+                        spec == null ? "" : spec.getUrl(), decision.reason().label());
+                publishIjkBufferDecision(decision, request, trigger, false, false, now);
+                return;
+            }
             boolean safetyReload = decision.reason()
                     == IjkBufferController.Reason.SAFETY_RELOAD;
             PlaybackExperimentPolicy.Action reloadAction = safetyReload
@@ -3411,6 +3441,32 @@ public void resetTrack(int type) {
         }
     }
 
+    /**
+     * mpg/avi 这类 PS/AVI 系老容器，重开一次会话就要走一遍 ijk 的 stop/reset 回收。
+     * 命中判定在下面统一 {@code toLowerCase}，所以光盘里大写的 {@code AVSEQ01.DAT} 一样命中；
+     * 小写 {@code .dat} 只是不会播放（视频判定只认大写），落在这里也不会有任何实际影响。
+     */
+    private static final Set<String> LEGACY_IJK_CONTAINERS = Set.of(
+            "mpg", "mpeg", "mpe", "vob", "avi", "wmv", "rm", "rmvb", "asf", "flv", "3gp", "f4v", "dat");
+
+    private boolean isLegacyIjkContainer() {
+        if (spec == null || TextUtils.isEmpty(spec.getUrl())) return false;
+        String path = spec.getUrl();
+        int cut = path.indexOf('?');
+        if (cut >= 0) path = path.substring(0, cut);
+        int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        String name = slash >= 0 ? path.substring(slash + 1) : path;
+        int dot = name.lastIndexOf('.');
+        if (dot < 0) return false;
+        return LEGACY_IJK_CONTAINERS.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT));
+    }
+
+    /** 安全重载是兜底手段（不重开可能一直卡 buffering），老容器也保留这一条。 */
+    private static boolean isSafetyReloadNote(IjkBufferController.Decision decision) {
+        return decision != null
+                && decision.reason() == IjkBufferController.Reason.SAFETY_RELOAD;
+    }
+
     private boolean restartIjkBuffer(
             IjkPlayerEngine ijk,
             IjkBufferController.Decision decision) {
@@ -3421,6 +3477,13 @@ public void resetTrack(int type) {
         boolean repeat = isRepeatOne();
         long position = ijk.isVod()
                 ? Math.max(0, player.getCurrentPosition()) : C.TIME_UNSET;
+        // 首帧还没出来之前，引擎报的「当前位置」没有意义（就是 0）：这段区间内的重载必须沿用
+        // 本次打开的起播位置，否则重开一次就从 0 播。用「首帧是否已出」判断，不再用位置大小猜。
+        if (!playbackTrace.hasStage(PlaybackTrace.Stage.FIRST_FRAME) && mediaStartPositionMs > 0) {
+            PlaybackTrace.log("ijk-buffer", playbackTrace.current(),
+                    "action=reload resume-from-start target=%d current=%d", mediaStartPositionMs, position);
+            position = mediaStartPositionMs;
+        }
         try {
             prepareSeq++;
             App.removeCallbacks(runnable);
@@ -6338,6 +6401,7 @@ public void resetTrack(int type) {
         clearDanmaku("start");
         this.spec = spec;
         pendingInitialStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
+        mediaStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
         prepareMpvOutputForNewItem();
         beginPlaybackTrace("start", false);
         this.playWhenReady = playWhenReady;
@@ -6370,6 +6434,7 @@ public void resetTrack(int type) {
         clearDanmaku("parse");
         spec = PlaySpec.fromParse(result, key, metadata, useParse);
         pendingInitialStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
+        mediaStartPositionMs = positionMs > 0 ? positionMs : C.TIME_UNSET;
         prepareMpvOutputForNewItem();
         beginPlaybackTrace("parse", false);
         this.playWhenReady = playWhenReady;

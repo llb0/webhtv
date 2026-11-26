@@ -137,6 +137,78 @@ public final class SmbPlaybackProxy {
         return new String[]{ref.host, ref.share, ref.path, ref.username, ref.password, ref.domain};
     }
 
+    private static long rangeWindowStart;
+    private static int rangeWindowCount;
+    private static long lastProblemAt;
+
+    private static long streamWindowStart;
+    private static int streamCount;
+    private static long streamBytes;
+    private static long streamMaxMs;
+    private static long streamMaxAt;
+    private static int streamSlowCount;
+
+    /** range 请求按窗口汇总，避免老容器逐块请求把日志刷爆。 */
+    private static void logRange(long start, long end, boolean partial, String range) {
+        if (!com.github.catvod.crawler.SpiderDebug.isEnabled()) return;
+        long now = System.currentTimeMillis();
+        synchronized (SmbPlaybackProxy.class) {
+            rangeWindowCount++;
+            if (rangeWindowStart == 0) rangeWindowStart = now;
+            if (now - rangeWindowStart < 3000) return;
+            int count = rangeWindowCount;
+            rangeWindowCount = 0;
+            rangeWindowStart = now;
+            com.github.catvod.crawler.SpiderDebug.log("smb-proxy",
+                    "range-window count=%d last=%d-%d partial=%s range=%s", count, start, end, partial, range);
+        }
+    }
+
+    /**
+     * 每条响应结束时记一次「服务端侧」的实际产出：发了多少字节、耗时多久。
+     * 卡顿到底是播放器自己一小口一小口要（每次几 KB、我们毫秒级发完），
+     * 还是我们这边响应本身就慢（几百毫秒），全看这组数。
+     */
+    private static void recordStream(long start, long bytes, long elapsedMs) {
+        if (!com.github.catvod.crawler.SpiderDebug.isEnabled()) return;
+        long now = System.currentTimeMillis();
+        synchronized (SmbPlaybackProxy.class) {
+            streamCount++;
+            streamBytes += Math.max(0, bytes);
+            if (elapsedMs > streamMaxMs) {
+                streamMaxMs = elapsedMs;
+                streamMaxAt = start;
+            }
+            if (elapsedMs >= 300) streamSlowCount++;
+            if (streamWindowStart == 0) streamWindowStart = now;
+            if (now - streamWindowStart < 3000) return;
+            int count = streamCount;
+            long bytesTotal = streamBytes;
+            long maxMs = streamMaxMs;
+            long maxAt = streamMaxAt;
+            int slow = streamSlowCount;
+            streamCount = 0;
+            streamBytes = 0;
+            streamMaxMs = 0;
+            streamMaxAt = 0;
+            streamSlowCount = 0;
+            streamWindowStart = now;
+            com.github.catvod.crawler.SpiderDebug.log("smb-proxy",
+                    "stream-stat count=%d bytes=%d maxMs=%d maxAt=%d slow=%d",
+                    count, bytesTotal, maxMs, maxAt, slow);
+        }
+    }
+
+    private static void logProblem(String message) {
+        if (!com.github.catvod.crawler.SpiderDebug.isEnabled()) return;
+        long now = System.currentTimeMillis();
+        synchronized (SmbPlaybackProxy.class) {
+            if (now - lastProblemAt < 2000) return;
+            lastProblemAt = now;
+            com.github.catvod.crawler.SpiderDebug.log("smb-proxy", "%s", message);
+        }
+    }
+
     private static String digest(String value) {
         try {
             java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
@@ -187,16 +259,17 @@ public final class SmbPlaybackProxy {
             }
             if (ref == null) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found");
 
-            SmbClient.RemoteFile remote = null;
+            SmbStreamReader stream = null;
             try {
-                remote = SmbClient.openFile(ref.host, ref.share, ref.path,
+                stream = SmbStreamReader.open(token, ref.host, ref.share, ref.path,
                         ref.username, ref.password, ref.domain);
-                long size = remote.length();
+                long size = stream.length();
                 String mime = mime(ref.path);
                 String range = request.getHeaders().get("range");
                 long start = 0;
                 long end = Math.max(0, size - 1);
                 boolean partial = false;
+                boolean unsatisfiable = false;
                 if (range != null && range.startsWith("bytes=") && size > 0) {
                     String value = range.substring(6).trim();
                     int dash = value.indexOf('-');
@@ -216,24 +289,37 @@ public final class SmbPlaybackProxy {
                             } else {
                                 start = Long.parseLong(head);
                                 if (!tail.isEmpty()) end = Math.min(size - 1, Long.parseLong(tail));
-                                if (start >= 0 && start < size && end >= start) partial = true;
+                                if (start >= 0 && start < size && end >= start) {
+                                    partial = true;
+                                } else if (start >= size || end < start) {
+                                    // 越界 range 以前被当成「没写 range」返回 200 整文件，播放器拿到从 0 开始的数据
+                                    // 就会把进度重置成 0 再慢慢读一遍（拖动后时间归零、一直转圈）。这里如实回 416。
+                                    unsatisfiable = true;
+                                }
                             }
                         } catch (Exception ignored) {
                             start = 0;
                             end = size - 1;
                         }
-                        if (!partial) {
+                        if (!partial && !unsatisfiable) {
                             start = 0;
                             end = size - 1;
                         }
                     }
                 }
                 if (size <= 0) {
-                    remote.close();
+                    stream.close();
                     return newFixedLengthResponse(Response.Status.NO_CONTENT, mime, "");
                 }
+                if (unsatisfiable) {
+                    stream.close();
+                    Response rejected = newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, "text/plain", "");
+                    rejected.addHeader("Content-Range", "bytes */" + size);
+                    logProblem("range-416 range=" + range + " size=" + size);
+                    return rejected;
+                }
                 if (request.getMethod() == Method.HEAD) {
-                    remote.close();
+                    stream.close();
                     // 不能用空字符串构造 fixed-length 响应：NanoHTTPD 会先把 Content-Length 设为 0，
                     // 后面再 addHeader 也不会覆盖，播放器因此认为文件时长为 0。
                     Response head = newFixedLengthResponse(Response.Status.OK, mime,
@@ -241,15 +327,14 @@ public final class SmbPlaybackProxy {
                     head.addHeader("Accept-Ranges", "bytes");
                     return head;
                 }
-                final SmbClient.RemoteFile streamFile = remote;
+                final SmbStreamReader streamReader = stream;
                 final long streamStart = start;
                 final long streamEnd = end;
                 final long contentLength = end - start + 1;
                 final InputStream input = new InputStream() {
-                    private final byte[] cache = new byte[64 * 1024];
-                    private long remotePosition = streamStart;
-                    private int cachePosition;
-                    private int cacheLength;
+                    private long position = streamStart;
+                    private final long startedAt = System.currentTimeMillis();
+                    private boolean reported;
 
                     @Override
                     public int read() throws IOException {
@@ -261,29 +346,27 @@ public final class SmbPlaybackProxy {
                     @Override
                     public int read(byte[] buffer, int offset, int length) throws IOException {
                         if (length == 0) return 0;
-                        if (cachePosition >= cacheLength) {
-                            long remaining = streamEnd - remotePosition + 1;
-                            if (remaining <= 0) return -1;
-                            int wanted = (int) Math.min((long) cache.length, remaining);
-                            try {
-                                int count = streamFile.read(cache, remotePosition, 0, wanted);
-                                if (count <= 0) return -1;
-                                remotePosition += count;
-                                cachePosition = 0;
-                                cacheLength = count;
-                            } catch (RuntimeException e) {
-                                throw new IOException(e);
-                            }
+                        long remaining = streamEnd - position + 1;
+                        if (remaining <= 0) return -1;
+                        int wanted = (int) Math.min((long) length, remaining);
+                        int count = streamReader.read(position, buffer, offset, wanted);
+                        if (count <= 0) {
+                            // 不该发生的提前结束：播放器会把这次响应当成截断，然后重新发起 range 请求，
+                            // 在日志里就表现为「offset 每次只前进几百字节、反复 open」。记下来便于定位。
+                            logProblem("premature-end pos=" + position + " end=" + streamEnd + " size=" + size);
+                            throw new IOException("smb stream ended early at " + position);
                         }
-                        int count = Math.min(length, cacheLength - cachePosition);
-                        System.arraycopy(cache, cachePosition, buffer, offset, count);
-                        cachePosition += count;
+                        position += count;
                         return count;
                     }
 
                     @Override
                     public void close() {
-                        streamFile.close();
+                        if (!reported) {
+                            reported = true;
+                            recordStream(streamStart, position - streamStart, System.currentTimeMillis() - startedAt);
+                        }
+                        streamReader.close();
                     }
                 };
                 Response response = newFixedLengthResponse(
@@ -292,9 +375,11 @@ public final class SmbPlaybackProxy {
                 response.addHeader("Accept-Ranges", "bytes");
                 response.addHeader("Cache-Control", "no-store");
                 if (partial) response.addHeader("Content-Range", "bytes " + start + "-" + end + "/" + size);
+                logRange(start, end, partial, range);
                 return response;
             } catch (Exception e) {
-                if (remote != null) remote.close();
+                if (stream != null) stream.close();
+                logProblem("serve-fail " + ref.path + " : " + e);
                 return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain",
                         "SMB read failed: " + e.getClass().getSimpleName());
             }

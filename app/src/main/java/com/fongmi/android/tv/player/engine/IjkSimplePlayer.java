@@ -108,6 +108,8 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
     private int decode;
     private int subtitleSerial;
     private long pendingSeekPositionMs;
+    /** 本次打开媒体时指定的起播位置（历史进度）：在 prepare 之前就交给 ijk，起播直接落到该点。 */
+    private long startAtPositionMs = C.TIME_UNSET;
     private long pendingSeekRequestedAtMs;
     private boolean playWhenReady;
     private boolean loading;
@@ -134,6 +136,8 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             new com.fongmi.android.tv.player.PlaybackDiagnosticCollector("ijk", "packaged-IjkMediaPlayer");
     private String diagnosticTrace = "none";
     private long lastDiagnosticMs;
+    private String inputOpenKey;
+    private long inputOpenAtMs;
 
     void setDiagnosticTrace(String trace) { diagnosticTrace = trace; }
 
@@ -161,6 +165,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         currentCues = CueGroup.EMPTY_TIME_ZERO;
         playbackState = Player.STATE_IDLE;
         pendingSeekPositionMs = C.TIME_UNSET;
+        startAtPositionMs = C.TIME_UNSET;
         pendingSeekRequestedAtMs = C.TIME_UNSET;
         playWhenReady = true;
         volume = 1f;
@@ -398,7 +403,8 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         clearSubtitles();
         invalidateResourceObservation();
         mediaItem = mediaItems.isEmpty() ? null : mediaItems.get(0);
-        setPendingSeek(mediaItem != null && startPositionMs > 0 ? startPositionMs : C.TIME_UNSET);
+        startAtPositionMs = mediaItem != null && startPositionMs > 0 ? startPositionMs : C.TIME_UNSET;
+        setPendingSeek(startAtPositionMs);
         playbackState = mediaItem == null ? Player.STATE_IDLE : Player.STATE_IDLE;
         loading = false;
         currentTracks = Tracks.EMPTY;
@@ -573,9 +579,19 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         playerError = null;
         refreshTracks();
         if (pendingSeekPositionMs != C.TIME_UNSET) {
-            ijk.seekTo(pendingSeekPositionMs);
-            updateCurrentCues(pendingSeekPositionMs);
-            pendingSeekPositionMs = C.TIME_UNSET;
+            long target = pendingSeekPositionMs;
+            long actual = Math.max(0, ijk.getCurrentPosition());
+            boolean landed = Math.abs(actual - target) <= 1500;
+            SpiderDebug.log("ijk", "open start-at target=%d actual=%d fallback=%b", target, actual, !landed);
+            // seek-at-start 只是优化项：mpg（MPEG-PS）这类老容器上它不生效，日志里
+            // `open start-at target=739316 actual=0 fallback=true` 就是证据，结果是从 0 起播。
+            // 不在这里立刻补跳：位置在 onPrepared 这一拍本来可能还没刷新。等一小段再判一次，
+            // 仍停在起点才补一次正式 seekTo（每次 open 最多补一次）。
+            if (!landed && target > 0) retryStartAt(target);
+            updateCurrentCues(target);
+            // 对外位置在引擎真正落到起播点之前一直是这个起播位置（exo 的 MediaItem 起播位置天生如此），
+            // 这是引擎状态的定义而不是屏显造假：否则 prepare 到出首帧这段，界面读到的就是 0。
+            setPendingSeek(landed ? C.TIME_UNSET : target);
         } else {
             updateCurrentCues(position());
         }
@@ -584,6 +600,22 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         if (playWhenReady) ijk.start();
         invalidateState();
         startStateRefresh();
+    }
+
+    /** 起播位置没落住时，等一拍再确认，仍停在起点就补一次 seekTo。 */
+    private void retryStartAt(long target) {
+        App.post(() -> {
+            if (pendingSeekPositionMs != target) return; // 期间已经换源/重新起播/用户自己跳了
+            if (playbackState != Player.STATE_READY) return;
+            long current = Math.max(0, ijk.getCurrentPosition());
+            SpiderDebug.log("ijk", "open start-at-settled target=%d actual=%d", target, current);
+            // 只有还停在片头才算失败：avi/mpg 上 seek-at-start 是“打开后异步落位”，
+            // 09:25 那次 avi 的 target=454307 在 prepared 时读到 0，4 秒后才读到 449945。
+            // 落在起点附近（几秒容差）就说明定位成功了，不再补跳。
+            if (current > 1000 || Math.abs(current - target) <= 5000) return;
+            SpiderDebug.log("ijk", "open start-at-retry target=%d actual=%d", target, current);
+            ijk.seekTo(target);
+        }, 3000);
     }
 
     @Override
@@ -705,9 +737,7 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
             lastNativeOffset = offset;
         }
         if (SpiderDebug.isEnabled()) {
-            diagnostics.emit("input.open", "ijk-native-invoke", e -> e.observed("value", event)
-                    .observed("stage", openStage.label()).observed("httpCode", httpStatus > 0 ? httpStatus : null)
-                    .observed("errorCode", nativeError).observed("rangeStart", offset < 0 ? null : offset));
+            emitInputOpen(event, httpStatus, nativeError, offset);
             SpiderDebug.log("ijk",
                     "native event=%d stage=%s http=%d error=%d offset=%d retry=%d",
                     event,
@@ -718,6 +748,29 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
                     retry);
         }
         return false;
+    }
+
+    /**
+     * ijk 的 native 回调一秒能来上百次，每次都写一条完整 JSON 会把调试日志刷成几兆十几兆
+     * （实测 65 秒 1 万多条 input.open、近 6MB/分钟）。这里对同一「事件 + 阶段」组合做 2 秒
+     * 去重，只有跳转/开流这类关键事件照写，其余重复直接丢弃。
+     */
+    private void emitInputOpen(int event, int httpStatus, int nativeError, long offset) {
+        boolean critical = event == IjkMediaPlayer.OnNativeInvokeListener.EVENT_WILL_HTTP_OPEN
+                || event == IjkMediaPlayer.OnNativeInvokeListener.EVENT_DID_HTTP_OPEN
+                || event == IjkMediaPlayer.OnNativeInvokeListener.EVENT_WILL_HTTP_SEEK
+                || event == IjkMediaPlayer.OnNativeInvokeListener.EVENT_DID_HTTP_SEEK;
+        String key = event + "|" + openStage.label();
+        long now = SystemClock.elapsedRealtime();
+        // 事件码会在 3/4 之间反复跳，只按「同键」去重挡不住；再叠一层总速率上限：
+        // 非关键事件每 500ms 最多一条，整份日志的 input.open 从每秒几十条降到每秒两条。
+        if (!critical && now - inputOpenAtMs < 500L) return;
+        if (!critical && key.equals(inputOpenKey) && now - inputOpenAtMs < 2000L) return;
+        inputOpenKey = key;
+        inputOpenAtMs = now;
+        diagnostics.emit("input.open", "ijk-native-invoke", e -> e.observed("value", event)
+                .observed("stage", openStage.label()).observed("httpCode", httpStatus > 0 ? httpStatus : null)
+                .observed("errorCode", nativeError).observed("rangeStart", offset < 0 ? null : offset));
     }
 
     @Override
@@ -842,11 +895,18 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
     }
 
     private void stopInternal(boolean resetState) {
+        // 先把这块 surface 从引擎上摘下来，再 stop/reset。
+        // 电视上 mpg 快进退出的崩溃栈是：IjkMediaPlayer.reset → ijkmp_shutdown →
+        // ffp_wait_stop_l → SDL_WaitThread，同时 mali-utility-worker 线程 SIGSEGV；
+        // 也就是关闭时渲染线程还在用这块 surface，Mali 驱动在 EGL 上踩空了。
+        // 这里只摘引擎侧的绑定，surface/surfaceHolder 字段保留，reset 之后再绑回去。
+        unbindVideoOutput();
         try {
             if (playbackState != Player.STATE_IDLE) ijk.stop();
         } catch (Throwable ignored) {
         }
         ijk.reset();
+        rebindVideoOutput("reset");
         hlsProxy.clear();
         invalidateResourceObservation();
         currentDash = false;
@@ -1017,6 +1077,18 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
                 reason, hasHolder, hasSurface, action);
     }
 
+    /** 只把显示目标从引擎上摘掉，保留 surface/surfaceHolder，便于 reset 后重新绑定。 */
+    private void unbindVideoOutput() {
+        try {
+            ijk.setDisplay(null);
+        } catch (Throwable ignored) {
+        }
+        try {
+            ijk.setSurface(null);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void clearVideoOutput() {
         detachSurfaceHolder();
         releaseOwnedSurface();
@@ -1143,6 +1215,10 @@ class IjkSimplePlayer extends SimpleBasePlayer implements IMediaPlayer.Listener 
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "reconnect", IjkPerformanceSetting.isReconnect() ? 1 : 0);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1);
+        // 有历史进度就在 prepare 之前交给 ijk：起播线程一开读就落到该点，
+        // 不再「先解 0 秒的帧、prepare 回来才 seekTo」——那既白读一段数据，又必然先闪一下 00:00。
+        ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "seek-at-start",
+                startAtPositionMs > 0 ? startAtPositionMs : 0);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "subtitle", 1);
         ijk.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "video-pictq-size", appliedDecodeControlConfig.pictureQueue());
         SpiderDebug.log("ijk-decode",

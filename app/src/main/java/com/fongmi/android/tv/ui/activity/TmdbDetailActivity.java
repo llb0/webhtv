@@ -9706,6 +9706,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void updateInlineOpeningEndingText() {
         if (binding == null) return;
+        // 屏显左下角的总时长跟着扣掉手设的片尾；没设/不匹配时传 0，照真实片长显示。
+        if (inlineOsd != null && history != null) inlineOsd.setEnding(history.getEnding());
         binding.playerOpening.setText(inlineOpeningLabel());
         binding.playerEnding.setText(inlineEndingLabel());
         if (!Util.isMobile() || detailActionRoot == null) return;
@@ -11074,7 +11076,31 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
     }
 
     private void checkInlineEnded(boolean notify) {
+        // 先归零本集进度再切下一集：顺序反了之后 history 已经是下一集。
+        resetInlineFinishedProgress();
         checkInlineNext(notify);
+    }
+
+    /**
+     * 本集播完（自然结束或快进越过片尾）时清掉这一集的进度。
+     *
+     * <p>位置缓存留着「已越过片尾」的位置时，切回上一集会一开播就又满足片尾判据、
+     * 立刻自动跳下一集，只能删历史才能再进去。只在有多集可切时处理。
+     */
+    private void resetInlineFinishedProgress() {
+        if (history == null || selectedFlag == null) return;
+        if (selectedFlag.getEpisodes().size() < 2) return;
+        String cacheKey = currentInlineHistoryCacheKey();
+        if (!TextUtils.isEmpty(cacheKey) && !skipEpisodePositionCache()) {
+            EpisodePositionCache.get().put(getKeyText(), getIdText(), selectedFlag.getFlag(), cacheKey, 0, history.getDuration());
+            Task.execute(() -> EpisodePositionCache.get().save());
+        }
+        history.setPosition(0);
+        if (!Setting.isIncognito() && history.canSave()) {
+            History snapshot = history.copy();
+            Task.execute(snapshot::save);
+        }
+        if (SpiderDebug.isEnabled()) SpiderDebug.log("playback-ending", "action=reset-inline episode=%s", cacheKey);
     }
 
     private MediaMetadata buildMetadata() {

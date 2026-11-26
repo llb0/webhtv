@@ -116,6 +116,7 @@ public class PlayerOsdController {
     private final DecimalFormat frameDropRateFormat;
     private final PlaybackSpeedMeter speedMeter = new PlaybackSpeedMeter();
     private long lastSpeedKBps;
+    private long endingMs;
     private String lastSpeedText;
     private long lastSpeedSampleAt;
     private boolean controlsVisible;
@@ -207,6 +208,23 @@ public class PlayerOsdController {
         if (this.persistentSuppressed == persistentSuppressed) return;
         this.persistentSuppressed = persistentSuppressed;
         if (started) render();
+    }
+
+    /**
+     * 设置片尾时长（毫秒，距结尾的剩余时长），屏显左下角进度中的总时长显示为 视频总长 - 片尾，即时刷新。
+     * 只改这一处文字，进度条、跳转仍按真实片长。
+     */
+    public void setEnding(long endingMs) {
+        long value = Math.max(0, endingMs);
+        if (this.endingMs == value) return;
+        this.endingMs = value;
+        if (started) render();
+    }
+
+    private long effectiveDuration(long duration) {
+        // 片尾值属于整剧、可能与本集时长不匹配（换集/预告），离谱时按真实片长显示，绝不显示 0。
+        if (endingMs <= 0 || duration <= 0 || endingMs >= duration) return duration;
+        return duration - endingMs;
     }
 
     public boolean isDiagnosticsVisible() {
@@ -396,7 +414,7 @@ public class PlayerOsdController {
             bottomLeft.setVisibility(View.GONE);
             return;
         }
-        bottomLeft.setText(Util.timeMs(position) + " / " + Util.timeMs(duration));
+        bottomLeft.setText(Util.timeMs(position) + " / " + Util.timeMs(effectiveDuration(duration)));
         bottomLeft.setVisibility(View.VISIBLE);
     }
 

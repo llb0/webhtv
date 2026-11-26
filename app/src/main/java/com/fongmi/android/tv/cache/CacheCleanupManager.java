@@ -1,6 +1,8 @@
 package com.fongmi.android.tv.cache;
 
 import com.fongmi.android.tv.smb.SmbThumbnailCache;
+import com.fongmi.android.tv.player.TrickplayStore;
+import com.fongmi.android.tv.ui.custom.SeekPreviewFrameCache;
 import androidx.media3.mpvplayer.MpvHlsCacheCoordinator;
 
 import com.bumptech.glide.Glide;
@@ -383,7 +385,12 @@ public final class CacheCleanupManager {
                 // SMB 视频缩略图目录不属于 Glide 的磁盘缓存，得连目录和内存层一起清，
                 // 否则清完缓存列表里仍留着缩略图文件，重建目录时也拿不到新帧。
                 SmbThumbnailCache.clearMemory();
-                yield clearTrees(new File(cache, SmbThumbnailCache.DIR));
+                // 快进预览的取帧缓存同样是自管目录，内存层和磁盘目录要一起清。
+                SeekPreviewFrameCache.clearMemory();
+                // trickplay 缩略图同理：内存 LRU 与磁盘目录一起清。
+                TrickplayStore.clearMemory();
+                yield clearTrees(new File(cache, SmbThumbnailCache.DIR),
+                        new File(cache, SeekPreviewFrameCache.DIR), new File(cache, TrickplayStore.DIR));
             }
             case PLUGIN_SCRIPTS -> clearPluginCache(explicitRetention(mode, retention),
                     Set.copyOf(BaseLoader.get().activePluginKeys()));
