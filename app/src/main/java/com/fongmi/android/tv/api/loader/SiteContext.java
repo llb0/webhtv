@@ -7,7 +7,6 @@ import com.fongmi.android.tv.bean.Site;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
 
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -66,36 +65,6 @@ public final class SiteContext {
     private SiteContext() {
     }
 
-    /** 环境独占的旁观者：搜索用它来"暂停/继续"。回调都投递到主线程。 */
-    public interface Observer {
-        void onHold(String siteKey);
-
-        void onRelease();
-    }
-
-    private static final CopyOnWriteArrayList<Observer> OBSERVERS = new CopyOnWriteArrayList<>();
-
-    /** 环境是否被某次详情/播放占着。 */
-    public static boolean isHeld() {
-        return held;
-    }
-
-    public static void addObserver(Observer observer) {
-        if (observer != null && !OBSERVERS.contains(observer)) OBSERVERS.add(observer);
-    }
-
-    public static void removeObserver(Observer observer) {
-        if (observer != null) OBSERVERS.remove(observer);
-    }
-
-    private static void notifyHold(String siteKey) {
-        for (Observer observer : OBSERVERS) App.post(() -> observer.onHold(siteKey));
-    }
-
-    private static void notifyRelease() {
-        for (Observer observer : OBSERVERS) App.post(observer::onRelease);
-    }
-
     /** 首页/分类取数据时记录"当前源"；回到列表浏览说明上一次详情没看到播放，环境该放手了。 */
     public static void markBrowse(Site site) {
         if (site == null || TextUtils.isEmpty(site.getKey())) return;
@@ -118,7 +87,6 @@ public final class SiteContext {
         HOLD_GEN.get()[0] = holdGen;
         holdStart = System.currentTimeMillis();
         SpiderDebug.log("site-context", "hold site=%s current=%s", site == null ? "" : site.getKey(), browsing);
-        notifyHold(site == null ? "" : site.getKey());
         initOwner(site, spider);
     }
 
@@ -150,7 +118,6 @@ public final class SiteContext {
         holdGen++;
         ENV.release();
         SpiderDebug.log("site-context", "release reason=%s", reason);
-        notifyRelease();
     }
 
     /**

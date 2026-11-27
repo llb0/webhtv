@@ -8,7 +8,6 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
-import com.fongmi.android.tv.api.loader.SiteContext;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.exception.ExtractException;
@@ -72,8 +71,6 @@ public class SiteViewModel extends ViewModel {
      * 宿主不再需要为 ViewModel 的生命周期兜异常。
      */
     private volatile boolean cleared;
-    /** 环境被详情/播放占着时挂起的搜索：只带还没搜完的源，进度接着原来的单位算。 */
-    private volatile SearchRequest pendingSearch;
     /**
      * 搜索页在后台（进详情、播放期间）时，LiveData 只会保留最后一个值，
      * 中间几十个源的结果会被覆盖掉。这里按到达顺序排队，页面回到前台再按序取走。
@@ -81,55 +78,10 @@ public class SiteViewModel extends ViewModel {
     private final List<Result> searchBacklog = new CopyOnWriteArrayList<>();
     /** 本代搜索还没出结果的源；出了结果（含失败）就从这里摘掉。 */
     private final List<Site> searchRemaining = new CopyOnWriteArrayList<>();
-    private volatile long pauseAt;
-    private volatile boolean pendingArmed;
     private volatile String searchKeyword = "";
     private volatile boolean searchQuick;
     private volatile int searchTotal;
     private final AtomicInteger searchDone = new AtomicInteger();
-    private final SiteContext.Observer envObserver = new SiteContext.Observer() {
-        @Override
-        public void onHold(String siteKey) {
-            synchronized (searchLock) {
-                if (cleared) return;
-                if (searchExecutor != null) {
-                    snapshotLocked();
-                    int done = searchDone.get();
-                    int total = searchTotal;
-                    pendingArmed = true;
-                    stopSearchLocked();
-                    // 已经搜到的结果留在原列表里不动，只有没出结果的源要重来。
-                    SpiderDebug.log("search", "paused by env hold site=%s done=%d/%d", siteKey, done, total);
-                } else if (pendingSearch != null) {
-                    // 搜索页先退到后台（页面 onStop 已把它软挂起），紧接着进详情：这才接管这份挂起。
-                    boolean fresh = System.currentTimeMillis() - pauseAt <= ADOPT_WINDOW_MS;
-                    pendingArmed = fresh && !pendingSearch.sites.isEmpty();
-                    SpiderDebug.log("search", "hold adopts page pause site=%s armed=%s done=%d/%d", siteKey, pendingArmed, pendingSearch.done, pendingSearch.total);
-                } else {
-                    SpiderDebug.log("search", "hold but no running search site=%s", siteKey);
-                }
-            }
-        }
-
-        @Override
-        public void onRelease() {
-            SearchRequest request = pendingSearch;
-            pendingSearch = null;
-            boolean armed = pendingArmed && request != null;
-            pendingArmed = false;
-            if (!armed || request.sites.isEmpty() || cleared) return;
-            if (SiteContext.isHeld()) {
-                pendingSearch = request;
-                return;
-            }
-            synchronized (searchLock) {
-                if (cleared) return;
-                SpiderDebug.log("search", "resume after env release keyword=%s done=%d/%d remaining=%d", request.keyword, request.done, request.total, request.sites.size());
-                dispatchLocked(request.sites, request.keyword, request.quick, request.done, request.total, true);
-            }
-        }
-    };
-
     public SiteViewModel() {
         result = new MutableLiveData<>();
         player = new MutableLiveData<>();
@@ -150,7 +102,6 @@ public class SiteViewModel extends ViewModel {
         futures = new EnumMap<>(TaskType.class);
         taskIds = new EnumMap<>(TaskType.class);
         for (TaskType type : TaskType.values()) taskIds.put(type, new AtomicInteger(0));
-        SiteContext.addObserver(envObserver);
     }
 
     public LiveData<Result> getResult() {
@@ -332,13 +283,6 @@ public class SiteViewModel extends ViewModel {
 
     public void searchContent(List<Site> sites, String keyword, boolean quick) {
         if (sites == null || sites.isEmpty()) return;
-        if (SiteContext.isHeld()) {
-            // 环境正被详情/播放占着：这时候 init 会被跳过，派下去只会白跑一趟、还给进度 +1。
-            // 挂起来，等 release 再派剩下的源。
-            pendingSearch = new SearchRequest(sites, keyword, quick, 0, 0);
-            SpiderDebug.log("search", "deferred env held keyword=%s sites=%d", keyword, sites.size());
-            return;
-        }
         synchronized (searchLock) {
             // 清理后不再新建搜索执行器：否则会为已死的 ViewModel 起一批无人接收的搜索。
             if (cleared) return;
@@ -349,7 +293,7 @@ public class SiteViewModel extends ViewModel {
                 if (!SiteSearchScope.isSearchable(site)) continue;
                 tasks.add(site);
             }
-            dispatchLocked(tasks, keyword, quick, 0, tasks.size(), false);
+            dispatchLocked(tasks, keyword, quick);
         }
     }
 
@@ -399,20 +343,17 @@ public class SiteViewModel extends ViewModel {
         return new TimedCall(future, timedOut);
     }
 
-    /**
-     * 派发一代搜索。resume=true 表示这是被环境独占打断后接着搜：不清进度、不从 0 数，
-     * 只把还没出结果的源再派一次，已搜到的结果原样留在结果列表里。
-     */
-    private void dispatchLocked(List<Site> tasks, String keyword, boolean quick, int base, int total, boolean resume) {
+    /** 派发一代搜索：每个源一个任务，全部并发提交，不因环境独占而延后或减少。 */
+    private void dispatchLocked(List<Site> tasks, String keyword, boolean quick) {
         int epoch = stopSearchLocked();
         searchKeyword = keyword;
         searchQuick = quick;
-        searchTotal = total;
-        searchDone.set(base);
+        searchTotal = tasks.size();
+        searchDone.set(0);
         searchRemaining.clear();
         searchRemaining.addAll(tasks);
         searchBacklog.clear();
-        searchProgress.postValue(resume ? SearchProgress.of(base, total) : SearchProgress.start(total));
+        searchProgress.postValue(SearchProgress.start(tasks.size()));
         // A site spider may ignore interruption after its timeout. Isolate every
         // generation so an uncooperative old worker cannot starve the next search;
         // shutdownNow() remains best-effort because the JVM cannot forcibly stop it.
@@ -525,30 +466,6 @@ public class SiteViewModel extends ViewModel {
         ), MoreExecutors.directExecutor());
     }
 
-    /**
-     * 页面退到后台（进详情、切页、锁屏）时的软暂停：停掉在跑的搜索、把还没出结果的源记下来，
-     * 但先不认作"用户主动放弃"——如果紧接着是进详情，环境独占放开后就接着搜。
-     */
-    public void pauseSearch() {
-        synchronized (searchLock) {
-            if (cleared || searchExecutor == null) return;
-            snapshotLocked();
-            int done = searchDone.get();
-            int total = searchTotal;
-            int pending = pendingSearch == null ? 0 : pendingSearch.sites.size();
-            pauseAt = System.currentTimeMillis();
-            pendingArmed = false;
-            stopSearchLocked();
-            SpiderDebug.log("search", "paused by page done=%d/%d pending=%d", done, total, pending);
-        }
-    }
-
-    /** 把当前这代搜索的"还没出结果的源 + 进度"存成待续的搜索。 */
-    private void snapshotLocked() {
-        List<Site> remaining = new ArrayList<>(searchRemaining);
-        pendingSearch = remaining.isEmpty() ? null : new SearchRequest(remaining, searchKeyword, searchQuick, searchDone.get(), searchTotal);
-    }
-
     private void postSearchResult(int epoch, Result result) {
         if (searchEpoch.get() != epoch) return;
         if (result == null) return;
@@ -575,9 +492,6 @@ public class SiteViewModel extends ViewModel {
     }
 
     public int stopSearch() {
-        // 用户明确退出搜索：连挂起的那份也一起丢掉，不要在后台接着搜。
-        pendingSearch = null;
-        pendingArmed = false;
         synchronized (searchLock) {
             return stopSearchLocked();
         }
@@ -601,8 +515,6 @@ public class SiteViewModel extends ViewModel {
         super.onCleared();
         // 必须先置位再关池：反过来会留下「池已终止但 cleared=false」的窗口。
         cleared = true;
-        SiteContext.removeObserver(envObserver);
-        pendingSearch = null;
         stopSearch();
         futures.values().forEach(future -> future.cancel(true));
         cancelPlayerContentIsolated();
@@ -610,12 +522,6 @@ public class SiteViewModel extends ViewModel {
         isolatedPlayerExecutor.shutdownNow();
     }
 
-    /** 进详情接管"页面软暂停"的时间窗口：超过这个时长就别再认领，免得凭空续搜。 */
-    private static final long ADOPT_WINDOW_MS = 60_000L;
-
-    /** 挂起的搜索：sites 是还没出结果的源，done/total 是原来的进度口径。 */
-    private record SearchRequest(List<Site> sites, String keyword, boolean quick, int done, int total) {
-    }
 
     private enum TaskType {RESULT, PLAYER, ACTION}
 }
