@@ -110,7 +110,7 @@ import com.fongmi.android.tv.setting.PreloadSetting;
 import com.fongmi.android.tv.setting.PlayerSetting;
 import com.fongmi.android.tv.setting.FlagSwitchPlaybackPolicy;
 import com.fongmi.android.tv.setting.Setting;
-import com.fongmi.android.tv.setting.SiteBlockSetting;
+import com.fongmi.android.tv.setting.SiteSearchScope;
 import com.fongmi.android.tv.theme.PlaybackMenuScrim;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.setting.DetailRuntimeModePolicy;
@@ -9395,8 +9395,8 @@ private boolean runtimeSourceOnly;
 
     private boolean isPass(Site item) {
         if (isAutoMode() && !item.isChangeable()) return false;
-        // 屏蔽的源不参与换源搜索，避免白等一轮和被算进搜索统计。
-        return item.isSearchable() && !SiteBlockSetting.isBlocked(item);
+        // 屏蔽/内嵌网页这类搜不出东西的源不参与换源搜索，避免白等一轮和被算进搜索统计。
+        return SiteSearchScope.isSearchable(item);
     }
 
     private void startSearch(String keyword) {

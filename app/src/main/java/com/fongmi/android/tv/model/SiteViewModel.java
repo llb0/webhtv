@@ -14,7 +14,7 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.exception.ExtractException;
 import com.fongmi.android.tv.player.karaoke.KaraokeResult;
 import com.fongmi.android.tv.setting.Setting;
-import com.fongmi.android.tv.setting.SiteBlockSetting;
+import com.fongmi.android.tv.setting.SiteSearchScope;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
@@ -333,8 +333,8 @@ public class SiteViewModel extends ViewModel {
             List<Site> tasks = new ArrayList<>();
             for (Site site : sites) {
                 if (quick && !site.isQuickSearch()) continue;
-                // 屏蔽/隐藏的源不参与搜索：以前照样派出去，既白耗一个并发，也被算进 60/60。
-                if (SiteBlockSetting.isBlocked(site) || site.isHide()) continue;
+                // 屏蔽/隐藏/内嵌网页这类搜不出东西的源不参与搜索：一律不派、不计。
+                if (!SiteSearchScope.isSearchable(site)) continue;
                 tasks.add(site);
             }
             dispatchLocked(tasks, keyword, quick, 0, tasks.size(), false);
