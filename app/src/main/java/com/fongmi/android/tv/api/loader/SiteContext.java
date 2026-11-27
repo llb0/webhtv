@@ -35,6 +35,9 @@ import java.util.concurrent.TimeUnit;
  */
 public final class SiteContext {
 
+    /** init 排队上限：只短等，避免吃掉搜索任务的时间预算。 */
+    private static final long INIT_WAIT_SEC = 5;
+
     private static final long HOLD_TIMEOUT_MS = 120_000L;
     private static final Semaphore ENV = new Semaphore(1, true);
     private static final ThreadLocal<int[]> INIT_STATE = new ThreadLocal<int[]>() {
@@ -138,9 +141,13 @@ public final class SiteContext {
             state[0]++;
             return true;
         }
-        int result = acquire(30, "init");
+        // 环境被详情/播放占着时，搜索线程干等 30s 正好把搜索任务自己的 30s 预算耗光，
+        // 等不到还硬 init 会把别人正在用的环境冲掉（日志里一批源同时 init timeout 就是这么来的）。
+        // 所以这里只短等，等不到就让调用方放弃这次 init，由页面暂停/续搜机制稍后重来。
+        int result = acquire(INIT_WAIT_SEC, "init");
         state[0] = result;
-        if (result <= 0) SpiderDebug.log("site-context", "init timeout, proceed unguarded site=%s", siteKey);
+        if (result == 0) SpiderDebug.log("site-context", "init busy, skip init site=%s", siteKey);
+        else if (result < 0) SpiderDebug.log("site-context", "init interrupted, skip init site=%s", siteKey);
         return result > 0;
     }
 

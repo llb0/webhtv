@@ -257,10 +257,10 @@ public class JarLoader {
                 // init 会写 spider 的静态环境（XBPQ 的 xbpq 单例），与详情/播放的读窗口互斥；
                 // 读锁让各源的 init 之间仍然并发，只挡详情/播放那一段。
                 boolean envFree = SiteContext.enterInit(key);
-                // 搜索被取消时线程会带中断标记：这时既没排上环境，也没必要再 init，
-                // 直接放弃，否则会绕过独占继续跑，成了"退出搜索还在后台搜"。
-                if (!envFree && Thread.currentThread().isInterrupted()) {
-                    SpiderDebug.log("jar-loader", "spider init aborted interrupted site=%s api=%s jar=%s", key, api, jaKey);
+                // 没排上环境就别 init：要么搜索已被取消（线程带中断），要么环境正被详情/播放占着。
+                // 硬 init 会冲掉别人正在用的静态环境，结果整批都是脏数据。
+                if (!envFree) {
+                    SpiderDebug.log("jar-loader", "spider init skipped site=%s api=%s jar=%s interrupted=%s", key, api, jaKey, Thread.currentThread().isInterrupted());
                     return new SpiderNull();
                 }
                 try {
