@@ -377,7 +377,10 @@ public class SiteViewModel extends ViewModel {
             AtomicLong startedAt = new AtomicLong(0);
             TimedCall call;
             try {
-                call = submitTimed(executor, () -> SiteApi.prepareSpider(site), SearchTask.create(site, keyword, quick), Constant.TIMEOUT_SEARCH, startedAt);
+                call = submitTimed(executor, () -> {
+                    SiteApi.prepareSpider(site);
+                    return null;
+                }, SearchTask.create(site, keyword, quick), Constant.TIMEOUT_SEARCH, startedAt);
             } catch (RejectedExecutionException e) {
                 // 与 onCleared()/换代 的竞态：执行器已终止，这个源按"没出结果"记账即可。
                 SpiderDebug.log("search", "source rejected site=%s", site.getName());
