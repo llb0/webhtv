@@ -690,10 +690,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, resumeHistory);
             return;
         }
-        if (!TextUtils.isEmpty(key) && !SiteApi.PUSH.equals(key) && isShortDramaSiteEnabled(key)) {
-            startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, resumeHistory);
-            return;
-        }
+        // 短剧源曾经在这里直接走直放页（跳详情）。直放页没有详情可返回，点开就全屏、返回直接退出，
+        // 而且竖屏形态会把横屏素材也转成竖屏。现在短剧源和普通站源一样先进详情。
         if (!TextUtils.isEmpty(key) && !SiteApi.PUSH.equals(key) && !TmdbSitePolicy.isEnabled(key, id)) {
             startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, resumeHistory);
             return;

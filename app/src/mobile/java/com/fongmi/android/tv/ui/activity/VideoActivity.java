@@ -1956,7 +1956,8 @@ private final Task.Scope mPersonalRecommendationTasks = new Task.Scope(Task.reco
         else mBinding.progressLayout.showProgress();
         setAnimator();
         initNightModeOverlay();
-        if (isShortDramaSession()) enterShortDramaFullscreen();
+        // 短剧源不再一进页面就强制竖屏全屏：此时画面尺寸还没拿到，方向按「是不是短剧」判会把
+        // 横屏短剧也转成竖屏。方向统一等到 STATE_READY 拿到画面比例后再定。
         if (hasPendingImmersiveAudioLaunch()) setAudioStageVisible(true);
         setupIntroSkipConfirmListener();
     }
@@ -10456,6 +10457,12 @@ private void checkOrientation() {
 
     private void applyShortDramaMode() {
         if (!isShortDramaSession()) return;
+        // 旋转/铺满看画面比例，不看是不是短剧：横屏素材走普通全屏，只有竖屏素材才铺满竖屏。
+        if (!isPortraitVideo()) {
+            resetShortDramaLayout();
+            if (!isFullscreen()) enterFullscreen();
+            return;
+        }
         enterShortDramaFullscreen();
         setShortDramaScale();
         mBinding.exo.postDelayed(this::setShortDramaScale, 250);
@@ -10466,7 +10473,7 @@ private void checkOrientation() {
         if (!isFullscreen()) {
             setFullscreen(true);
             mBinding.video.setLayoutParams(new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT));
-            setRequestedOrientation(isPort() ? ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT : ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
             mKeyDown.resetScale();
         }
         syncShortDramaGesture();
@@ -10483,7 +10490,19 @@ private void checkOrientation() {
      * 竖滑就会误切集。同理换到另一部短剧时形态保持不变，标记也不该被清掉。
      */
     private void syncShortDramaGesture() {
-        if (mKeyDown != null) mKeyDown.setShortDrama(isFullscreen() && isShortDramaSession());
+        if (mKeyDown != null) mKeyDown.setShortDrama(isFullscreen() && isShortDramaSession() && isPortraitVideo());
+    }
+
+    private boolean isPortraitVideo() {
+        return service() != null && player() != null && !player().isEmpty()
+                && player().getVideoWidth() > 0 && player().getVideoHeight() > 0 && player().isPortrait();
+    }
+
+    /** 横屏短剧回普通全屏形态：还原画面布局比例，避免继续沿用竖屏铺满的裁切。 */
+    private void resetShortDramaLayout() {
+        mBinding.video.setLayoutParams(new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT));
+        if (mKeyDown != null) mKeyDown.resetScale();
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
     }
 
     private void setShortDramaScale() {
