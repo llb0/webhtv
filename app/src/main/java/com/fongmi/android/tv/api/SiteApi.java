@@ -186,10 +186,10 @@ public class SiteApi {
         // 那是个副作用，缓存会吞掉它，见 cacheDetail 的说明。
         long beforeSpider = System.currentTimeMillis();
         if (isSpider(site)) {
-            // 先占环境、再取 spider：spider 首次创建要 init，只有占用线程自己的 init 才放行
-            // （SiteContext.enterInit），顺序反了会拿到被跳过的空 spider、详情空白。
-            // 占住一直到播放起播（PlayerManager 里放手）：这段时间别的源的 init 直接跳过，
-            // XBPQ 的 WebView 渲染和后面播放都用同一套环境。
+            // 先占初始化窗口、再取 spider：spider 首次创建会初始化，只有占用线程自己的初始化
+            // 才免排队（SiteContext.enterInit）；顺序反了会先去排队，把详情拖在这里。
+            // 占住一直到播放起播（PlayerManager 里放手）：这段时间别的源只能排队等，
+            // 详情算出来的变量与随后播放用的是同一份环境。
             SiteContext.beginRequest(site, null);
             Spider detailSpider = site.recent().spider();
             SiteContext.initOwner(site, detailSpider);

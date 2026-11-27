@@ -254,7 +254,7 @@ public class JarLoader {
                 }
                 Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
                 spider.siteKey = key;
-                // init 会写 spider 的静态环境（XBPQ 的 xbpq 单例）：只有"进详情→起播"这段需要独占，
+                // 一次 init 可能改写该 jar 内部的共享状态：只有"进详情→起播"这段需要独占，
                 // 独占期间别的源 init 排队等（排队不计搜索超时），平时（搜索/首页/分类/换源）各源并发 init。
                 boolean envFree = SiteContext.enterInit(key);
                 // 只有任务被取消（线程被中断）才不 init：环境被占着时已经在上面排队等到了，
