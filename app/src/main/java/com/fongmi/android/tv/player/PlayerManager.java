@@ -31,6 +31,7 @@ import androidx.media3.ui.danmaku.DanmakuConfig;
 import androidx.media3.ui.danmaku.DanmakuController;
 import androidx.media3.mpvplayer.MpvPlayer;
 
+import com.fongmi.android.tv.api.loader.SiteContext;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
@@ -8957,6 +8958,8 @@ public void resetTrack(int type) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "state=%s spec=%s", stateName(state), debugSpec());
             publishPlaybackAutoContext(state != Player.STATE_IDLE);
             if (state == Player.STATE_READY) {
+                // 正常起播，站源环境这道独占就可以放开了，全源搜索继续跑。
+                SiteContext.releaseEnv("startup");
                 rememberDuration();
                 cancelBufferingStallWatchdog();
                 completeMpvDirectFirstFrame(state);
@@ -9138,6 +9141,8 @@ public void resetTrack(int type) {
             String errorMessage = engine.getErrorMessage(e);
             PlaybackTrace.log("playback-error", playbackTrace.current(), "%s action=%s player=%d decode=%d", failure.logSummary(), action, playerType, engine.getDecode());
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "error code=%d http=%d errorType=%s message=%s action=%s retry=%d spec=%s causeTypes=%s", e.errorCode, statusCode, e.getClass().getSimpleName(), e.getMessage(), action, retry, debugSpec(), causeChain(e));
+            // 播放失败也放手，不能一直占着让搜索干等。
+            SiteContext.releaseEnv("player-error");
             LocalProxyDebug.dumpIfLocalFailure(spec == null ? null : spec.getUrl(), e);
             if (statusCode > 0 && callback.onSourceHttpError(statusCode, errorMessage)) return;
             if (retryLutFailure(e)) return;

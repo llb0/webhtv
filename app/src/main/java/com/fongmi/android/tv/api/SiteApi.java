@@ -187,17 +187,13 @@ public class SiteApi {
         long beforeSpider = System.currentTimeMillis();
         if (isSpider(site)) {
             Spider detailSpider = site.recent().spider();
-            // 写锁从重建一直持到 detailContent 返回：XBPQ 的 WebView 渲染是在 detailContent
-            // 内同步跑完的，这期间不能让别的源 init 把静态环境换掉。
+            // 从进详情就占住环境，一直占到播放起播（PlayerManager 里放手）：
+            // 这段时间别的源的 init 排队等着，XBPQ 的 WebView 渲染和后面播放都用同一套环境。
             SiteContext.beginRequest(site, detailSpider);
-            try {
-                String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
-                TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
-                SpiderDebug.log("detail", ingress.getSanitizedJson());
-                result = Result.fromJson(ingress.getSanitizedJson());
-            } finally {
-                SiteContext.endRequest();
-            }
+            String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
+            TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
+            SpiderDebug.log("detail", ingress.getSanitizedJson());
+            result = Result.fromJson(ingress.getSanitizedJson());
         } else {
             ArrayMap<String, String> params = new ArrayMap<>();
             params.put("ac", ac(site.getType()));
