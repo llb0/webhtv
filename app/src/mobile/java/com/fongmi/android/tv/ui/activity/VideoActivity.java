@@ -10457,10 +10457,11 @@ private void checkOrientation() {
 
     private void applyShortDramaMode() {
         if (!isShortDramaSession()) return;
-        // 旋转/铺满看画面比例，不看是不是短剧：横屏素材走普通全屏，只有竖屏素材才铺满竖屏。
+        // 详情页里不替用户决定全屏：预览/详情拿到 READY 也不能自动跳到全屏，否则返回会直接退页。
+        if (!isFullscreen()) return;
+        // 旋转/铺满看画面比例，不看是不是短剧：横屏素材保持普通全屏形态。
         if (!isPortraitVideo()) {
             resetShortDramaLayout();
-            if (!isFullscreen()) enterFullscreen();
             return;
         }
         enterShortDramaFullscreen();

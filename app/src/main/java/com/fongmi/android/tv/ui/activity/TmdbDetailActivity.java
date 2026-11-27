@@ -3062,7 +3062,7 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
         // 站源没有 TMDB 数据时不能交给「直放」页：直放只播不展示详情，用户点开后直接全屏，
         // 返回还会因为没有详情可退回而直接退出。这里回落到原生详情页，详情先上屏，播放从详情里发起。
         VideoActivity.start(this, getKeyText(), getIdText(), loadedVod.getName(), loadedVod.getPic(),
-                loadedVod.getRemarks(), loadedVod.getContent());
+                loadedVod.getRemarks(), null, loadedVod.getContent());
         finish();
     }
 
