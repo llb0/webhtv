@@ -1834,6 +1834,15 @@ public class Setting {
         Prefers.put("idj_allow_adult", allow);
     }
 
+    /** 在线视频缩略图：只在长按进度条时按需抽当前一格，默认关（不给源站增加额外请求）。 */
+    public static boolean isOnlineFrameEnabled() {
+        return Prefers.getBoolean("online_frame_enabled", false);
+    }
+
+    public static void putOnlineFrameEnabled(boolean enabled) {
+        Prefers.put("online_frame_enabled", enabled);
+    }
+
     public static int getSourceBlockedCount() {
         int mask = getSourceBlockMask();
         int count = 0;

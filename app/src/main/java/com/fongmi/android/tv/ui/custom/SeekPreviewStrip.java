@@ -531,7 +531,15 @@ public class SeekPreviewStrip extends FrameLayout {
                 handler.post(() -> applyAt(all, at, found));
             }
         };
-        TrickplayStore.ensureFrames(context, media, headers, missingList,
+        // 在线源只让后台取一格（游标最近的那格）：其余格子照旧从磁盘缓存读，读不到就铺兜底图，
+        // 不对源站发第二、第三个请求。
+        final List<Long> prepareList;
+        if (TrickplayStore.allowsOnlineFrame(media) && missingList.size() > 1) {
+            prepareList = new ArrayList<>(missingList.subList(0, 1));
+        } else {
+            prepareList = missingList;
+        }
+        TrickplayStore.ensureFrames(context, media, headers, prepareList,
                 () -> TrickplayStore.io().execute(readMissing),
                 () -> TrickplayStore.io().execute(() -> {
                     // 先按磁盘现状把这一排读一遍，再判断还缺哪几格：
@@ -561,7 +569,9 @@ public class SeekPreviewStrip extends FrameLayout {
             List<Long> ordered = new ArrayList<>(still);
             List<Long> priority = refreshOrder(positions);
             ordered.sort((a, b) -> Integer.compare(priority.indexOf(a), priority.indexOf(b)));
-            TrickplayStore.ensureFrames(context, media, headers, ordered, null,
+            TrickplayStore.ensureFrames(context, media, headers,
+                    TrickplayStore.allowsOnlineFrame(media) && ordered.size() > 1
+                            ? new ArrayList<>(ordered.subList(0, 1)) : ordered, null,
                     () -> handler.post(() -> onWindowDone(context, positions)));
             return;
         }

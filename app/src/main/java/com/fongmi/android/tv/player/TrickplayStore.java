@@ -10,12 +10,16 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.LruCache;
 
+import com.fongmi.android.tv.setting.Setting;
+
 import java.io.File;
 import java.io.FileOutputStream;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -91,6 +95,14 @@ public final class TrickplayStore {
     private static final AtomicLong LAST_TRIM = new AtomicLong(0);
     /** 播放忙时最多让路这么久，超过就这轮不抽了，别一直挂着打开的文件会话。 */
     private static final long BUSY_GIVEUP_MS = 2000;
+    /** 在线单帧：两次联网取帧之间至少隔这么久，避免对源站连续拉流。 */
+    private static final long NETWORK_FRAME_GAP_MS = 1500L;
+    /** 同一部片最多联网抽这么多帧（20 格 ≈ 3 分钟片段的量），到顶就不再请求。 */
+    private static final int NETWORK_FRAME_MAX = 20;
+    /** 联网抽帧的计数与「已停手」标记：失败一次就不再重试，绝不对同一个源反复试。 */
+    private static final Map<String, Integer> NETWORK_FRAMES = new ConcurrentHashMap<>();
+    private static final Set<String> NETWORK_STOP = ConcurrentHashMap.newKeySet();
+    private static final AtomicLong LAST_NETWORK_FRAME = new AtomicLong(0);
 
     private static volatile boolean playerBusy;
     private static volatile String backgroundKey;
@@ -389,6 +401,31 @@ public final class TrickplayStore {
         return lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("rtmp");
     }
 
+    /** 在线视频是否允许按需抽单帧：网络源 + 「在线视频缩略图」开关打开。 */
+    public static boolean allowsOnlineFrame(String media) {
+        return media != null && !TextUtils.isEmpty(media) && isNetworkSource(media) && Setting.isOnlineFrameEnabled();
+    }
+
+    /** 这一格还允不允许联网取：限频、限总量、失败止损。 */
+    private static boolean allowNetworkGrab(String key) {
+        if (NETWORK_STOP.contains(key)) return false;
+        Integer used = NETWORK_FRAMES.get(key);
+        if (used != null && used >= NETWORK_FRAME_MAX) {
+            NETWORK_STOP.add(key);
+            traceOnce("net stop reason=limit key=%s used=%d", key.substring(0, 8), used);
+            return false;
+        }
+        return SystemClock.elapsedRealtime() - LAST_NETWORK_FRAME.get() >= NETWORK_FRAME_GAP_MS;
+    }
+
+    private static void countNetworkFrame(String key, boolean ok) {
+        LAST_NETWORK_FRAME.set(SystemClock.elapsedRealtime());
+        Integer used = NETWORK_FRAMES.get(key);
+        NETWORK_FRAMES.put(key, used == null ? 1 : used + 1);
+        // 失败即停：同一部片这次播放期间不再联网取帧，避免对源站反复重试。
+        if (!ok) NETWORK_STOP.add(key);
+    }
+
     /** SMB 播放代理（本机 http 服务上的 ?smb=1）：带宽只有一条，不能拿来抽帧。 */
     private static boolean isSmbProxy(String media) {
         if (media == null) return false;
@@ -684,6 +721,12 @@ public final class TrickplayStore {
             return;
         }
         String key = keyFor(media);
+        // 网络源：开关没开就一格都不抽（保持原来「网络源不抽帧」的行为）；
+        // 开了也只在允许的时候取，限频 + 限总量，失败就停。
+        if (isNetworkSource(media) && !allowNetworkGrab(key)) {
+            if (onDone != null) MAIN.post(onDone);
+            return;
+        }
         trace("window request key=%s count=%d first=%s last=%s",
                 key.substring(0, 8), positions.size(), time(positions.get(0)), time(positions.get(positions.size() - 1)));
         String token = key + "#" + positions.hashCode();
@@ -718,7 +761,7 @@ public final class TrickplayStore {
             executeWindow(window);
         } finally {
             int missing = 0;
-            for (Long position : window.positions) {
+            for (Long position : positions) {
                 File file = frameFile(window.context, window.key, frameIndex(position));
                 if (!file.isFile() || file.length() == 0) missing++;
             }
@@ -747,6 +790,13 @@ public final class TrickplayStore {
             traceOnce("window wait reason=player-busy key=%s", window.key.substring(0, 8));
             sleep(CELL_PAUSE_MS);
         }
+        boolean network = isNetworkSource(window.media);
+        // 在线只抽「最靠近游标的那一格」：预览条传进来的位置已按优先级排好，取第一个就够。
+        List<Long> positions = window.positions;
+        if (network) {
+            int limit = Math.min(1, positions.size());
+            positions = new ArrayList<>(positions.subList(0, limit));
+        }
         Extractor extractor = acquire(window);
         try {
             if (extractor == null || !extractor.isValid()) {
@@ -771,6 +821,7 @@ public final class TrickplayStore {
                 // 抽到格子标注的那个时间点本身，而不是网格向下取整的 10 秒台阶：
                 // 以前 51:53 的格子抽的是 51:50 的画面，手机上一眼就看得出图和时间对不上。
                 Bitmap bitmap = extractor.grab(position, FRAME_WIDTH);
+                if (network) countNetworkFrame(window.key, bitmap != null);
                 if (bitmap == null) {
                     logFailure(window.context, "抽帧失败：" + TrickplayNative.lastError());
                     continue;
@@ -810,6 +861,15 @@ public final class TrickplayStore {
     private static void release(String media, Extractor extractor) {
         rerunBusy = false;
         if (extractor == null) return;
+        // 联网会话用完就关：不让第二条连接到源站长时间挂着，和播放连接并存越久越容易被风控。
+        if (isNetworkSource(media)) {
+            if (rerunExtractor == extractor) {
+                rerunExtractor = null;
+                rerunMedia = null;
+            }
+            extractor.close();
+            return;
+        }
         // 走完了这一轮就留着，下一轮窗口（用户继续拖）还能直接用；换片或超时才真关。
         if (rerunExtractor == extractor) {
             rerunAt = SystemClock.elapsedRealtime();
