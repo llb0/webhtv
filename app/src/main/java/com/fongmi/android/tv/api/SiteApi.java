@@ -9,6 +9,7 @@ import androidx.collection.ArrayMap;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
+import com.fongmi.android.tv.api.loader.XbpqContext;
 import com.fongmi.android.tv.bean.Class;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
@@ -183,7 +184,9 @@ public class SiteApi {
         // 那是个副作用，缓存会吞掉它，见 cacheDetail 的说明。
         long beforeSpider = System.currentTimeMillis();
         if (isSpider(site)) {
-            String detailContent = site.recent().spider().detailContent(Arrays.asList(requestId));
+            Spider detailSpider = site.recent().spider();
+            XbpqContext.prepare(site, detailSpider);
+            String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
             TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
             SpiderDebug.log("detail", ingress.getSanitizedJson());
             result = Result.fromJson(ingress.getSanitizedJson());
@@ -311,7 +314,9 @@ public class SiteApi {
         if (site.getType() == 3) {
             String fallbackReason;
             try {
-                String playerContent = site.recent().spider().playerContent(flag, requestId, VodConfig.get().getFlags());
+                Spider playerSpider = site.recent().spider();
+                XbpqContext.prepare(site, playerSpider);
+                String playerContent = playerSpider.playerContent(flag, requestId, VodConfig.get().getFlags());
                 SpiderDebug.log("player", playerContent);
                 Result result = Result.fromJson(playerContent);
                 if (shouldFallbackPushSiteResult(key, result)) {
