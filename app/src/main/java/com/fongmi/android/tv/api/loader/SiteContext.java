@@ -7,6 +7,7 @@ import com.fongmi.android.tv.bean.Site;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
 
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -54,6 +55,36 @@ public final class SiteContext {
     private SiteContext() {
     }
 
+    /** 环境独占的旁观者：搜索用它来"暂停/继续"。回调都投递到主线程。 */
+    public interface Observer {
+        void onHold(String siteKey);
+
+        void onRelease();
+    }
+
+    private static final CopyOnWriteArrayList<Observer> OBSERVERS = new CopyOnWriteArrayList<>();
+
+    /** 环境是否被某次详情/播放占着。 */
+    public static boolean isHeld() {
+        return held;
+    }
+
+    public static void addObserver(Observer observer) {
+        if (observer != null && !OBSERVERS.contains(observer)) OBSERVERS.add(observer);
+    }
+
+    public static void removeObserver(Observer observer) {
+        if (observer != null) OBSERVERS.remove(observer);
+    }
+
+    private static void notifyHold(String siteKey) {
+        for (Observer observer : OBSERVERS) App.post(() -> observer.onHold(siteKey));
+    }
+
+    private static void notifyRelease() {
+        for (Observer observer : OBSERVERS) App.post(observer::onRelease);
+    }
+
     /** 首页/分类取数据时记录"当前源"；回到列表浏览说明上一次详情没看到播放，环境该放手了。 */
     public static void markBrowse(Site site) {
         if (site == null || TextUtils.isEmpty(site.getKey())) return;
@@ -67,13 +98,14 @@ public final class SiteContext {
      */
     public static void beginRequest(Site site, Spider spider) {
         releaseStale();
-        if (!acquire(20, "request")) {
+        if (acquire(20, "request") <= 0) {
             SpiderDebug.log("site-context", "hold timeout, proceed unguarded site=%s", site == null ? "" : site.getKey());
             return;
         }
         held = true;
         holdStart = System.currentTimeMillis();
         SpiderDebug.log("site-context", "hold site=%s current=%s", site == null ? "" : site.getKey(), browsing);
+        notifyHold(site == null ? "" : site.getKey());
         if (site == null || spider == null) return;
         if (TextUtils.equals(owner, site.getKey())) return;
         String was = owner;
@@ -93,17 +125,23 @@ public final class SiteContext {
         holdStart = 0L;
         ENV.release();
         SpiderDebug.log("site-context", "release reason=%s", reason);
+        notifyRelease();
     }
 
-    /** JarLoader 建 spider 时的 init：排队等环境空闲，等不到就照旧执行。 */
-    public static void enterInit(String siteKey) {
+    /**
+     * JarLoader 建 spider 时的 init：排队等环境空闲。
+     * 返回 false 表示没排上——调用方如果发现自己已被中断（搜索被取消），就该直接放弃这次 init。
+     */
+    public static boolean enterInit(String siteKey) {
         int[] state = INIT_STATE.get();
         if (state[0] > 0) {
             state[0]++;
-            return;
+            return true;
         }
-        state[0] = acquire(30, "init") ? 1 : -1;
-        if (state[0] < 0) SpiderDebug.log("site-context", "init timeout, proceed unguarded site=%s", siteKey);
+        int result = acquire(30, "init");
+        state[0] = result;
+        if (result <= 0) SpiderDebug.log("site-context", "init timeout, proceed unguarded site=%s", siteKey);
+        return result > 0;
     }
 
     /** init 结束：静态环境现在归这个源所有。 */
@@ -128,14 +166,15 @@ public final class SiteContext {
         releaseEnv("preempt");
     }
 
-    private static boolean acquire(long timeoutSec, String tag) {
+    /** 1=拿到，0=超时，-1=被中断（调用方正在被取消）。 */
+    private static int acquire(long timeoutSec, String tag) {
         try {
             boolean got = ENV.tryAcquire(timeoutSec, TimeUnit.SECONDS);
             if (!got) SpiderDebug.log("site-context", "%s wait timeout", tag);
-            return got;
+            return got ? 1 : 0;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return false;
+            return -1;
         }
     }
 }

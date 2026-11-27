@@ -1118,6 +1118,13 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     }
 
     @Override
+    protected void onStop() {
+        // 搜索页退到后台就停掉搜索，别让它在后台自己跑完。
+        if (mViewModel != null) mViewModel.stopSearch();
+        super.onStop();
+    }
+
+    @Override
     protected void onDestroy() {
         if (mBinding != null) {
             mBinding.recycler.removeOnScrollListener(mScroller);

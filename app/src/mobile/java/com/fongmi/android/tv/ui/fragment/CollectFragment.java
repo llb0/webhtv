@@ -800,8 +800,18 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     @Override
     public void onHiddenChanged(boolean hidden) {
-        if (hidden) requireActivity().removeMenuProvider(this);
-        else initMenu();
+        if (hidden) {
+            // 搜索页被盖住就等于退出了：立刻停掉还在跑的搜索，不留后台任务。
+            if (mViewModel != null) mViewModel.stopSearch();
+            requireActivity().removeMenuProvider(this);
+        } else initMenu();
+    }
+
+    @Override
+    public void onStop() {
+        // 页面回到后台（切到别的页、锁屏、回到桌面）也停，搜索不该在后台自己跑完。
+        if (mViewModel != null) mViewModel.stopSearch();
+        super.onStop();
     }
 
     @Override

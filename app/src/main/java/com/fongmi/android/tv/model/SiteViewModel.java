@@ -8,6 +8,7 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.api.config.VodConfig;
+import com.fongmi.android.tv.api.loader.SiteContext;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.exception.ExtractException;
@@ -16,6 +17,7 @@ import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteBlockSetting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.utils.Task;
+import com.github.catvod.crawler.SpiderDebug;
 import com.google.common.util.concurrent.FluentFuture;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -66,6 +68,30 @@ public class SiteViewModel extends ViewModel {
      * 宿主不再需要为 ViewModel 的生命周期兜异常。
      */
     private volatile boolean cleared;
+    /** 环境被详情/播放占着时挂起的搜索；放开后原样重来一遍。 */
+    private volatile SearchRequest pendingSearch;
+    /** 最近一次全源搜索的参数，供被独占打断后重来。 */
+    private volatile SearchRequest lastSearch;
+    private final SiteContext.Observer envObserver = new SiteContext.Observer() {
+        @Override
+        public void onHold(String siteKey) {
+            synchronized (searchLock) {
+                if (cleared) return;
+                if (searchExecutor != null && lastSearch != null) pendingSearch = lastSearch;
+                stopSearchLocked();
+                SpiderDebug.log("search", "paused by env hold site=%s pending=%s", siteKey, pendingSearch != null);
+            }
+        }
+
+        @Override
+        public void onRelease() {
+            SearchRequest request = pendingSearch;
+            pendingSearch = null;
+            if (request == null || cleared) return;
+            SpiderDebug.log("search", "resume after env release keyword=%s sites=%d", request.keyword, request.sites.size());
+            searchContent(request.sites, request.keyword, request.quick);
+        }
+    };
 
     public SiteViewModel() {
         result = new MutableLiveData<>();
@@ -87,6 +113,7 @@ public class SiteViewModel extends ViewModel {
         futures = new EnumMap<>(TaskType.class);
         taskIds = new EnumMap<>(TaskType.class);
         for (TaskType type : TaskType.values()) taskIds.put(type, new AtomicInteger(0));
+        SiteContext.addObserver(envObserver);
     }
 
     public LiveData<Result> getResult() {
@@ -264,9 +291,18 @@ public class SiteViewModel extends ViewModel {
     }
 
     public void searchContent(List<Site> sites, String keyword, boolean quick) {
+        if (sites == null || sites.isEmpty()) return;
+        if (SiteContext.isHeld()) {
+            // 环境正被详情/播放占着：现在派发只会让每个源在 init 里干等，最后被 30s 任务超时
+            // 结算掉（进度照样 +1，结果一条没有）。挂起来，等 release 再整批派发。
+            pendingSearch = new SearchRequest(sites, keyword, quick);
+            SpiderDebug.log("search", "deferred env held keyword=%s sites=%d", keyword, sites.size());
+            return;
+        }
         synchronized (searchLock) {
             // 清理后不再新建搜索执行器：否则会为已死的 ViewModel 起一批无人接收的搜索。
             if (cleared) return;
+            lastSearch = new SearchRequest(sites, keyword, quick);
             int epoch = stopSearchLocked();
             List<Site> tasks = new ArrayList<>();
             for (Site site : sites) {
@@ -365,6 +401,8 @@ public class SiteViewModel extends ViewModel {
     }
 
     public int stopSearch() {
+        // 用户明确退出搜索：连挂起的那份也一起丢掉，不要在后台接着搜。
+        pendingSearch = null;
         synchronized (searchLock) {
             return stopSearchLocked();
         }
@@ -386,11 +424,16 @@ public class SiteViewModel extends ViewModel {
         super.onCleared();
         // 必须先置位再关池：反过来会留下「池已终止但 cleared=false」的窗口。
         cleared = true;
+        SiteContext.removeObserver(envObserver);
+        pendingSearch = null;
         stopSearch();
         futures.values().forEach(future -> future.cancel(true));
         cancelPlayerContentIsolated();
         playerExecutor.shutdownNow();
         isolatedPlayerExecutor.shutdownNow();
+    }
+
+    private record SearchRequest(List<Site> sites, String keyword, boolean quick) {
     }
 
     private enum TaskType {RESULT, PLAYER, ACTION}
