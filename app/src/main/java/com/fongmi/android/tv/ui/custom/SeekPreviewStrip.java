@@ -23,7 +23,6 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
@@ -484,7 +483,6 @@ public class SeekPreviewStrip extends FrameLayout {
             Cell cell = cells.get(i);
             if (cell.position != positions.get(i)) cell.clearImage();
             cell.position = positions.get(i);
-            cell.label.setText(format(cell.position));
             cell.setFocused(focus == i);
             cell.setHighlight(i == anchorIndex());
         }
@@ -872,8 +870,8 @@ public class SeekPreviewStrip extends FrameLayout {
         final FrameLayout root;
         final GradientDrawable bg;
         final ImageView image;
-        final TextView label;
         final View focusRing;
+        final View highlightRing;
         long position;
         String key;
         boolean highlight;
@@ -897,16 +895,16 @@ public class SeekPreviewStrip extends FrameLayout {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             root.addView(image);
 
-            label = new TextView(context);
-            label.setTextColor(Color.WHITE);
-            label.setTextSize(11f);
-            label.setGravity(Gravity.BOTTOM | Gravity.START);
-            label.setPadding(ResUtil.dp2px(6), 0, ResUtil.dp2px(6), ResUtil.dp2px(3));
-            label.setShadowLayer(4f, 0f, 1f, Color.BLACK);
-            FrameLayout.LayoutParams labelParams = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            labelParams.gravity = Gravity.BOTTOM;
-            root.addView(label, labelParams);
+            // 预览图只放画面，不叠时间文字；时间只出现在进度条的游标上。
+            highlightRing = new View(context);
+            GradientDrawable lean = new GradientDrawable();
+            lean.setColor(Color.TRANSPARENT);
+            lean.setStroke(ResUtil.dp2px(2), 0xB3FF7A2F);
+            lean.setCornerRadius(ResUtil.dp2px(8));
+            highlightRing.setBackground(lean);
+            highlightRing.setVisibility(View.GONE);
+            root.addView(highlightRing, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
             focusRing = new View(context);
             GradientDrawable ring = new GradientDrawable();
@@ -938,11 +936,10 @@ public class SeekPreviewStrip extends FrameLayout {
             focusRing.setAlpha(1f);
         }
 
-        /** 当前进度那一格不再画描边，只把时间那一行提亮（字号+暖色）。 */
+        /** 当前进度那一格：描一圈淡橙边，指出「就是这一格」，不再靠时间文字区分。 */
         void setHighlight(boolean on) {
             highlight = on;
-            label.setTextColor(on ? 0xFFFFC08A : Color.WHITE);
-            label.setTextSize(on ? 12f : 11f);
+            highlightRing.setVisibility(on ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -990,13 +987,16 @@ public class SeekPreviewStrip extends FrameLayout {
             paint.setColor(0xFFFFFFFF);
             // 总时长固定在右端；当前时间跟着游标走，标在它正上方，不能钉死在左边。
             String current = format(cursorMs);
+            String total = format(durationMs);
             float dotX = dp(6) + (getWidth() - dp(12)) * clampRatio(progress);
             float half = paint.measureText(current) / 2f;
-            float textX = Math.max(half + dp(6), Math.min(dotX, getWidth() - dp(6) - half));
+            // 右端要留给总时长：游标走到片尾时当前时间往左让，不能和总时长叠字。
+            float rightLimit = getWidth() - dp(6) - paint.measureText(total) - dp(8) - half;
+            float textX = Math.max(half + dp(6), Math.min(dotX, Math.max(half + dp(6), rightLimit)));
             paint.setTextAlign(Paint.Align.CENTER);
             canvas.drawText(current, textX, top - dp(7), paint);
             paint.setTextAlign(Paint.Align.RIGHT);
-            canvas.drawText(format(durationMs), getWidth() - dp(6), top - dp(7), paint);
+            canvas.drawText(total, getWidth() - dp(6), top - dp(7), paint);
             paint.setTextAlign(Paint.Align.LEFT);
             paint.clearShadowLayer();
             paint.setColor(0xFF3A3A44);
