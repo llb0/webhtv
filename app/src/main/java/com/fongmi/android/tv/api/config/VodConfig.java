@@ -205,7 +205,8 @@ public class VodConfig extends BaseConfig {
             json = Decoder.getJson(url, TAG);
         }
         TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(json);
-        JsonObject raw = Json.parse(ingress.getSanitizedJson());
+        JsonElement parsed = Json.parse(ingress.getSanitizedJson());
+        JsonObject raw = parsed != null && parsed.isJsonObject() ? parsed.getAsJsonObject() : new JsonObject();
         // iDuanJu 插件合集（{name, plugins[]}）不是站源配置，但可以当接口直接加载：
         // 先把清单里的包拉到 tvbox/idj/ 并安装，站点再按普通文件源生成。
         if (com.fongmi.android.tv.plugin.idj.IdjPluginCollection.isCollection(raw)) {
