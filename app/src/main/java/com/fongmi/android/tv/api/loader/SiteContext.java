@@ -93,9 +93,9 @@ public final class SiteContext {
     /**
      * 环境不属于这个源时按它的 ext 重建。
      *
-     * <p>进详情的顺序是「先占环境、再取 spider」：spider 第一次创建会 init，而 init 只有
-     * 占用线程自己的那次才被放行（见 {@link #enterInit}）。所以必须先 {@code beginRequest(site, null)}
-     * 占住，拿到 spider 之后再调这里补重建，否则会拿到被跳过的空 spider、详情直接空白。
+     * <p>进详情的顺序是「先占窗口、再取 spider」：spider 第一次创建会初始化，只有占用线程自己的
+     * 初始化免排队（见 {@link #enterInit}）。先 {@code beginRequest(site, null)} 还能先把上一个
+     * 详情留下的占用清掉；顺序反了会在队列里等一个本该由自己释放的占用，详情卡死。
      */
     public static void initOwner(Site site, Spider spider) {
         if (site == null || spider == null) return;
@@ -148,7 +148,7 @@ public final class SiteContext {
             return true;
         }
         if (!held) {
-            // 没有独占：不上锁，各源并发 init（跟影图一样，搜索不依赖静态环境谁先谁后）。
+            // 没有独占：不上锁，各源并发初始化。
             state[0] = 1;
             state[1] = 0;
             return true;

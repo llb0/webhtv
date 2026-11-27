@@ -507,7 +507,7 @@ public class SiteViewModel extends ViewModel {
         return items;
     }
 
-    /** 绝对进度：已完成的源数接着原来的口径往上加，恢复后总数不变。 */
+    /** 进度按"源数"计：每有一个源出结果（成功或失败）就 +1，总数是本次派发的源数。 */
     private void postSearchProgress(int epoch) {
         if (searchEpoch.get() != epoch) return;
         searchProgress.postValue(SearchProgress.of(searchDone.incrementAndGet(), searchTotal));
