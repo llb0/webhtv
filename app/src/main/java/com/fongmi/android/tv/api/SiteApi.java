@@ -187,11 +187,17 @@ public class SiteApi {
         long beforeSpider = System.currentTimeMillis();
         if (isSpider(site)) {
             Spider detailSpider = site.recent().spider();
-            SiteContext.prepare(site, detailSpider);
-            String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
-            TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
-            SpiderDebug.log("detail", ingress.getSanitizedJson());
-            result = Result.fromJson(ingress.getSanitizedJson());
+            // 写锁从重建一直持到 detailContent 返回：XBPQ 的 WebView 渲染是在 detailContent
+            // 内同步跑完的，这期间不能让别的源 init 把静态环境换掉。
+            SiteContext.beginRequest(site, detailSpider);
+            try {
+                String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
+                TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
+                SpiderDebug.log("detail", ingress.getSanitizedJson());
+                result = Result.fromJson(ingress.getSanitizedJson());
+            } finally {
+                SiteContext.endRequest();
+            }
         } else {
             ArrayMap<String, String> params = new ArrayMap<>();
             params.put("ac", ac(site.getType()));
@@ -317,18 +323,23 @@ public class SiteApi {
             String fallbackReason;
             try {
                 Spider playerSpider = site.recent().spider();
-                SiteContext.prepare(site, playerSpider);
-                String playerContent = playerSpider.playerContent(flag, requestId, VodConfig.get().getFlags());
-                SpiderDebug.log("player", playerContent);
-                Result result = Result.fromJson(playerContent);
-                if (shouldFallbackPushSiteResult(key, result)) {
-                    fallbackReason = result == null ? "" : result.getMsg();
-                } else {
-                    if (result.getFlag().isEmpty()) result.setFlag(flag);
-                    result.setUrl(source.fetch(result, playerType));
-                    result.setHeader(site.getHeader());
-                    result.setKey(key);
-                    return result;
+                // 与详情同理：写锁覆盖到 playerContent 返回，期间别的源改不了静态环境。
+                SiteContext.beginRequest(site, playerSpider);
+                try {
+                    String playerContent = playerSpider.playerContent(flag, requestId, VodConfig.get().getFlags());
+                    SpiderDebug.log("player", playerContent);
+                    Result result = Result.fromJson(playerContent);
+                    if (shouldFallbackPushSiteResult(key, result)) {
+                        fallbackReason = result == null ? "" : result.getMsg();
+                    } else {
+                        if (result.getFlag().isEmpty()) result.setFlag(flag);
+                        result.setUrl(source.fetch(result, playerType));
+                        result.setHeader(site.getHeader());
+                        result.setKey(key);
+                        return result;
+                    }
+                } finally {
+                    SiteContext.endRequest();
                 }
             } catch (Exception e) {
                 if (PUSH.equals(key)) fallbackReason = e.getMessage();

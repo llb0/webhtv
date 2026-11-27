@@ -254,7 +254,14 @@ public class JarLoader {
                 }
                 Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
                 spider.siteKey = key;
-                spider.init(App.get(), ext);
+                // init 会写 spider 的静态环境（XBPQ 的 xbpq 单例），与详情/播放的读窗口互斥；
+                // 读锁让各源的 init 之间仍然并发，只挡详情/播放那一段。
+                SiteContext.enterInit();
+                try {
+                    spider.init(App.get(), ext);
+                } finally {
+                    SiteContext.exitInit();
+                }
                 SpiderDebug.log("jar-loader", "spider init done site=%s api=%s jar=%s class=%s cost=%sms", key, api, jaKey, spider.getClass().getName(), System.currentTimeMillis() - start);
                 return spider;
             } catch (Throwable e) {
