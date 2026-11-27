@@ -256,7 +256,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class).init();
-        mViewModel.getSearch().observe(this, this::setCollect);
+        mViewModel.getSearchTick().observe(this, tick -> drainSearch());
         mViewModel.getSearchProgress().observe(this, this::setSearchProgress);
         mViewModel.getResult().observe(this, this::setSearch);
     }
@@ -392,9 +392,14 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         requireActivity().invalidateOptionsMenu();
     }
 
+    /** 收到"有新结果"的信号就把队列里攒下的全部取走：合并多少次信号都不会漏结果。 */
+    private void drainSearch() {
+        if (mViewModel == null) return;
+        for (Result result : mViewModel.drainSearchBacklog()) setCollect(result);
+    }
+
     private void setCollect(Result result) {
         if (result == null || result.getList().isEmpty()) return;
-        mViewModel.consumeSearchResult(result);
         String activeSiteKey = getActiveSiteKey();
         List<Vod> items = new ArrayList<>(result.getList());
         Collect raw = addMasterCollect(items);
@@ -810,8 +815,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     @Override
     public void onResume() {
         super.onResume();
-        // 进详情/播放期间 LiveData 只保留最后一个结果，其余几十个源的都在积压队列里，这里按序补上。
-        if (mViewModel != null) for (Result result : mViewModel.drainSearchBacklog()) setCollect(result);
+        // 进详情/播放期间没有信号，结果都留在队列里，这里按序补上。
+        drainSearch();
     }
 
     @Override

@@ -76,6 +76,13 @@ public class SiteViewModel extends ViewModel {
      * 中间几十个源的结果会被覆盖掉。这里按到达顺序排队，页面回到前台再按序取走。
      */
     private final List<Result> searchBacklog = new CopyOnWriteArrayList<>();
+    /**
+     * 结果到达信号：只带一个计数，页面收到就自己来取队列里的结果。
+     *
+     * <p>不能让结果本身走 LiveData：多个源几乎同时返回时，postValue 会合并成最后一个，
+     * 页面就只看到"进度在涨、卡片不增加"。信号合并没关系——每次取的都是整条队列。
+     */
+    private final MutableLiveData<Integer> searchTick = new MutableLiveData<>(0);
     /** 本代搜索还没出结果的源；出了结果（含失败）就从这里摘掉。 */
     private final List<Site> searchRemaining = new CopyOnWriteArrayList<>();
     private volatile String searchKeyword = "";
@@ -114,6 +121,10 @@ public class SiteViewModel extends ViewModel {
 
     public LiveData<Result> getSearch() {
         return search;
+    }
+
+    public LiveData<Integer> getSearchTick() {
+        return searchTick;
     }
 
     public LiveData<SearchProgress> getSearchProgress() {
@@ -475,11 +486,18 @@ public class SiteViewModel extends ViewModel {
         if (result == null) return;
         searchBacklog.add(result);
         search.postValue(result);
+        Integer tick = searchTick.getValue();
+        searchTick.postValue(tick == null ? 1 : tick + 1);
     }
 
-    /** 页面在前台收到 LiveData 时，把同一条从待取队列里消掉，避免回前台重放时重复。 */
-    public void consumeSearchResult(Result result) {
-        if (result != null) searchBacklog.remove(result);
+    /**
+     * 页面去播放途中拿到、但还没刷进列表的结果，原样放回队列，回前台按序补。
+     *
+     * <p>重复放回无副作用：同一个 Result 对象只留一份。
+     */
+    public void restoreSearchResult(Result result) {
+        if (result == null) return;
+        if (!searchBacklog.contains(result)) searchBacklog.add(result);
     }
 
     /** 页面回到前台时取走在后台攒下的结果，按到达顺序。 */

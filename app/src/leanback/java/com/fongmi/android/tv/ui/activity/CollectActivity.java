@@ -323,7 +323,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
 
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class).init();
-        mViewModel.getSearch().observe(this, this::setCollect);
+        mViewModel.getSearchTick().observe(this, tick -> drainSearch());
         mViewModel.getSearchProgress().observe(this, this::setSearchProgress);
         mViewModel.getResult().observe(this, this::setSearch);
     }
@@ -705,11 +705,19 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         return (int) (getItemWidth(count) / SEARCH_CARD_RATIO);
     }
 
+    /** 收到"有新结果"的信号就把队列里攒下的全部取走：合并多少次信号都不会漏结果。 */
+    private void drainSearch() {
+        if (mViewModel == null) return;
+        for (Result result : mViewModel.drainSearchBacklog()) setCollect(result);
+    }
+
     private void setCollect(Result result) {
         if (result == null || result.getList().isEmpty()) return;
-        mViewModel.consumeSearchResult(result);
-        // 去播放途中不刷列表，但不能把结果丢掉：ViewModel 会先攒着，回到前台再按序补。
-        if (mLeavingForPlayback) return;
+        // 去播放途中不刷列表，但结果不能丢：留在队列里，回到前台再用 drainSearch 补。
+        if (mLeavingForPlayback) {
+            mViewModel.restoreSearchResult(result);
+            return;
+        }
         mPaging.recordInitial(result.getVod().getSiteKey(), result.getPageCount(), SearchPageState.pageToken(result.getList()));
         applySearchResult(result);
     }
@@ -1108,7 +1116,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     protected void onResume() {
         super.onResume();
         mLeavingForPlayback = false;
-        if (mViewModel != null) for (Result result : mViewModel.drainSearchBacklog()) setCollect(result);
+        drainSearch();
         if (canLoadImage()) Glide.with(this).resumeRequests();
     }
 
