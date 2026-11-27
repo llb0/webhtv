@@ -10625,7 +10625,9 @@ private void setupSeekPreview() {
         // 只在全屏播放时弹预览条：详情页/半屏那层不该盖一排图。
         if (!isFullscreen()) return;
         // 网络源不抽帧：保持原来的双箭头快进/快退，不弹预览条。
-        if (!com.fongmi.android.tv.player.TrickplayStore.supports(player().getUrl())) return;
+        // 本地/SMB 照旧；网络源只有开了「在线视频缩略图」才弹预览条，按需抽游标最近的一格。
+        if (!com.fongmi.android.tv.player.TrickplayStore.supports(player().getUrl())
+                && !com.fongmi.android.tv.player.TrickplayStore.allowsOnlineFrame(player().getUrl())) return;
         // 上一排还在停留窗口里就开始新一次快进：它记的是上一段的起点，先收掉重新定位。
         if (mSeekPreview.isActive() && !mSeekPreviewSessionStarted) {
             cancelPendingSeekPreview();
