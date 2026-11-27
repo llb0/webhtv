@@ -3,3 +3,6 @@
 - 插件宿主按清单 `permissions.http` 做域名白名单，禁 IP 直连、禁非 80/443 端口，跳转逐跳校验并拦截解析到内网的域名。
 - iDuanJu 插件站点有独立开关：来源屏蔽里新增「iDuanJu 插件站点」与「iDuanJu 成人插件」，与其它项一样勾选＝屏蔽；站点项默认不屏蔽，成人项默认屏蔽，都不再跟随 sites-js 的屏蔽；`adult: true` 的插件受成人项控制、站点名带 🔞；勾上后对应站点立即消失，已安装目录保留。
 - 宿主能力按 idj1 规范提供：HTTP 请求、CSS 选择器解析、md5/sha1/sha256/sha512/HMAC/AES、base64/hex/gunzip、m3u8 解析、插件私有 KV 和设置项；`rsa`、`unpackPacker`、`cloudflare`、`login` 在 `host.has` 中返回 false，由插件自行降级。
+
+### 修复
+- 修全源搜索后点「非当前源」的搜索结果进不了详情（XBPQ / js / py 同类问题）：进详情、播放前只要来源不是当前源，就按该源的 ext 重新初始化一次环境，不再复用被别的源占住的静态实例。
