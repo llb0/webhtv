@@ -333,6 +333,8 @@ public class SiteViewModel extends ViewModel {
             List<Site> tasks = new ArrayList<>();
             for (Site site : sites) {
                 if (quick && !site.isQuickSearch()) continue;
+                // 屏蔽/隐藏的源不参与搜索：以前照样派出去，既白耗一个并发，也被算进 60/60。
+                if (SiteBlockSetting.isBlocked(site) || site.isHide()) continue;
                 tasks.add(site);
             }
             dispatchLocked(tasks, keyword, quick, 0, tasks.size(), false);

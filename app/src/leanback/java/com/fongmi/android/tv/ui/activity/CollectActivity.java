@@ -40,6 +40,7 @@ import com.fongmi.android.tv.databinding.ActivityCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.setting.SiteBlockSetting;
 import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.ui.adapter.CollectAdapter;
@@ -349,6 +350,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         List<Site> scopeSites = new ArrayList<>();
         for (Site site : VodConfig.get().getSites()) {
             if (!site.isSearchable()) continue;
+            if (SiteBlockSetting.isBlocked(site) || site.isHide()) continue;
             if (!siteKey.isEmpty() && !site.getKey().equals(siteKey)) continue;
             scopeSites.add(site);
             // 选了分组就只把该组的站发给 worker，别再全站搜一轮。

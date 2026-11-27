@@ -42,6 +42,7 @@ import com.fongmi.android.tv.databinding.FragmentCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.setting.SiteBlockSetting;
 import com.fongmi.android.tv.theme.ThemeController;
 import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.setting.SiteHealthStore;
@@ -267,6 +268,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         List<Site> scopeSites = new ArrayList<>();
         for (Site site : VodConfig.get().getSites()) {
             if (!site.isSearchable()) continue;
+            if (SiteBlockSetting.isBlocked(site) || site.isHide()) continue;
             if (!TextUtils.isEmpty(siteKey) && !site.getKey().equals(siteKey)) continue;
             scopeSites.add(site);
             // 选了分组就只把该组的站发给 worker：以前是全部站都搜一遍、再按分组把结果藏起来，
