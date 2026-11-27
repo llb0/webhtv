@@ -79,7 +79,6 @@ public class SeekPreviewStrip extends FrameLayout {
     private final Runnable settleRunner = this::onSettleTimeout;
     private final Runnable settlePoll = this::pollFramesSettled;
     private final LinearLayout container;
-    private final TextView titleView;
     private final LinearLayout rowView;
     /** 只做进度指示：不获取焦点、半透明，焦点只在缩略图排里移动。 */
     private final BarView barView;
@@ -130,18 +129,8 @@ public class SeekPreviewStrip extends FrameLayout {
 
         container = new LinearLayout(context);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.setPadding(dp(12), dp(8), dp(12), dp(10));
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(0xF2141418);
-        background.setCornerRadius(dp(12));
-        container.setBackground(background);
-
-        titleView = new TextView(context);
-        titleView.setTextColor(Color.WHITE);
-        titleView.setTextSize(14f);
-        titleView.setPadding(dp(2), 0, dp(2), dp(4));
-        container.addView(titleView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // 在线预览只要图和进度条：不要整块深色底，也不留内边距，免得盖住画面。
+        container.setPadding(0, 0, 0, 0);
 
         rowView = new LinearLayout(context);
         rowView.setOrientation(LinearLayout.HORIZONTAL);
@@ -155,8 +144,8 @@ public class SeekPreviewStrip extends FrameLayout {
         barView.setFocusable(false);
         barView.setClickable(false);
         LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(20));
-        barParams.topMargin = dp(8);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+        barParams.topMargin = dp(6);
         container.addView(barView, barParams);
 
         FrameLayout.LayoutParams containerParams = new FrameLayout.LayoutParams(
@@ -484,7 +473,7 @@ public class SeekPreviewStrip extends FrameLayout {
 
     private void render() {
         handoffUsed = false;
-        titleView.setText(String.format(Locale.getDefault(), "%s / %s", format(cursor), format(duration)));
+        barView.setTimes(cursor, duration);
         List<Long> positions = cellPositions();
         barView.setProgress(duration <= 0 ? 0f : (float) cursor / duration);
         barView.setFocused(barFocused);
@@ -812,6 +801,7 @@ public class SeekPreviewStrip extends FrameLayout {
             applyAspect(bitmap.getWidth() / (float) Math.max(1, bitmap.getHeight()));
             cell.image.setImageBitmap(bitmap);
             cell.image.setAlpha(1f);
+            cell.setHasImage(true);
             remember(bitmap);
             checkFramesSettled();
             return;
@@ -820,9 +810,11 @@ public class SeekPreviewStrip extends FrameLayout {
         if (fallback != null) {
             cell.image.setImageBitmap(fallback);
             cell.image.setAlpha(0.55f);
+            cell.setHasImage(true);
         } else {
             cell.image.setImageDrawable(null);
             cell.image.setAlpha(1f);
+            cell.setHasImage(false);
         }
     }
 
@@ -878,6 +870,7 @@ public class SeekPreviewStrip extends FrameLayout {
 
     private static final class Cell {
         final FrameLayout root;
+        final GradientDrawable bg;
         final ImageView image;
         final TextView label;
         final View focusRing;
@@ -889,10 +882,11 @@ public class SeekPreviewStrip extends FrameLayout {
 
         Cell(Context context) {
             root = new FrameLayout(context);
-            GradientDrawable background = new GradientDrawable();
-            background.setColor(0xFF1C1C22);
-            background.setCornerRadius(ResUtil.dp2px(8));
-            root.setBackground(background);
+            bg = new GradientDrawable();
+            bg.setColor(0xFF1C1C22);
+            bg.setCornerRadius(ResUtil.dp2px(8));
+            // 空格子不给底色：只有真正贴上帧才显示卡片底，免得一排黑块糊在画面上。
+            root.setBackground(null);
             root.setFocusable(false);
             root.setClickable(true);
             root.setPadding(ResUtil.dp2px(1), ResUtil.dp2px(1), ResUtil.dp2px(1), ResUtil.dp2px(1));
@@ -930,6 +924,12 @@ public class SeekPreviewStrip extends FrameLayout {
             filled = false;
             image.setImageDrawable(null);
             image.setAlpha(1f);
+            setHasImage(false);
+        }
+
+        /** 有图才给卡片底；空着就全透明，只留时间文字，不挡视频。 */
+        void setHasImage(boolean has) {
+            root.setBackground(has ? bg : null);
         }
 
         void setFocused(boolean focused) {
@@ -953,6 +953,8 @@ public class SeekPreviewStrip extends FrameLayout {
         private float progress;
         private float[] ticks;
         private boolean focused;
+        private long cursorMs;
+        private long durationMs;
 
         BarView(Context context) {
             super(context);
@@ -970,12 +972,26 @@ public class SeekPreviewStrip extends FrameLayout {
             this.focused = focused;
         }
 
+        /** 当前进度时长都摆在进度条这一行上：左边当前、右边总时长，不要单独一行标题。 */
+        void setTimes(long cursorMs, long durationMs) {
+            this.cursorMs = cursorMs;
+            this.durationMs = durationMs;
+            invalidate();
+        }
+
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             int height = getHeight();
             float trackHeight = dp(3);
-            float top = height / 2f - trackHeight / 2f;
+            float top = height - dp(10);
+            paint.setTextSize(dp(13));
+            paint.setColor(0xFFFFFFFF);
+            paint.setTextAlign(Paint.Align.LEFT);
+            canvas.drawText(format(cursorMs), dp(6), top - dp(7), paint);
+            paint.setTextAlign(Paint.Align.RIGHT);
+            canvas.drawText(format(durationMs), getWidth() - dp(6), top - dp(7), paint);
+            paint.setTextAlign(Paint.Align.LEFT);
             paint.setColor(0xFF3A3A44);
             rect.set(dp(6), top, getWidth() - dp(6), top + trackHeight);
             canvas.drawRoundRect(rect, trackHeight / 2f, trackHeight / 2f, paint);
@@ -996,10 +1012,10 @@ public class SeekPreviewStrip extends FrameLayout {
             if (focused) {
                 // 焦点在游标上时给一圈亮环，免得看不出焦点在哪。
                 paint.setColor(0xFFFFD9A0);
-                canvas.drawCircle(x, height / 2f, dp(8), paint);
+                canvas.drawCircle(x, top + trackHeight / 2f, dp(8), paint);
             }
             paint.setColor(0xFFFF7A2F);
-            canvas.drawCircle(x, height / 2f, dp(5), paint);
+            canvas.drawCircle(x, top + trackHeight / 2f, dp(5), paint);
         }
     }
 }
