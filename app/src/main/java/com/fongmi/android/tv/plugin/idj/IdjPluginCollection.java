@@ -9,6 +9,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.io.File;
+import org.json.JSONObject;
+
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 
@@ -47,6 +49,7 @@ public final class IdjPluginCollection {
         public int added;
         public int updated;
         public int unchanged;
+        public int skipped;
         public int failed;
     }
 
@@ -82,6 +85,12 @@ public final class IdjPluginCollection {
             }
             File target = new File(dir, fileName);
             boolean exists = target.exists();
+            // 另一个合集接口可能给出同一个 id 的旧版本：版本更低就整包跳过，
+            // 连包都不落盘（否则 sync() 见到版本差异会把旧包装回去，等于降级）。
+            if (isOlderThanLocal(dir, target, body)) {
+                result.skipped++;
+                continue;
+            }
             // 远端没变就别动：既不覆盖包，也不触发重装，用户的 settings/storage 原样保留
             if (exists && body.equals(readText(target))) {
                 result.unchanged++;
@@ -100,6 +109,62 @@ public final class IdjPluginCollection {
         IdjPluginStore.sync();
         if (progress != null) progress.onProgress("安装插件", total, total);
         return result;
+    }
+
+    /**
+     * 远端包是否比本地已装的版本更低。本地以 &lt;id&gt;/manifest.json 的版本为准，
+     * 还没装过时才看同名包里的版本；任一侧版本取不到就不判，交给内容比对决定。
+     */
+    private static boolean isOlderThanLocal(File dir, File target, String body) {
+        try {
+            JSONObject manifest = new JSONObject(body).optJSONObject("manifest");
+            if (manifest == null) return false;
+            String remote = manifest.optString("version").trim();
+            String id = manifest.optString("id").trim();
+            if (TextUtils.isEmpty(remote) || TextUtils.isEmpty(id)) return false;
+            String local = versionOf(new File(new File(dir, id), "manifest.json"));
+            if (TextUtils.isEmpty(local)) local = versionOf(target);
+            if (TextUtils.isEmpty(local)) return false;
+            return compareVersion(remote, local) < 0;
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    private static String versionOf(File file) {
+        try {
+            if (!file.exists()) return "";
+            JSONObject root = new JSONObject(readText(file));
+            JSONObject manifest = root.optJSONObject("manifest");
+            return manifest == null ? "" : manifest.optString("version").trim();
+        } catch (Throwable e) {
+            return "";
+        }
+    }
+
+    /** 按数字段逐段比较版本号，返回负数表示 a &lt; b；任一侧没有数字段则视为相同。 */
+    private static int compareVersion(String a, String b) {
+        String[] left = a.split("[^0-9]+");
+        String[] right = b.split("[^0-9]+");
+        int len = Math.max(left.length, right.length);
+        for (int i = 0; i < len; i++) {
+            String l = i < left.length ? left[i] : "";
+            String r = i < right.length ? right[i] : "";
+            long lv = number(l);
+            long rv = number(r);
+            if (lv < 0 || rv < 0) continue;
+            if (lv != rv) return lv < rv ? -1 : 1;
+        }
+        return 0;
+    }
+
+    private static long number(String value) {
+        if (TextUtils.isEmpty(value) || value.length() > 18) return -1;
+        try {
+            return Long.parseLong(value);
+        } catch (Throwable e) {
+            return -1;
+        }
     }
 
     private static String readText(File file) {
