@@ -254,10 +254,12 @@ public class JarLoader {
                 }
                 Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
                 spider.siteKey = key;
-                // 一次 init 会改写该 jar 内部的共享状态。环境独占靠调度实现：进详情之前搜索已经
-                // 真的停掉，详情到起播这段没有别的源在跑，所以这里不排队、不等待，直接 init。
+                // 一次 init 会改写该 jar 内部的共享状态。这里不排队也不等谁：正常并发 init。
+                // 只是进详情前会等"正在写的 init"落完（SiteContext.awaitQuiescent），免得详情刚
+                // 重建好的环境又被一个还没返回的 init 覆盖。
                 // 唯一不进的条件是任务已被取消（线程被中断）：被打断的派发不该再写一遍环境。
-                if (Thread.currentThread().isInterrupted()) {
+                boolean envFree = SiteContext.enterInit(key);
+                if (!envFree || Thread.currentThread().isInterrupted()) {
                     SpiderDebug.log("jar-loader", "spider init skipped site=%s api=%s jar=%s interrupted=true", key, api, jaKey);
                     return new SpiderNull();
                 }

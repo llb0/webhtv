@@ -9,6 +9,7 @@ import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 站源环境（jar 内共享状态）的归属管理。
@@ -41,6 +42,18 @@ public final class SiteContext {
      * 它从台账里划掉（见 {@link #initOwner}、{@link #exitInit}），跑成功一次真实请求再重新记上。
      */
     private static final Set<String> WARM = ConcurrentHashMap.newKeySet();
+    /**
+     * 正在执行 init 的线程数。
+     *
+     * <p>不是锁、不让谁排队：只表示"现在有别的源正在写共享环境"。{@link #haltSearch} 只能中断
+     * 搜索任务，中断不了已经进到 jar 里的 init（日志里见过 4.2s 才返回的 init 在停搜之后才落地）。
+     * 进详情要等这些写操作落完，否则详情刚重建好的环境会再被它们覆盖一次——这是本轮 3Qpc 详情
+     * 仍然 45x 的直接原因。
+     */
+    private static final AtomicInteger INITS = new AtomicInteger();
+
+    /** 最近一次全源搜索的关键词：进详情时若需要"跑一次本源请求"把变量链走完，用的就是它。 */
+    private static volatile String lastKeyword = "";
 
     private SiteContext() {
     }
@@ -53,6 +66,16 @@ public final class SiteContext {
     /** 该源跑成功过一次真实请求：环境里它的变量已经就绪。 */
     public static void markWarm(Site site) {
         if (site != null && !TextUtils.isEmpty(site.getKey())) WARM.add(site.getKey());
+    }
+
+    /** 搜索派发时记下关键词，供冷源进详情时重放一次本源请求。 */
+    public static void markKeyword(String keyword) {
+        if (!TextUtils.isEmpty(keyword)) lastKeyword = keyword;
+    }
+
+    /** 最近一次搜索关键词，没有搜索过时为空。 */
+    public static String lastKeyword() {
+        return lastKeyword;
     }
 
     /** 首页/分类取数据时记录"当前源"，只用于日志。 */
@@ -94,11 +117,40 @@ public final class SiteContext {
         initOwner(site, spider);
     }
 
+    /** init 即将开始：登记一次"正在写环境"。 */
+    public static boolean enterInit(String siteKey) {
+        INITS.incrementAndGet();
+        return true;
+    }
+
     /** init 结束：共享环境现在归这个源所有，它之前算出来的变量随之作废。 */
     public static void exitInit(String siteKey) {
         if (!TextUtils.isEmpty(siteKey)) {
             owner = siteKey;
             WARM.remove(siteKey);
         }
+        INITS.decrementAndGet();
+    }
+
+    /**
+     * 等到没有别的线程在写共享环境，最多等 {@code timeoutMs}。
+     *
+     * <p>进详情前用：搜索已经停了，但在跑的 init 可能还在里面，环境随时会被它最后写一次。
+     * 等完再重建本源环境，这份环境才不会又被覆盖。超时也照常往下走——详情不能无限等。
+     */
+    public static void awaitQuiescent(long timeoutMs) {
+        long start = System.currentTimeMillis();
+        while (INITS.get() > 0 && System.currentTimeMillis() - start < timeoutMs) {
+            try {
+                Thread.sleep(10L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        int remaining = INITS.get();
+        long cost = System.currentTimeMillis() - start;
+        if (remaining > 0) SpiderDebug.log("site-context", "await timeout remaining=%d cost=%dms", remaining, cost);
+        else if (cost >= 10) SpiderDebug.log("site-context", "await ok cost=%dms", cost);
     }
 }

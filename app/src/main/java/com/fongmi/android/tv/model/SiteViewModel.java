@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.api.SiteApi;
+import com.fongmi.android.tv.api.loader.SiteContext;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
@@ -365,6 +366,7 @@ public class SiteViewModel extends ViewModel {
 
     /** 派发一代搜索：每个源一个任务，全部并发提交，不因环境独占而延后或减少。 */
     private void dispatchLocked(List<Site> tasks, String keyword, boolean quick) {
+        SiteContext.markKeyword(keyword);
         int epoch = stopSearchLocked();
         searchKeyword = keyword;
         searchQuick = quick;

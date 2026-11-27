@@ -54,6 +54,10 @@ import okhttp3.Response;
 public class SiteApi {
 
     public static final String PUSH = "push_agent";
+    /** 冷源变量链（抓站点 JS → 截取 → 写回规则）的落地窗口，见 {@link #reheatBySearch}。 */
+    private static final long PREHEAT_SETTLE_MS = 150L;
+    /** 进详情前等在跑的 init 落完的上限，见 {@link SiteContext#awaitQuiescent}。 */
+    private static final long DETAIL_QUIET_TIMEOUT_MS = 900L;
 
     public static String call(@NonNull Site site, @NonNull ArrayMap<String, String> params) throws IOException {
         if (!site.getExt().isEmpty()) params.put("extend", site.getExt());
@@ -170,9 +174,10 @@ public class SiteApi {
      * 先 init 一次，规则随之重建、写入的变量一起没了。详情是这条链上的**第一个**请求，规则
      * 来不及重算就把字面 {@code {{sign}}} 发出去，站点直接回 45x（见 3Qpc 的 458/457）。
      *
-     * <p>预热就是按该源自己的规则跑一次只读的首页：请求头和 URL 会把"变量预加载"整条链走完，
-     * 变量重新写回规则，详情随后用的就是算好的值——等于把"从分类进详情"那条天然路径搬过来。
-     * 从分类/首页/搜索进详情时台账已经是热的，这里不会多发一次请求。
+     * <p>预热先按该源自己的规则跑一次只读的首页，让它的规则链走一遍。但首页不一定够：有的源
+     * {@code homeContent} 走"分类数据直出"提前返回（日志里 3Qpc 的 {@code preheat ok,size=683} 就是
+     * 这一种），"变量预加载"没被执行，变量仍是空的。所以详情拿不到内容时还会再来一次
+     * {@link #reheatBySearch}——那一次走的搜索路径一定执行变量链。
      *
      * <p>失败不阻断详情：预热只为把变量算出来，站点不给首页就当冷启动照旧发详情，由它自己报错。
      */
@@ -181,11 +186,52 @@ public class SiteApi {
         long start = System.currentTimeMillis();
         try {
             String home = spider.homeContent(true);
-            SiteContext.markWarm(site);
-            SpiderDebug.log("preheat", "site=%s,ok,cost=%dms,size=%d", site.getKey(), System.currentTimeMillis() - start, home == null ? 0 : home.length());
+            SpiderDebug.log("preheat", "site=%s,mode=home,ok,cost=%dms,size=%d" , site.getKey(), System.currentTimeMillis() - start, home == null ? 0 : home.length());
         } catch (Throwable e) {
-            SpiderDebug.log("preheat", "site=%s,error=%s,cost=%dms", site.getKey(), e, System.currentTimeMillis() - start);
+            SpiderDebug.log("preheat", "site=%s,mode=home,error=%s,cost=%dms", site.getKey(), e, System.currentTimeMillis() - start);
         }
+    }
+
+    /**
+     * 冷源第一次详情拿不到内容时的第二次尝试：用本源自己的一次搜索把"变量链"真正走完。
+     *
+     * <p>首页预热不一定够：有的源 {@code homeContent} 走的是"分类数据直出"分支（提前返回），
+     * 规则里"变量预加载"那条链没被执行，请求头里的 {@code {{sign}}} 仍是字面占位符，详情照样 45x。
+     * 而搜索路径一定会执行它（日志里同一源搜索时能看到 {@code 源码工具结果} → {@code 写入-sign}
+     * → {@code 获取到变量 sign} 完整一段）。所以这里按最近一次搜索的关键词，对本源重放一次搜索。
+     *
+     * <p>变量是 jar 自己另起线程抓站点 JS、截取、写回规则字段算出来的，抓完到写回是毫秒级（同一
+     * 环境实测 27ms），所以搜索返回后再给一个 {@link #PREHEAT_SETTLE_MS} 的落地窗口，让重试的详情
+     * 拿到算好的值。没有关键词（用户没搜索过）时只等窗口，不额外发请求。
+     */
+    private static boolean reheatBySearch(@NonNull Site site, @NonNull Spider spider) {
+        String keyword = SiteContext.lastKeyword();
+        long start = System.currentTimeMillis();
+        try {
+            if (TextUtils.isEmpty(keyword)) {
+                SpiderDebug.log("preheat", "site=%s,mode=none,cost=%dms", site.getKey(), System.currentTimeMillis() - start);
+            } else {
+                spider.searchContent(keyword, true);
+                SpiderDebug.log("preheat", "site=%s,mode=search,keyword=%s,cost=%dms", site.getKey(), keyword, System.currentTimeMillis() - start);
+            }
+        } catch (Throwable e) {
+            SpiderDebug.log("preheat", "site=%s,mode=search,error=%s,cost=%dms", site.getKey(), e, System.currentTimeMillis() - start);
+        }
+        try {
+            Thread.sleep(PREHEAT_SETTLE_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return true;
+    }
+
+    /** spider 详情返回体 → Result，顺带打日志（凭证字段先行剥离，避免落日志）。 */
+    @NonNull
+    private static Result parseSpiderDetail(String detailContent) {
+        TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
+        SpiderDebug.log("detail", ingress.getSanitizedJson());
+        return Result.fromJson(ingress.getSanitizedJson());
     }
 
     @NonNull
@@ -219,16 +265,27 @@ public class SiteApi {
         // 那是个副作用，缓存会吞掉它，见 cacheDetail 的说明。
         long beforeSpider = System.currentTimeMillis();
         if (isSpider(site)) {
-            // 环境独占不靠锁，靠调度：进详情之前搜索已经真的停了（见 SiteViewModel.pauseSearch），
+            // 环境独占不靠锁，靠调度：进详情之前搜索已经真的停了（见 SiteViewModel.haltSearch），
             // 这段没有别的源在跑，环境只属于本源。这里只确认归属，不是本源就按它的 ext 重建一次。
+            // 搜索已经停了，但在跑的 init 可能还在写环境（中断不了它）。等它们落完再重建本源环境，
+            // 否则详情刚建好的环境会被它最后写一次覆盖，变量又没了。
+            SiteContext.awaitQuiescent(DETAIL_QUIET_TIMEOUT_MS);
             Spider detailSpider = site.recent().spider();
             SiteContext.initOwner(site, detailSpider);
+            boolean cold = !SiteContext.isWarm(site);
             preheatIfCold(site, detailSpider);
             String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
-            SiteContext.markWarm(site);
-            TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
-            SpiderDebug.log("detail", ingress.getSanitizedJson());
-            result = Result.fromJson(ingress.getSanitizedJson());
+            result = parseSpiderDetail(detailContent);
+            if (cold && result.getList().isEmpty()) {
+                // 冷源第一次拿不到内容：变量链多半还没走完，详情带着字面 {{sign}} 被站方回 45x。
+                // 用本源的一次搜索把链路走完，再要一次详情；成功与否都以第二次为准。
+                SpiderDebug.log("detail", "cold retry key=%s,id=%s", key, id);
+                if (reheatBySearch(site, detailSpider)) {
+                    detailContent = detailSpider.detailContent(Arrays.asList(requestId));
+                    result = parseSpiderDetail(detailContent);
+                }
+            }
+            if (!result.getList().isEmpty()) SiteContext.markWarm(site);
         } else {
             ArrayMap<String, String> params = new ArrayMap<>();
             params.put("ac", ac(site.getType()));
