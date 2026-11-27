@@ -550,6 +550,16 @@ public class SiteApi {
     }
 
     @NonNull
+    /**
+     * 搜索前的必要前置：把该源的 spider 建好并按它自己的 ext 初始化。
+     *
+     * <p>这一步会为环境排队，属于"必不可少的逻辑"；搜索任务的时间预算从它完成之后才开始算，
+     * 所以排队多久都不算超时，只有初始化本身失败才会被结算成这个源没结果。
+     */
+    public static void prepareSpider(@NonNull Site site) {
+        if (isSpider(site)) site.recent().spider();
+    }
+
     public static Result searchContent(@NonNull Site site, @NonNull String keyword, boolean quick, @NonNull String page) throws Exception {
         SpiderDebug.log("search", "site=%s,keyword=%s,quick=%s,page=%s", site.getName(), keyword, quick, page);
         boolean hasPage = !page.equals("1");

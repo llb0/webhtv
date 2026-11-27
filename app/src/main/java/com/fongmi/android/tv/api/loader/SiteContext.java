@@ -39,10 +39,11 @@ public final class SiteContext {
 
     private static final long HOLD_TIMEOUT_MS = 120_000L;
     private static final Semaphore ENV = new Semaphore(1, true);
+    /** [0]=init 嵌套层数，[1]=1 表示本线程确实持有信号量（详情占用线程的 init 是复用的，不持有）。 */
     private static final ThreadLocal<int[]> INIT_STATE = new ThreadLocal<int[]>() {
         @Override
         protected int[] initialValue() {
-            return new int[]{0};
+            return new int[]{0, 0};
         }
     };
 
@@ -123,12 +124,17 @@ public final class SiteContext {
     /**
      * JarLoader 建 spider 时的 init。
      *
-     * <p>只有"进详情→起播"这段是独占的：这时别的线程要 init 直接放弃（{@code skip}），
-     * 既不排队、也不无锁硬跑，因为排队会把搜索任务自己的超时预算吃光，硬跑会把详情
-     * 正在用的静态环境冲掉。
+     * <p>init 是搜索的必要步骤（每个源搜索前都要按自己的 ext 初始化），不能跳过。分两种情况：
+     * <ul>
+     *   <li>**没有详情独占**（纯搜索、首页/分类、换源）：不拿锁、不排队，各源照旧并发 init。</li>
+     *   <li>**进详情→起播这段独占期间**：搜索的 init 必须等，不能改写详情正在用的环境——
+     *       这里排队等待，不设时限，也不计入搜索任务的 30s 超时（计时在排队结束后才开始，
+     *       见 SiteViewModel.submitTimed）。唯一提前放弃的途径是任务被取消、线程被中断。</li>
+     * </ul>
      *
-     * <p>没有独占时（纯搜索、首页/分类刷新、换源）**不上锁、不等、直接 init**：
-     * 多源并发 init 之间互相覆盖是原有行为，跟影图一样谁先谁后不影响搜索。
+     * <h3>详情占用线程自己</h3>
+     * 进详情的线程已经持有信号量（beginRequest），它自己的 init 直接放行、不再抢锁，
+     * 也不在退出时重复释放。
      */
     public static boolean enterInit(String siteKey) {
         int[] state = INIT_STATE.get();
@@ -136,21 +142,40 @@ public final class SiteContext {
             state[0]++;
             return true;
         }
-        if (held && HOLD_GEN.get()[0] != holdGen) {
-            // 详情/播放正占着，而这条线程不是占用方：这次 init 直接跳过。
-            SpiderDebug.log("site-context", "init skip, env held site=%s", siteKey);
+        if (held && HOLD_GEN.get()[0] == holdGen) {
+            // 本线程就是当前独占者：环境已经归它，直接 init。
+            state[0] = 1;
+            state[1] = 0;
+            return true;
+        }
+        if (!held) {
+            // 没有独占：不上锁，各源并发 init（跟影图一样，搜索不依赖静态环境谁先谁后）。
+            state[0] = 1;
+            state[1] = 0;
+            return true;
+        }
+        // 详情/播放占着：排队等它放手（不计时），排到了再按自己的 ext 初始化。
+        int result = acquireUnlimited();
+        if (result <= 0) {
+            SpiderDebug.log("site-context", "init canceled while waiting site=%s", siteKey);
             return false;
         }
         state[0] = 1;
+        state[1] = 1;
         return true;
     }
 
-    /** init 结束：静态环境现在归这个源所有。 */
+    /** init 结束：静态环境现在归这个源所有；真持过信号量的才释放。 */
     public static void exitInit(String siteKey) {
         int[] state = INIT_STATE.get();
-        if (state[0] > 0) state[0]--;
+        if (state[0] > 0) {
+            state[0]--;
+            if (state[0] == 0) {
+                if (state[1] == 1) ENV.release();
+                INIT_STATE.remove();
+            }
+        }
         if (!TextUtils.isEmpty(siteKey)) owner = siteKey;
-        if (state[0] <= 0) INIT_STATE.remove();
     }
 
     private static void releaseStale() {
@@ -162,6 +187,17 @@ public final class SiteContext {
             SpiderDebug.log("site-context", "hold expired");
         }
         releaseEnv("preempt");
+    }
+
+    /** 不设时限的排队：拿到返回 1；被中断（任务被判取消）返回 -1。 */
+    private static int acquireUnlimited() {
+        try {
+            ENV.acquire();
+            return 1;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return -1;
+        }
     }
 
     /** 1=拿到，0=超时，-1=被中断（调用方正在被取消）。 */

@@ -255,10 +255,10 @@ public class JarLoader {
                 Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
                 spider.siteKey = key;
                 // init 会写 spider 的静态环境（XBPQ 的 xbpq 单例）：只有"进详情→起播"这段需要独占，
-                // 独占期间别的源 init 直接跳过；平时（搜索/首页/分类/换源）各源照旧并发 init，不排队。
+                // 独占期间别的源 init 排队等（排队不计搜索超时），平时（搜索/首页/分类/换源）各源并发 init。
                 boolean envFree = SiteContext.enterInit(key);
-                // 没排上环境就别 init：要么搜索已被取消（线程带中断），要么环境正被详情/播放占着。
-                // 硬 init 会冲掉别人正在用的静态环境，结果整批都是脏数据。
+                // 只有任务被取消（线程被中断）才不 init：环境被占着时已经在上面排队等到了，
+                // 不会出现"排不上就硬 init 冲掉详情环境"的情况。
                 if (!envFree) {
                     SpiderDebug.log("jar-loader", "spider init skipped site=%s api=%s jar=%s interrupted=%s", key, api, jaKey, Thread.currentThread().isInterrupted());
                     return new SpiderNull();

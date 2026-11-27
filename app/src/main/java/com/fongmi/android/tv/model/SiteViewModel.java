@@ -213,6 +213,7 @@ public class SiteViewModel extends ViewModel {
         TimedCall call;
         try {
             call = submitTimed(isolatedPlayerExecutor,
+                    null,
                     () -> SiteApi.playerContentIsolated(key, flag, id, playerType),
                     Constant.TIMEOUT_VOD, new AtomicLong(0));
             future = call.future;
@@ -322,10 +323,13 @@ public class SiteViewModel extends ViewModel {
      *
      * <p>真正的计时起点写进 {@code startedAt}，调用方的 cost 日志与健康记录都用这个数。
      */
-    private static TimedCall submitTimed(ListeningExecutorService executor, Callable<Result> callable, long timeoutMs, AtomicLong startedAt) {
+    private static TimedCall submitTimed(ListeningExecutorService executor, Callable<?> prepare, Callable<Result> callable, long timeoutMs, AtomicLong startedAt) {
         AtomicReference<ListenableFuture<?>> self = new AtomicReference<>();
         AtomicBoolean timedOut = new AtomicBoolean(false);
         Callable<Result> timed = () -> {
+            // 前置阶段（建 spider、按源 ext 初始化、必要时为环境排队）先走完，它不计时：
+            // 排队和初始化是搜索的必要步骤，不该被算成这个源"搜得慢"。
+            if (prepare != null) prepare.call();
             startedAt.set(System.currentTimeMillis());
             ScheduledFuture<?> watchdog = Task.scheduler().schedule(() -> {
                 timedOut.set(true);
@@ -362,7 +366,7 @@ public class SiteViewModel extends ViewModel {
             AtomicLong startedAt = new AtomicLong(0);
             TimedCall call;
             try {
-                call = submitTimed(executor, SearchTask.create(site, keyword, quick), Constant.TIMEOUT_SEARCH, startedAt);
+                call = submitTimed(executor, () -> SiteApi.prepareSpider(site), SearchTask.create(site, keyword, quick), Constant.TIMEOUT_SEARCH, startedAt);
             } catch (RejectedExecutionException e) {
                 // 与 onCleared()/换代 的竞态：执行器已终止，这个源按"没出结果"记账即可。
                 SpiderDebug.log("search", "source rejected site=%s", site.getName());
@@ -428,7 +432,7 @@ public class SiteViewModel extends ViewModel {
         FluentFuture<Result> future;
         TimedCall call;
         try {
-            call = submitTimed(executor, callable, Constant.TIMEOUT_VOD, startedAt);
+            call = submitTimed(executor, null, callable, Constant.TIMEOUT_VOD, startedAt);
             future = call.future;
         } catch (RejectedExecutionException e) {
             // 与 onCleared() 的竞态窗口：执行器已终止，本次请求作废即可。
