@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.api.loader;
 
+import android.text.TextUtils;
+
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.Site;
 import com.github.catvod.crawler.Spider;
@@ -13,57 +15,71 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * XBPQ 系（api=csp_XBPQ）的 jar 用 {@code private static XBPQ xbpq} 保存"当前站点环境"：
- * init 时把本实例的 rule / extend / oComand / homeUrl 等写进这个静态实例（XBPQ.java:393-395、:516-523），
- * WebView 渲染桥 {@code XBPQ.tool/getRV/getBL/setBL} 也全部从这个静态实例读（XBPQ.java:11917-11932、:8192-8205）。
+ * 进入详情/播放前的环境准备（影图的逻辑）：只要来源不是当前正在浏览的源，就先按该源的 ext
+ * 重新 init 一遍 spider，环境备好再走后续请求；来源就是当前源时保持原样，不打断它的页面状态。
  *
- * 也就是说：渲染能否拿到站点的规则字段（如 {@code 调用函数-js交互} 需要的 {@code js交互}），
- * 取决于"静态实例里装的是不是当前站点的环境"。webhtv 把 jar 下所有站点的 spider 长期缓存
- * （JarLoader 按 jar+siteKey），跨源搜索又会并发 init，静态环境常常停在别的站点上；此时进详情，
- * 渲染桥查不到本站点的规则字段，脚本解析失败、渲染结果为空，详情直接报错（日志：
- * "未定义js交互字段，无法调用函数！" → "渲染工具结果--> JSON解析失败"）。
- *
- * 修法与"从历史进入金牌无法播放"同源：使用前把本站点的环境重新准备好。这里在进入详情/播放前
- * 比对静态环境是否属于本站点，不属于就补一次 init（init 只是把本站点的 rule/oComand 重新写进
- * 静态实例），环境对上后照常走原来流程。
+ * 为什么必须做：站源 spider 的"环境"不只活在这一个对象实例上。XBPQ 系（api=csp_XBPQ）在 jar 里
+ * 用 {@code private static XBPQ xbpq} 存站点环境，init 时把本实例的 rule/extend/oComand/homeUrl
+ * 写进静态实例（XBPQ.java:393-395、:516-523），WebView 渲染桥 {@code XBPQ.tool/getRV/getBL/setBL}
+ * 也全从这个静态实例读（XBPQ.java:11917-11932、:8192-8205）。webhtv 把 jar 下所有站点的 spider
+ * 长期缓存（JarLoader 按 jar+siteKey），跨源搜索又会并发 init，静态环境常常停在别的站点上；
+ * 此时进详情，渲染桥查不到本站点的规则字段（如 {@code 调用函数-js交互} 要的 {@code js交互}），
+ * 脚本解析失败、渲染结果为空，详情直接报错。js/py 同样有自己的解释器/脚本状态，跨源用前也要
+ * 按该源的 ext 重新准备。
  */
-public final class XbpqContext {
+public final class SiteContext {
 
     private static final Object ABSENT = new Object();
     private static final Map<Class<?>, Object> CONTEXTS = new ConcurrentHashMap<>();
     private static final Map<Class<?>, Object> RULES = new ConcurrentHashMap<>();
     private static final Map<Class<?>, Object> LOCKS = new ConcurrentHashMap<>();
 
-    private XbpqContext() {
+    /** 当前正在浏览（首页/分类）的源，detail/player 据此判断要不要重新初始化。 */
+    private static volatile String browsing = "";
+
+    private SiteContext() {
     }
 
-    /**
-     * 进入详情/播放之前调用：保证 jar 内的静态站点环境就是 {@code spider} 这一站的。
-     * 非 XBPQ 系（类里没有静态 {@code xbpq} 字段）直接返回，不改变原有行为。
-     */
+    /** 首页/分类取数据时记录"当前源"。 */
+    public static void markBrowse(Site site) {
+        if (site == null || TextUtils.isEmpty(site.getKey())) return;
+        browsing = site.getKey();
+    }
+
+    /** 进入详情/播放之前调用：来源不是当前源，就先把该源的环境重新备好。 */
     public static void prepare(Site site, Spider spider) {
-        if (spider == null) return;
+        if (site == null || spider == null) return;
         try {
-            Object context = context(spider.getClass());
-            if (context == null) return;
-            if (belongsTo(context, spider)) return;
-            synchronized (lock(spider.getClass())) {
-                Object now = context(spider.getClass());
-                if (now == null || belongsTo(now, spider)) return;
-                SpiderDebug.log("xbpq-context", "detail reinit site=%s static=%s", site.getKey(), identity(now));
+            if (TextUtils.equals(browsing, site.getKey()) && !foreignContext(spider)) return;
+            synchronized (LOCKS.computeIfAbsent(spider.getClass(), key -> new Object())) {
+                SpiderDebug.log("site-context", "reinit site=%s current=%s", site.getKey(), browsing);
                 spider.init(App.get(), site.getExt());
-                SpiderDebug.log("xbpq-context", "detail reinit done site=%s static=%s", site.getKey(), identity(context(spider.getClass())));
             }
+            browsing = site.getKey();
+            SpiderDebug.log("site-context", "reinit done site=%s", site.getKey());
         } catch (Throwable e) {
-            SpiderDebug.log("xbpq-context", "detail reinit error site=%s error=%s", site.getKey(), e);
+            SpiderDebug.log("site-context", "reinit error site=%s error=%s", site.getKey(), e);
         }
     }
 
-    /** 静态实例（jar 里的 {@code private static XBPQ xbpq}）；类里没有该字段时返回 null。 */
+    /**
+     * 是否是 XBPQ 系且静态环境已经不属于这一站。
+     * 非 XBPQ（类里没有静态 {@code xbpq} 字段）返回 false，走"当前源"判断。
+     */
+    private static boolean foreignContext(Spider spider) {
+        try {
+            Object context = context(spider.getClass());
+            if (context == null) return false;
+            return !belongsTo(context, spider);
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
     private static Object context(Class<?> type) throws Exception {
         Object cached = CONTEXTS.get(type);
         if (cached == null) {
-            Field field = field(type, "xbpq");
+            Field field = staticField(type, "xbpq");
             cached = field == null ? ABSENT : field;
             CONTEXTS.put(type, cached);
         }
@@ -71,7 +87,6 @@ public final class XbpqContext {
         return ((Field) cached).get(null);
     }
 
-    /** 静态环境是否已经属于这一站：比对 rule 里的站名与主页 url。 */
     private static boolean belongsTo(Object context, Spider spider) {
         String want = identity(spider);
         String got = identity(context);
@@ -104,7 +119,7 @@ public final class XbpqContext {
         }
     }
 
-    private static Field field(Class<?> type, String name) {
+    private static Field staticField(Class<?> type, String name) {
         for (Class<?> c = type; c != null; c = c.getSuperclass()) {
             for (Field field : c.getDeclaredFields()) {
                 if (!Modifier.isStatic(field.getModifiers())) continue;
@@ -136,9 +151,5 @@ public final class XbpqContext {
             }
         }
         return null;
-    }
-
-    private static Object lock(Class<?> type) {
-        return LOCKS.computeIfAbsent(type, key -> new Object());
     }
 }

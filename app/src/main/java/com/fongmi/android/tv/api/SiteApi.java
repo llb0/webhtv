@@ -9,7 +9,7 @@ import androidx.collection.ArrayMap;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
-import com.fongmi.android.tv.api.loader.XbpqContext;
+import com.fongmi.android.tv.api.loader.SiteContext;
 import com.fongmi.android.tv.bean.Class;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
@@ -86,6 +86,7 @@ public class SiteApi {
 
     @NonNull
     private static Result homeContentRaw(@NonNull Site site) throws Exception {
+        SiteContext.markBrowse(site);
         if (isSpider(site)) {
             Spider spider = site.recent().spider();
             boolean crash = Prefers.getBoolean("crash");
@@ -136,6 +137,7 @@ public class SiteApi {
     private static Result categoryContentRaw(@NonNull String key, @NonNull String tid, @NonNull String page, boolean filter, @NonNull HashMap<String, String> extend) throws Exception {
         SpiderDebug.log("category", "key=%s,tid=%s,page=%s,filter=%s,extend=%s", key, tid, page, filter, extend);
         Site site = VodConfig.get().getSite(key);
+        SiteContext.markBrowse(site);
         if (isSpider(site)) {
             String categoryContent = site.recent().spider().categoryContent(tid, page, filter, extend);
             SpiderDebug.log("category", categoryContent);
@@ -185,7 +187,7 @@ public class SiteApi {
         long beforeSpider = System.currentTimeMillis();
         if (isSpider(site)) {
             Spider detailSpider = site.recent().spider();
-            XbpqContext.prepare(site, detailSpider);
+            SiteContext.prepare(site, detailSpider);
             String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
             TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
             SpiderDebug.log("detail", ingress.getSanitizedJson());
@@ -315,7 +317,7 @@ public class SiteApi {
             String fallbackReason;
             try {
                 Spider playerSpider = site.recent().spider();
-                XbpqContext.prepare(site, playerSpider);
+                SiteContext.prepare(site, playerSpider);
                 String playerContent = playerSpider.playerContent(flag, requestId, VodConfig.get().getFlags());
                 SpiderDebug.log("player", playerContent);
                 Result result = Result.fromJson(playerContent);
