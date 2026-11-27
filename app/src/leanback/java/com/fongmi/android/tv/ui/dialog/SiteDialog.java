@@ -414,7 +414,7 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
 
     @Override
     public void onDelete(Site item) {
-        if (!item.isFile()) return;
+        if (!item.isFile() && !item.isIdjPlugin()) return;
         FragmentActivity activity = host();
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         new WebHtvAlertDialogBuilder(activity, R.style.Theme_WebHTV_Dialog)
@@ -428,6 +428,28 @@ public class SiteDialog extends BaseAlertDialog implements SiteAdapter.OnClickLi
     private void deleteFileSite(Site item) {
         FragmentActivity activity = host();
         if (activity == null) return;
+        if (item.isIdjPlugin()) {
+            if (!com.fongmi.android.tv.plugin.idj.IdjPluginStore.delete(item.getIdjPluginId())) {
+                Toast.makeText(activity, R.string.setting_site_delete_failed, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Site currentHome = VodConfig.get().getHome();
+            List<Site> siteList = VodConfig.get().getSites();
+            if (currentHome != null && currentHome.getKey().equals(item.getKey())) {
+                int delIndex = -1;
+                for (int i = 0; i < siteList.size(); i++) if (siteList.get(i).getKey().equals(item.getKey())) { delIndex = i; break; }
+                Site fallbackHome = new Site();
+                if (delIndex != -1 && siteList.size() > 1) fallbackHome = delIndex + 1 < siteList.size() ? siteList.get(delIndex + 1) : siteList.get(delIndex - 1);
+                VodConfig.get().setHome(fallbackHome);
+            }
+            if (!siteList.isEmpty()) siteList.remove(item);
+            Toast.makeText(activity, activity.getString(R.string.setting_site_delete_done, item.getName()), Toast.LENGTH_SHORT).show();
+            if (adapter != null && binding != null) {
+                adapter.removeSite(item);
+                setRecyclerHeight(adapter.getItemCount());
+            }
+            return;
+        }
         String type = item.getFileType();
         String fileName = item.getFileName();
         if (fileName.isEmpty()) return;

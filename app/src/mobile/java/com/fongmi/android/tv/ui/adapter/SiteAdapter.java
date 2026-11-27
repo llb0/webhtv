@@ -193,7 +193,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
         holder.binding.search.setVisibility(!block && search && singleColumn ? View.VISIBLE : View.GONE);
         holder.binding.change.setVisibility(!block && change && singleColumn ? View.VISIBLE : View.GONE);
         holder.binding.health.setVisibility(singleColumn ? View.VISIBLE : View.GONE);
-        holder.binding.delete.setVisibility(!block && item.isFile() && singleColumn ? View.VISIBLE : View.GONE);
+        holder.binding.delete.setVisibility(!block && (item.isFile() || item.isIdjPlugin()) && singleColumn ? View.VISIBLE : View.GONE);
         holder.binding.text.setOnClickListener(v -> listener.onTextClick(item));
         holder.binding.text.setOnLongClickListener(v -> {
             holder.binding.text.setSelected(true);

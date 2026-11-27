@@ -200,6 +200,23 @@ public final class UsageHelpDialog {
                             电视端详情页用方向键移动焦点、OK 键确认；操作按钮按横向焦点链进入，下载/换源/TMDB 的先后顺序以当前布局为准。
                             电视端没有触摸小窗；播放页用遥控器控制，返回键回详情，焦点会回到进入前的按钮。
                             """)),
+            module("iDuanJu（idj1）视频插件", "把 iDuanJu 的 .idjplugin 视频点播插件当成普通站源用；不装商店、不做漫画/直播/弹幕。",
+                    section("安装与入口", """
+                            把 xx.idjplugin 放进存储根目录的 /tvbox/idj/，重新加载点播配置；是否加载由「来源屏蔽 → iDuanJu 插件站点」控制：勾选＝屏蔽，默认不屏蔽，和 sites-js 无关。
+                            站点列表里出现“插件名 | IDJ”；同名插件版本变了会自动重装；安装失败只跳过该插件，不影响别的站点。
+                            删除：手机端点站点右侧的删除按钮，电视端长按该站点；删除会连带清掉 /tvbox/idj/<id>/ 子目录和生成它的 .idjplugin 包，下次加载不会复活。
+                            也可以直接填「插件合集」接口（形如 {name, plugins:[{manifest:"plugin-packages/x.idjplugin",...}]}）：加载接口时会按清单把插件包下载到 /tvbox/idj/ 并安装，并且每次加载都和远端比对一次包内容：远端更新过就覆盖重装（已存的插设置和插件数据不动），没更新则跳过；首页「更多 → 接口下载」对合集接口同样是下载这些插件包，不是导出站源配置。
+                            """),
+                    section("支持的插件", """
+                            只支持清单 type 为 video / shortdrama、且 capabilities 同时声明 detail 与 play 的插件。
+                            adult 为 true 的插件另由「来源屏蔽 → iDuanJu 成人插件」控制：默认屏蔽，取消勾选＝允许，安装后站点名带 🔞。
+                            插件自己的 home/category/search/detail/play 直接决定分类、搜索、详情和播放。
+                            """),
+                    section("宿主能力与限制", """
+                            宿主提供 HTTP 请求（按清单 permissions.http 做域名白名单，禁 IP 直连与非 80/443 端口）、CSS 选择器解析、md5/sha1/sha256/sha512/HMAC/AES、base64/hex/gunzip、m3u8 解析、插件私有 KV 和设置项。
+                            rsa、unpackPacker、cloudflare、login 不提供（host.has 返回 false）；streams 里的 proxy 处理不执行，只按直链播放，弹幕和图片解密也不接入。
+                            设置项可在 /tvbox/idj/<id>/settings.json 手改。
+                            """)),
             module("演员/导演超链接（站源接口规范）", "站源可以在详情里把演员、导演写成可点标记；webhtv 负责渲染，并把点击回的 id 交回站源处理。",
                     section("标记格式", """
                             标记写在详情返回的 vod_actor 或 vod_director 里，形如 [a=cr:{...}/]演员A/演员B[/a]。
@@ -484,6 +501,11 @@ public final class UsageHelpDialog {
                     section("工具列表", """
                             入口：设置 → 增强功能。包含来源屏蔽、网盘检测、站点健康排序、管理页面、远程托管、Git 云盘、Proxy、站点注入、WebHome 扩展、全局 WebHome 皮肤/全屏/CSP预热、观影记录同步、登录态学习和一键同步。
                             另有实验室、插件管理、本地小说漫画阅读、小说/漫画/音频/短剧源配置等扩展入口。
+                            """),
+                    section("来源屏蔽", """
+                            入口：设置 → 增强功能 → 来源屏蔽；弹窗标题已写明「勾选＝屏蔽」，所有项（含末尾两项 iDuanJu）同一语义，条目上不再重复标注。
+                            「iDuanJu 插件站点」「iDuanJu 成人插件」只控制 /tvbox/idj/ 下的 idjplugin 站点，与 sites-js 的屏蔽互不影响：站点项默认不屏蔽，成人项默认屏蔽；adult:true 的包受第二项控制，站点名带 🔞。
+                            摘要行会显示「已屏蔽 x / 7 · iDuanJu 插件：启用/禁用 · 成人：启用/禁用」。
                             """),
                     section("站点健康排序", """
                             健康排序会学习搜索、详情和播放成功率；默认保留用户配置顺序，可在站点弹窗中单独开启。

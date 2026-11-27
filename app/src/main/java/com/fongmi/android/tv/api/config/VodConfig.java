@@ -18,6 +18,7 @@ import com.fongmi.android.tv.bean.HlsAdRule;
 import com.fongmi.android.tv.bean.Parse;
 import com.fongmi.android.tv.bean.Rule;
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.plugin.idj.IdjPluginStore;
 import com.fongmi.android.tv.bean.TmdbConfig;
 import com.fongmi.android.tv.bean.Style;
 import com.fongmi.android.tv.event.ConfigEvent;
@@ -204,7 +205,18 @@ public class VodConfig extends BaseConfig {
             json = Decoder.getJson(url, TAG);
         }
         TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(json);
-        JsonObject object = CatSource.normalize(url, Json.parse(ingress.getSanitizedJson()));
+        JsonElement parsed = Json.parse(ingress.getSanitizedJson());
+        JsonObject raw = parsed != null && parsed.isJsonObject() ? parsed.getAsJsonObject() : new JsonObject();
+        // iDuanJu 插件合集（{name, plugins[]}）不是站源配置，但可以当接口直接加载：
+        // 先把清单里的包拉到 tvbox/idj/ 并安装，站点再按普通文件源生成。
+        if (com.fongmi.android.tv.plugin.idj.IdjPluginCollection.isCollection(raw)) {
+            com.fongmi.android.tv.plugin.idj.IdjPluginCollection.install(url, raw, null);
+            initSites(config, "", new JsonObject());
+            if (getSites().isEmpty()) throw new Exception("iDuanJu 插件合集没有可用插件");
+            return;
+        }
+        JsonObject object = CatSource.normalize(url, raw);
+
         checkJson(config, object, Json.safeString(object, "spider"));
         if (!isLoaded()) throw new Exception("VOD sites is empty");
         acceptSubscriptionCredential(ingress.getCandidateKey(), config);
@@ -761,6 +773,9 @@ public class VodConfig extends BaseConfig {
         }
         if (Setting.isSourceAllowed(Setting.SOURCE_SITES_PY)) {
             try { result.addAll(loadPySites(globalSpider)); } catch (Throwable ignored) {}
+        }
+        if (Setting.isIdjSitesEnabled()) {
+            try { result.addAll(IdjPluginStore.sites(globalSpider)); } catch (Throwable ignored) {}
         }
         if (Setting.isSourceAllowed(Setting.SOURCE_SITES_RAW)) {
             try { result.addAll(loadRawSites(globalSpider)); } catch (Throwable ignored) {}

@@ -35,6 +35,8 @@ public class ConfigDownload {
     }
 
     public static boolean shouldShow(String url) {
+        // iDuanJu 插件合集加载时已经把包下载安装到 tvbox/idj/，再给「接口下载」就是重复下载
+        if (com.fongmi.android.tv.plugin.idj.IdjPluginCollection.isKnownCollection(url)) return false;
         boolean empty = TextUtils.isEmpty(url);
         boolean startsHttp = !empty && url.toLowerCase(Locale.ROOT).startsWith("http");
         boolean local = startsHttp && (url.startsWith("http://127.0.0.1"));
@@ -78,6 +80,9 @@ public class ConfigDownload {
     public static void start(String url, Listener listener) {
         new Thread(() -> {
             try {
+                // 当前接口如果是 iDuanJu 插件合集，就按合集语义下载插件包到 tvbox/idj/，
+                // 而不是导出当前站源配置。
+                if (downloadIdjCollection(url, listener)) return;
                 String dirName = extractDirName(url);
                 String outDir = "tvbox/api/" + dirName;
                 String clanPrefix = ".";
@@ -197,6 +202,29 @@ public class ConfigDownload {
                 });
             }
         }).start();
+    }
+
+    /**
+     * iDuanJu 合集接口不参与「接口下载」：加载这条接口本身就会把包下载安装到 tvbox/idj/，
+     * 再导出一次属于重复下载，导出出来的也不是站源配置。这里只拦下并给出提示。
+     *
+     * @return true 表示这条 URL 是合集接口，已处理。
+     */
+    private static boolean downloadIdjCollection(String url, Listener listener) {
+        if (TextUtils.isEmpty(url) || !url.toLowerCase(Locale.ROOT).startsWith("http")) return false;
+        // 猫源 bundle 是脚本，不用探 JSON，省一次白拉
+        if (url.toLowerCase(Locale.ROOT).contains(".js.md5") || url.toLowerCase(Locale.ROOT).endsWith(".md5")) return false;
+        JsonObject root;
+        try {
+            root = App.gson().fromJson(OkHttp.string(url), JsonObject.class);
+        } catch (Throwable e) {
+            return false;
+        }
+        if (root == null || !com.fongmi.android.tv.plugin.idj.IdjPluginCollection.isCollection(root)) return false;
+        App.post(() -> {
+            if (listener != null) listener.onError("合集接口在加载时已自动下载安装到 tvbox/idj，无需重复下载");
+        });
+        return true;
     }
 
     private static int countTotal() {

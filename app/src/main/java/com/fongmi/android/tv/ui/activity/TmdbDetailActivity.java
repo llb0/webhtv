@@ -690,10 +690,8 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
             startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, resumeHistory);
             return;
         }
-        if (!TextUtils.isEmpty(key) && !SiteApi.PUSH.equals(key) && isShortDramaSiteEnabled(key)) {
-            startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, resumeHistory);
-            return;
-        }
+        // 短剧源曾经在这里直接走直放页（跳详情）。直放页没有详情可返回，点开就全屏、返回直接退出，
+        // 而且竖屏形态会把横屏素材也转成竖屏。现在短剧源和普通站源一样先进详情。
         if (!TextUtils.isEmpty(key) && !SiteApi.PUSH.equals(key) && !TmdbSitePolicy.isEnabled(key, id)) {
             startDirectFromHistory(activity, key, id, name, pic, mark, playFlag, playFlagKey, playEpisodeName, playEpisodeUrl, resumeHistory);
             return;
@@ -3060,8 +3058,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void fallbackToOriginalDetail(Vod loadedVod, String reason) {
         if (isFinishing() || isDestroyed()) return;
-        SpiderDebug.log("tmdb-detail-flow", "fallback direct reason=%s key=%s id=%s", reason, getKeyText(), getIdText());
-        VideoActivity.startDirectResolved(this, loadedVod);
+        SpiderDebug.log("tmdb-detail-flow", "fallback native detail reason=%s key=%s id=%s", reason, getKeyText(), getIdText());
+        // 站源没有 TMDB 数据时不能交给「直放」页：直放只播不展示详情，用户点开后直接全屏，
+        // 返回还会因为没有详情可退回而直接退出。这里回落到原生详情页，详情先上屏，播放从详情里发起。
+        VideoActivity.start(this, getKeyText(), getIdText(), loadedVod.getName(), loadedVod.getPic(),
+                loadedVod.getRemarks(), null, loadedVod.getContent());
         finish();
     }
 

@@ -173,7 +173,7 @@ public class SiteAdapter extends RecyclerView.Adapter<SiteAdapter.ViewHolder> {
     }
 
     private boolean setLongListener(Site item) {
-        if (type == 0 && item.isFile() && listener instanceof OnDeleteListener) {
+        if (type == 0 && (item.isFile() || item.isIdjPlugin()) && listener instanceof OnDeleteListener) {
             ((OnDeleteListener) listener).onDelete(item);
             return true;
         }
