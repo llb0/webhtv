@@ -361,7 +361,10 @@ public class SiteViewModel extends ViewModel {
             future.addCallback(Task.callback(
                     result -> {
                         if (searchEpoch.get() != epoch) return;
-                        SiteHealthStore.recordSearch(site, true, result.getList().size(), System.currentTimeMillis() - start, "");
+                        int items = result == null || result.getList() == null ? 0 : result.getList().size();
+                        SiteHealthStore.recordSearch(site, true, items, System.currentTimeMillis() - start, "");
+                        // 进度是"源数"不是"条目数"：把每个源出了几条也记一笔，免得 60/60 看起来像 60 条内容。
+                        SpiderDebug.log("search", "source done site=%s items=%d cost=%sms", site.getName(), items, System.currentTimeMillis() - start);
                         markSearchDone(epoch, site);
                         postSearchResult(epoch, result);
                         postSearchProgress(epoch);

@@ -296,10 +296,14 @@ public class JarLoader {
                 if (Thread.currentThread().isInterrupted()) break;
                 created = factory.get();
                 if (created != null && !(created instanceof SpiderNull)) {
+                    // 被取消的初始化不能进缓存：init 可能只写了一半的静态环境，
+                    // 缓存下来这份残废实例会给后面每一次搜索都返回空结果。
+                    if (Thread.currentThread().isInterrupted()) {
+                        SpiderDebug.log("jar-loader", "spider init completed after cancel, discard key=%s", key);
+                        return new SpiderNull();
+                    }
                     spiders.put(key, created);
-                    if (!Thread.currentThread().isInterrupted()) return created;
-                    SpiderDebug.log("jar-loader", "spider init completed after cancel key=%s", key);
-                    return new SpiderNull();
+                    return created;
                 }
                 if (Thread.currentThread().isInterrupted() || attempt == SPIDER_INIT_ATTEMPTS) break;
                 SpiderDebug.log("jar-loader", "spider init retry key=%s attempt=%s", key, attempt + 1);
