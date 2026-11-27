@@ -205,7 +205,17 @@ public class VodConfig extends BaseConfig {
             json = Decoder.getJson(url, TAG);
         }
         TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(json);
-        JsonObject object = CatSource.normalize(url, Json.parse(ingress.getSanitizedJson()));
+        JsonObject raw = Json.parse(ingress.getSanitizedJson());
+        // iDuanJu 插件合集（{name, plugins[]}）不是站源配置，但可以当接口直接加载：
+        // 先把清单里的包拉到 tvbox/idj/ 并安装，站点再按普通文件源生成。
+        if (com.fongmi.android.tv.plugin.idj.IdjPluginCollection.isCollection(raw)) {
+            com.fongmi.android.tv.plugin.idj.IdjPluginCollection.install(url, raw, null);
+            initSites(config, "", new JsonObject());
+            if (getSites().isEmpty()) throw new Exception("iDuanJu 插件合集没有可用插件");
+            return;
+        }
+        JsonObject object = CatSource.normalize(url, raw);
+
         checkJson(config, object, Json.safeString(object, "spider"));
         if (!isLoaded()) throw new Exception("VOD sites is empty");
         acceptSubscriptionCredential(ingress.getCandidateKey(), config);
