@@ -94,7 +94,6 @@ public class SettingEnhanceActivity extends BaseActivity {
         mBinding.audioSource.setOnClickListener(this::setAudioSource);
         mBinding.shortDramaSource.setOnClickListener(this::setShortDramaSource);
         mBinding.debugLog.setOnClickListener(this::setDebugLog);
-        mBinding.onlineFrame.setOnClickListener(this::setOnlineFrame);
         mBinding.fileSites.setOnClickListener(view -> SourceBlockDialog.show(this, this::setText));
         mBinding.siteHealthSort.setOnClickListener(view -> SiteHealthDialog.show(this, this::setText));
         mBinding.siteHealthSort.setOnLongClickListener(this::clearSiteHealth);
@@ -145,7 +144,6 @@ public class SettingEnhanceActivity extends BaseActivity {
                 mBinding.siteHealthSort,
                 mBinding.debugLog,
                 mBinding.fileSites,
-                mBinding.onlineFrame,
                 mBinding.playbackWebhook,
                 mBinding.pluginManager
         };
@@ -173,7 +171,6 @@ public class SettingEnhanceActivity extends BaseActivity {
                 {mBinding.siteHealthSort.getId()},
                 {mBinding.debugLog.getId()},
                 {mBinding.fileSites.getId()},
-                {mBinding.onlineFrame.getId()},
                 {mBinding.playbackWebhook.getId()},
                 {mBinding.pluginManager.getId()}
         };
@@ -186,7 +183,6 @@ public class SettingEnhanceActivity extends BaseActivity {
         safeSet("audioSource", mBinding.audioSourceText, () -> getSwitch(!AudioConfig.objectFrom(Setting.getAudioConfig()).getDisplayRules().isEmpty()));
         safeSet("shortDramaSource", mBinding.shortDramaSourceText, () -> getSwitch(!ShortDramaConfig.objectFrom(Setting.getShortDramaConfig()).getDisplayRules().isEmpty()));
         safeSet("debugLog", mBinding.debugLogText, () -> getSwitch(Setting.isDebugLog()));
-        safeSet("onlineFrame", mBinding.onlineFrameText, () -> getSwitch(Setting.isOnlineFrameEnabled()));
         safeSet("fileSites", mBinding.fileSitesText, () -> getString(R.string.setting_source_block_count, Setting.getSourceBlockedCount(), Setting.SOURCE_ALL.length) + " · " + getString(R.string.setting_idj_sites_state, getSwitch(Setting.isIdjSitesEnabled()), getSwitch(Setting.isIdjAdultAllowed())));
         safeSet("siteHealthSort", mBinding.siteHealthSortText, this::getSiteHealthText);
         safeSet("webHomeExtension", mBinding.webHomeExtensionText, () -> {
@@ -305,11 +301,6 @@ public class SettingEnhanceActivity extends BaseActivity {
     private void setDriveCheck(View view) {
         Setting.putDriveCheck(!Setting.isDriveCheck());
         setSummary(mBinding.driveCheckText, getSwitch(Setting.isDriveCheck()));
-    }
-
-    private void setOnlineFrame(View view) {
-        Setting.putOnlineFrameEnabled(!Setting.isOnlineFrameEnabled());
-        setSummary(mBinding.onlineFrameText, getSwitch(Setting.isOnlineFrameEnabled()));
     }
 
     private void setDebugLog(View view) {

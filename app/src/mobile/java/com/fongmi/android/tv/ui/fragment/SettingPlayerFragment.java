@@ -94,6 +94,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
         mBinding.deferFlagSwitchText.setText(getSwitch(PlayerSetting.isDeferFlagSwitchPlayback()));
         mBinding.liveSourceFallbackText.setText(getSwitch(LiveSetting.isSourceFallback()));
         mBinding.rememberBrightnessText.setText(getSwitch(PlayerSetting.isRememberBrightness()));
+        mBinding.onlineFrameText.setText(getSwitch(Setting.isOnlineFrameEnabled()));
         mBinding.failureFallbackText.setText((failureFallback = ResUtil.getStringArray(R.array.select_player_failure_fallback))[PlayerSetting.getFailureFallback()]);
         mBinding.musicNotificationText.setText(getSwitch(PlayerSetting.isMusicNotification()));
         mBinding.audioBookNotificationText.setText(getSwitch(PlayerSetting.isAudioBookNotification()));
@@ -151,6 +152,7 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
             mBinding.liveSourceFallbackText.setText(getSwitch(LiveSetting.isSourceFallback()));
         });
         mBinding.rememberBrightness.setOnClickListener(this::setRememberBrightness);
+        mBinding.onlineFrame.setOnClickListener(this::setOnlineFrame);
         mBinding.failureFallback.setOnClickListener(this::setFailureFallback);
         mBinding.render.setOnClickListener(this::setRender);
         mBinding.tunnel.setOnClickListener(this::setTunnel);
@@ -464,6 +466,12 @@ public class SettingPlayerFragment extends BaseFragment implements UaListener, B
     private void setRememberBrightness(View view) {
         PlayerSetting.putRememberBrightness(!PlayerSetting.isRememberBrightness());
         mBinding.rememberBrightnessText.setText(getSwitch(PlayerSetting.isRememberBrightness()));
+    }
+
+    /** 网络源快拖时按需抽游标最近一格的缩略图，限频限量，失败即停。 */
+    private void setOnlineFrame(View view) {
+        Setting.putOnlineFrameEnabled(!Setting.isOnlineFrameEnabled());
+        mBinding.onlineFrameText.setText(getSwitch(Setting.isOnlineFrameEnabled()));
     }
 
     private void setFailureFallback(View view) {
