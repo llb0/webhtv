@@ -1119,8 +1119,8 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
 
     @Override
     protected void onStop() {
-        // 搜索页退到后台就停掉搜索，别让它在后台自己跑完。
-        if (mViewModel != null) mViewModel.stopSearch();
+        // 搜索页退到后台先停掉在跑的搜索，不留后台任务；紧跟着进详情则放开独占后接着搜。
+        if (mViewModel != null) mViewModel.pauseSearch();
         super.onStop();
     }
 
