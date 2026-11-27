@@ -761,7 +761,7 @@ public final class TrickplayStore {
             executeWindow(window);
         } finally {
             int missing = 0;
-            for (Long position : positions) {
+            for (Long position : window.positions) {
                 File file = frameFile(window.context, window.key, frameIndex(position));
                 if (!file.isFile() || file.length() == 0) missing++;
             }
@@ -805,7 +805,7 @@ public final class TrickplayStore {
             }
             // 逐格定位：本地/SMB 都能随机读，一次 seek 只解一两帧就拿到图；
             // 顺序推进一旦碰上损坏包或慢盘，会把整条窗口卡死（之前就是这样整排空图）。
-            for (Long position : window.positions) {
+            for (Long position : positions) {
                 if (!RUNNING.contains(window.key) || window.stale) break;
                 // 补帧途中播放又卡住了：等一会儿再继续，但**不整窗放弃**——
                 // 以前这里一 break，后面的格子就永远是空白（用户看到的就是后几张老不出图）。
