@@ -389,7 +389,8 @@ public final class TrickplayStore {
     }
 
     /** 网络源（HLS/直链）；本地文件和本地服务代理都不算。 */
-    private static boolean isNetworkSource(String media) {
+    /** 在线源（公网直链）判定：抽帧要按「可能被源站风控」对待，不能像本地盘那样随便开连接。 */
+    public static boolean isNetworkSource(String media) {
         if (media == null) return false;
         String source = resolveSource(media);
         if (!source.equals(media)) return false; // 本地服务 URL 已还原成本地路径
@@ -402,6 +403,11 @@ public final class TrickplayStore {
     }
 
     /** 在线视频是否允许按需抽单帧：网络源 + 「在线视频缩略图」开关打开。 */
+    /** 在线单帧模式：公网源且用户开了「在线视频快进预览」。 */
+    public static boolean isOnlineSingle(String media) {
+        return isNetworkSource(media) && allowsOnlineFrame(media);
+    }
+
     public static boolean allowsOnlineFrame(String media) {
         return media != null && !TextUtils.isEmpty(media) && isNetworkSource(media) && Setting.isOnlineFrameEnabled();
     }

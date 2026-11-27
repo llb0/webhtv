@@ -46,8 +46,10 @@ import java.util.Map;
  */
 public class SeekPreviewStrip extends FrameLayout {
 
-    /** 固定 8 格，格宽按可用宽度等分（16:9 比例），整排铺满，不自动算格数。 */
+    /** 本地/SMB：一排 8 格；在线源按需抽单帧，只放一格大图。 */
     private static final int CELL_COUNT = 8;
+    /** 在线单帧那一格的高度上限：比 8 格里的单格大得多，看得出画面。 */
+    private static final int SINGLE_CELL_HEIGHT_DP = 150;
     /** 快退/快进两种排法，当前帧固定在最边上那一格。 */
     private static final int DIR_FORWARD = 1;
     private static final int DIR_REWIND = -1;
@@ -83,7 +85,9 @@ public class SeekPreviewStrip extends FrameLayout {
     private final BarView barView;
     private final List<Cell> cells = new ArrayList<>();
     private final List<Bitmap> recentFrames = new ArrayList<>();
-    private final int cellCount;
+    private int cellCount = CELL_COUNT;
+    /** 在线源单帧模式：只有一格，位置就是游标本身，不再按片长摊 8 个位置。 */
+    private boolean singleMode;
     private int cellWidth;
     private int cellHeight;
     private float aspect = 16f / 9f;
@@ -121,10 +125,7 @@ public class SeekPreviewStrip extends FrameLayout {
         setClipChildren(false);
 
         int usable = usableWidth();
-        int gap = dp(CELL_GAP_DP);
-        cellCount = CELL_COUNT;
-        // 严格等分：多出来的像素按格均匀分掉，避免右侧留白或某格被拉伸。
-        cellWidth = Math.max(1, (usable - gap * (cellCount - 1)) / cellCount);
+        cellWidth = Math.max(1, usable / CELL_COUNT);
         cellHeight = Math.max(1, Math.round(cellWidth * 9f / 16f));
 
         container = new LinearLayout(context);
@@ -147,16 +148,7 @@ public class SeekPreviewStrip extends FrameLayout {
         container.addView(rowView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        for (int i = 0; i < cellCount; i++) {
-            Cell cell = new Cell(context);
-            final int index = i;
-            cell.root.setOnClickListener(view -> onCellClicked(index));
-            cells.add(cell);
-            // 宽度给权重，由父容器实际宽度均分，手机横屏不会再按竖屏宽度算窄。
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, cellHeight, 1f);
-            if (i > 0) params.leftMargin = gap;
-            rowView.addView(cell.root, params);
-        }
+        rebuildCells(CELL_COUNT);
 
         barView = new BarView(context);
         barView.setAlpha(0.45f);
@@ -182,13 +174,25 @@ public class SeekPreviewStrip extends FrameLayout {
         layoutCells(w);
     }
 
-    /** 按真实宽度均分 8 格，格高跟随片源比例。 */
+    /** 本地：按真实宽度均分 8 格；在线：一格大图，按片源比例定高、居中，不铺满整行。 */
     private void layoutCells(int width) {
+        if (width <= 0) width = usableWidth();
         int gap = dp(CELL_GAP_DP);
         int containerPadding = dp(12) * 2;
         int usable = width - containerPadding - dp(20) * 2;
         if (usable <= 0) usable = width - containerPadding;
         if (usable <= 0) return;
+        if (singleMode) {
+            int height = Math.min(dp(SINGLE_CELL_HEIGHT_DP), Math.round(usable / Math.max(1f, aspect)));
+            height = Math.max(dp(80), height);
+            cellHeight = height;
+            cellWidth = Math.max(1, Math.min(usable, Math.round(height * aspect)));
+            for (Cell cell : cells) {
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(cellWidth, cellHeight);
+                cell.root.setLayoutParams(params);
+            }
+            return;
+        }
         cellWidth = Math.max(1, (usable - gap * (cellCount - 1)) / cellCount);
         cellHeight = Math.max(1, Math.round(cellWidth / aspect));
         for (int i = 0; i < cells.size(); i++) {
@@ -196,6 +200,35 @@ public class SeekPreviewStrip extends FrameLayout {
             if (i > 0) params.leftMargin = gap;
             cells.get(i).root.setLayoutParams(params);
         }
+    }
+
+    /**
+     * 重建格子：本地 8 格、在线 1 格，两套布局不能混用。
+     * 在线源不再用 8 格去摆一个位置，真正只画游标那一格的大图。
+     */
+    private void rebuildCells(int count) {
+        singleMode = count <= 1;
+        cellCount = Math.max(1, count);
+        if (rowView == null) return;
+        rowView.removeAllViews();
+        cells.clear();
+        rowView.setGravity(singleMode ? Gravity.CENTER_HORIZONTAL : Gravity.NO_GRAVITY);
+        for (int i = 0; i < cellCount; i++) {
+            final int index = i;
+            Cell cell = new Cell(getContext());
+            cell.root.setOnClickListener(view -> onCellClicked(index));
+            cells.add(cell);
+            rowView.addView(cell.root, new LinearLayout.LayoutParams(0, Math.max(1, cellHeight), singleMode ? 0f : 1f));
+        }
+        layoutCells(getWidth() > 0 ? getWidth() : usableWidth());
+    }
+
+    private static boolean isOnlineSingle(String media) {
+        return TrickplayStore.isNetworkSource(media) && TrickplayStore.allowsOnlineFrame(media);
+    }
+
+    private static long snap(long value) {
+        return (value / SNAP_MS) * SNAP_MS;
     }
 
     public void setListener(Listener listener) {
@@ -223,6 +256,11 @@ public class SeekPreviewStrip extends FrameLayout {
      */
     public void begin(long durationMs, long cursorMs, int directionHint, String mediaUrl, Map<String, String> mediaHeaders) {
         boolean sameMedia = TextUtils.equals(mediaUrl, media);
+        // 在线源（开了开关）走单格大图；本地/SMB 仍是 8 格整排。换模式时重建布局。
+        boolean single = isOnlineSingle(mediaUrl);
+        if (single != singleMode) {
+            rebuildCells(single ? 1 : CELL_COUNT);
+        }
         this.duration = Math.max(0, durationMs);
         this.cursor = clamp(cursorMs);
         this.media = mediaUrl;
@@ -648,6 +686,12 @@ public class SeekPreviewStrip extends FrameLayout {
         if (reportedUnavailable) return;
         reportedUnavailable = true;
         if (TextUtils.isEmpty(reason)) reason = "内置 FFmpeg 未加载";
+        // 在线单帧：源站打不开属常态（鉴权/连接数限制），不拿一大段 ffmpeg 原文盖住画面，
+        // 只落调试日志；界面留着时间，退回正常快进。
+        if (isOnlineSingle(media)) {
+            trace("online preview unavailable: %s", reason);
+            return;
+        }
         try {
             android.widget.Toast.makeText(context,
                     "预览抽帧不可用：" + reason + "（已退回旧取帧）",
@@ -685,6 +729,12 @@ public class SeekPreviewStrip extends FrameLayout {
      * 当前帧固定在最边上，位置序列单调，靠近片头/片尾时间距自动收紧。</p>
      */
     private List<Long> cellPositions() {
+        // 在线单帧：只预览游标本身那一格，不按片长摊开，也不预取别的时刻。
+        if (singleMode) {
+            List<Long> one = new ArrayList<>(1);
+            one.add(snap(cursor));
+            return one;
+        }
         long step = spacing();
         int slots = cellCount - 1;
         if (direction == DIR_FORWARD) {
@@ -712,6 +762,7 @@ public class SeekPreviewStrip extends FrameLayout {
 
     /** 当前帧所在的那一格：快进是 0，快退是最后一格。 */
     private int anchorIndex() {
+        if (singleMode) return 0;
         return direction == DIR_FORWARD ? 0 : cellCount - 1;
     }
 
