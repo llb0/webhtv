@@ -378,6 +378,56 @@ public class SiteViewModel extends ViewModel {
         }
     }
 
+    private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable) {
+        execute(type, liveData, callable, null, null);
+    }
+
+    private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError) {
+        if (cleared) return;
+        AtomicInteger taskId = Objects.requireNonNull(taskIds.get(type));
+        int currentId = taskId.incrementAndGet();
+        ListenableFuture<?> old = futures.get(type);
+        if (old != null) old.cancel(true);
+        ListeningExecutorService executor = type == TaskType.PLAYER ? playerExecutor : Task.executor();
+        FluentFuture<Result> future;
+        try {
+            future = FluentFuture.from(executor.submit(callable)).withTimeout(Constant.TIMEOUT_VOD, TimeUnit.MILLISECONDS, Task.scheduler());
+        } catch (RejectedExecutionException e) {
+            // 与 onCleared() 的竞态窗口：执行器已终止，本次请求作废即可。
+            return;
+        }
+        futures.put(type, future);
+        future.addCallback(Task.callback(
+                result -> {
+                    if (taskId.get() != currentId) return;
+                    if (type == TaskType.PLAYER) App.post(() -> {
+                        if (taskId.get() != currentId) return;
+                        if (onSuccess != null) onSuccess.accept(result);
+                        liveData.setValue(result);
+                    });
+                    else {
+                        if (onSuccess != null) onSuccess.accept(result);
+                        liveData.postValue(result);
+                    }
+                },
+                error -> {
+                    if (taskId.get() != currentId) return;
+                    if (error instanceof CancellationException) return;
+                    Result failure = error instanceof ExtractException ? Result.error(error.getMessage()) : Result.empty();
+                    if (type == TaskType.PLAYER) App.post(() -> {
+                        if (taskId.get() != currentId) return;
+                        if (onError != null) onError.accept(error);
+                        liveData.setValue(failure);
+                    });
+                    else {
+                        if (onError != null) onError.accept(error);
+                        liveData.postValue(failure);
+                    }
+                    error.printStackTrace();
+                }
+        ), MoreExecutors.directExecutor());
+    }
+
     private void postSearchResult(int epoch, Result result) {
         if (searchEpoch.get() != epoch) return;
         search.postValue(result);
