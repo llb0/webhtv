@@ -131,8 +131,17 @@ public class CollectFragment extends BaseFragment implements CustomScroller.Call
     @Override
     public void onItemClick(Vod item) {
         requireActivity().setResult(Activity.RESULT_OK);
+        // 进详情前把搜索停掉：详情要的是线程与环境的独占，不是排队（理由见 SiteViewModel.haltSearch）。
+        if (mViewModel != null) mViewModel.haltSearch();
         if (item.isFolder()) VodActivity.start(requireActivity(), item.getSiteKey(), Result.folder(item));
         else VideoActivity.collect(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), item.getPic(), null, getKeyword());
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // 从播放页回来：把没出结果的源接着搜，已出结果的不重搜。
+        if (mViewModel != null) mViewModel.continueSearch();
     }
 
     @Override

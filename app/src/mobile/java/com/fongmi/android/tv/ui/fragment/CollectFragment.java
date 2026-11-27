@@ -510,6 +510,9 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
             else FolderActivity.start(requireActivity(), item.getSiteKey(), Result.folder(item));
             return;
         }
+        // 进详情之前先把搜索按住：搜索不停，jar 的线程池就被别的源占着，本源算不出请求头里的变量，
+        // 详情只能拿到 45x；环境也会被并发改写。回到搜索界面时 onResume 会把没出结果的源接着发起。
+        if (mViewModel != null) mViewModel.haltSearch();
         String pic = item.getPic().isEmpty() ? getPic() : item.getPic();
         if (isHistoryResume()) HistoryResumeCoordinator.openSelected(requireActivity(), getHistoryResumeCid(), getHistoryResumeKey(), getHistoryResumeTargetCid(), item);
         else VideoActivity.collect(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic, getWallPic(), getKeyword());
@@ -815,7 +818,9 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     @Override
     public void onResume() {
         super.onResume();
-        // 进详情/播放期间没有信号，结果都留在队列里，这里按序补上。
+        // 回到搜索界面：把进详情时按住的搜索接着跑——没出结果的源重新发起，已出结果的不重搜，
+        // 进度接着暂停时的计数走。然后再把后台期间攒下的结果按序补上。
+        if (mViewModel != null) mViewModel.continueSearch();
         drainSearch();
     }
 

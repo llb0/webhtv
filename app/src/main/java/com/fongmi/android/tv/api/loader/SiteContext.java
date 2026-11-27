@@ -9,68 +9,36 @@ import com.github.catvod.crawler.SpiderDebug;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 
 /**
- * 站源初始化的时机管理。
+ * 站源环境（jar 内共享状态）的归属管理。
  *
- * <p>壳不管 jar 内部把状态放在实例上还是放在静态字段上、也不判断是哪一种源——那是 jar 自己的事。
- * 壳只需要保证一件事：**初始化在什么时候发生、什么时候不允许被打断**。因为一次初始化可能改写
- * 该 jar 里的共享状态，而这个状态正是"进详情"和"随后的播放"要接着用的：详情里算出来的变量
- * （{{…}} 缓存值、写入-* 字段）如果在起播前被另一次初始化重写，详情或播放就会拿到别人那份环境。
+ * <p>壳不管 jar 把状态放在实例上还是静态字段上，也不判断是哪一种源——那是 jar 自己的事。
+ * 壳只需要知道一件事：<b>当前这份环境是按哪个源的 ext 建起来的</b>。因为一次 init 会改写该 jar
+ * 里的共享状态，而这份状态正是"进详情"和"随后的播放"要接着用的：详情里由"变量预加载"算出来的
+ * 值（{{sign}}、{{client}} 这类写入-* 字段）如果被另一次 init 重写，详情或播放就会拿到别人那份环境。
  *
- * <p>时机规则于是只有两条：
+ * <p>环境的独占不再靠信号量，而是靠<b>调度</b>：进详情之前搜索就真的停掉（见
+ * {@code SiteViewModel.pauseSearch}），详情到起播这段没有别的源在跑，也就没有需要排队的初始化。
+ * 这里只做两件事：
  * <ul>
- *   <li>**进详情 → 正常起播**：这段时间独占。进详情时按该源的 ext 初始化一次，起播前不再重建；
- *       期间别的初始化排队等（初始化本身不可跳过，只是要等）。起播、播放报错、退回列表浏览即放手。</li>
- *   <li>**其余所有时候**（纯搜索、首页/分类、换源、起播之后的继续搜索）：不拿锁、不排队，各源正常并发初始化。</li>
+ *   <li>{@link #initOwner}：进详情时确认环境属于本源的，不属于就按本源 ext 重建；</li>
+ *   <li>{@link #ensureOwner}：首页/分类刷新前同样确认一次，避免读到别的源留下的那份环境。</li>
  * </ul>
- *
- * <p>排队只发生在第二条之外的那段窗口里，并且**不计入任何调用方的超时**：等多久是环境的事，
- * 干活多久才是任务的事。
- *
- * <p>独占用公平信号量而不是线程锁：占用的线程（详情）与放手的时机（播放器起播回调）不在同一个
- * 线程上，锁没法跨线程释放，信号量可以。
- *
- * <p>兜底：上一个详情占着但用户没起播就退回去了，新的详情会先把它放掉；占住超过
- * {@link #HOLD_TIMEOUT_MS} 还没起播也会自动放手，免得初始化被永久卡住。
  */
 public final class SiteContext {
 
-    private static final long HOLD_TIMEOUT_MS = 120_000L;
-    private static final Semaphore ENV = new Semaphore(1, true);
-    /** [0]=init 嵌套层数，[1]=1 表示本线程确实持有信号量（详情占用线程的 init 是复用的，不持有）。 */
-    private static final ThreadLocal<int[]> INIT_STATE = new ThreadLocal<int[]>() {
-        @Override
-        protected int[] initialValue() {
-            return new int[]{0, 0};
-        }
-    };
-
-    /** 最后一次写静态环境的源（每次 init 成功后更新）。 */
+    /** 最后一次写共享环境的源（每次 init 成功后更新）。 */
     private static volatile String owner = "";
     /** 当前正在浏览（首页/分类）的源，只用于日志。 */
     private static volatile String browsing = "";
-    /** 环境是否被某次详情占着（true 时别的 init 都在排队）。 */
-    private static volatile boolean held = false;
-    private static volatile long holdStart = 0L;
-    /** 每次占用/放手递增；进详情那条线程凭它证明"这一轮是我占的"。 */
-    private static volatile int holdGen = 0;
-    private static final ThreadLocal<int[]> HOLD_GEN = new ThreadLocal<int[]>() {
-        @Override
-        protected int[] initialValue() {
-            return new int[]{-1};
-        }
-    };
 
     /**
      * 环境里已经跑过真实请求的源（key）。用途只有一个：判断进详情前要不要先预热。
      *
-     * <p>jar 里由"变量预加载"算出来的东西（{{sign}}、{{client}} 这类写入-* 字段）是跟着规则
-     * 状态走的，一次 init 会把规则重建、这些值就没了。所以判据不是"这个源以前跑过"，而是
-     * "**这次 init 之后**跑过"：任何一次真实 init 都会把它从台账里划掉（见
-     * {@link #initOwner}、{@link #exitInit}），跑成功一次真实请求再重新记上。
+     * <p>jar 里由"变量预加载"算出来的东西是跟着规则状态走的，一次 init 会把规则重建、这些值就
+     * 没了。所以判据不是"这个源以前跑过"，而是"**这次 init 之后**跑过"：任何一次真实 init 都会把
+     * 它从台账里划掉（见 {@link #initOwner}、{@link #exitInit}），跑成功一次真实请求再重新记上。
      */
     private static final Set<String> WARM = ConcurrentHashMap.newKeySet();
 
@@ -87,37 +55,17 @@ public final class SiteContext {
         if (site != null && !TextUtils.isEmpty(site.getKey())) WARM.add(site.getKey());
     }
 
-    /** 首页/分类取数据时记录"当前源"；回到列表浏览说明上一次详情没看到播放，环境该放手了。 */
+    /** 首页/分类取数据时记录"当前源"，只用于日志。 */
     public static void markBrowse(Site site) {
         if (site == null || TextUtils.isEmpty(site.getKey())) return;
         browsing = site.getKey();
-        if (held) releaseEnv("browse");
     }
 
     /**
-     * 进详情时调用：占住环境（一直占到起播），环境不属于这个源时先按它的 ext 重建。
-     * 不要配对释放，放手在 {@link #releaseEnv(String)}。
-     */
-    public static void beginRequest(Site site, Spider spider) {
-        releaseStale();
-        if (acquire(20, "request") <= 0) {
-            SpiderDebug.log("site-context", "hold timeout, proceed unguarded site=%s", site == null ? "" : site.getKey());
-            return;
-        }
-        held = true;
-        holdGen++;
-        HOLD_GEN.get()[0] = holdGen;
-        holdStart = System.currentTimeMillis();
-        SpiderDebug.log("site-context", "hold site=%s current=%s", site == null ? "" : site.getKey(), browsing);
-        initOwner(site, spider);
-    }
-
-    /**
-     * 环境不属于这个源时按它的 ext 重建。
+     * 环境不属于这个源时按它的 ext 重建。返回是否真的重建了（调用方据此决定要不要预热）。
      *
-     * <p>进详情的顺序是「先占窗口、再取 spider」：spider 第一次创建会初始化，只有占用线程自己的
-     * 初始化免排队（见 {@link #enterInit}）。先 {@code beginRequest(site, null)} 还能先把上一个
-     * 详情留下的占用清掉；顺序反了会在队列里等一个本该由自己释放的占用，详情卡死。
+     * <p>进详情的顺序是「先取 spider、再确认归属」：spider 首次创建本身就会 init，那次 init 之后
+     * 环境已经归本源，这里的比对不会重复 init 一遍。
      */
     public static boolean initOwner(Site site, Spider spider) {
         if (site == null || spider == null) return false;
@@ -137,126 +85,20 @@ public final class SiteContext {
     }
 
     /**
-     * 首页/分类这类"浏览请求"进入前的环境校验：**不拿锁、不排队**。
+     * 首页/分类这类"浏览请求"进入前的环境校验：不是本源就按它的 ext 重建一次。
      *
-     * <p>搜索会把别的源 init 上来，环境因此可能不属于当前浏览的源；直接复用"最近实例"就会
-     * 读到别人的环境（把状态放静态字段的 jar 尤其明显）。所以发起前比对 owner，不是本源就按
-     * 它的 ext 重建一次。浏览请求本身不占窗口：只有"进详情 → 正常起播"那段需要独占。
-     *
-     * <p>独占窗口内（从进详情到起播）不改写环境——那时任何 init 都会打坏详情/播放要用的
-     * 变量，这次请求沿用当前环境，下一次刷新会纠正。
+     * <p>全源搜索会不断把环境 init 成别的源，回到本源刷新分类时直接复用"最近实例"就会读到别人的
+     * 环境（把状态放静态字段的 jar 尤其明显）。
      */
     public static void ensureOwner(Site site, Spider spider) {
-        if (site == null || spider == null) return;
-        if (TextUtils.equals(owner, site.getKey())) return;
-        if (held) {
-            SpiderDebug.log("site-context", "owner skip site=%s owner=%s held=true", site.getKey(), owner);
-            return;
-        }
         initOwner(site, spider);
     }
 
-    /** 放手：起播成功、播放报错、或者新详情抢占时调用。 */
-    public static void releaseEnv(String reason) {
-        if (!held) return;
-        held = false;
-        holdStart = 0L;
-        holdGen++;
-        ENV.release();
-        SpiderDebug.log("site-context", "release reason=%s", reason);
-    }
-
-    /**
-     * JarLoader 建 spider 时的 init。
-     *
-     * <p>init 是搜索的必要步骤（每个源搜索前都要按自己的 ext 初始化），不能跳过。分两种情况：
-     * <ul>
-     *   <li>**没有详情独占**（纯搜索、首页/分类、换源）：不拿锁、不排队，各源照旧并发 init。</li>
-     *   <li>**进详情→起播这段独占期间**：搜索的 init 必须等，不能改写详情正在用的环境——
-     *       这里排队等待，不设时限，也不计入搜索任务的 30s 超时（计时在排队结束后才开始，
-     *       见 SiteViewModel.submitTimed）。唯一提前放弃的途径是任务被取消、线程被中断。</li>
-     * </ul>
-     *
-     * <h3>详情占用线程自己</h3>
-     * 进详情的线程已经持有信号量（beginRequest），它自己的 init 直接放行、不再抢锁，
-     * 也不在退出时重复释放。
-     */
-    public static boolean enterInit(String siteKey) {
-        int[] state = INIT_STATE.get();
-        if (state[0] > 0) {
-            state[0]++;
-            return true;
-        }
-        if (held && HOLD_GEN.get()[0] == holdGen) {
-            // 本线程就是当前独占者：环境已经归它，直接 init。
-            state[0] = 1;
-            state[1] = 0;
-            return true;
-        }
-        if (!held) {
-            // 没有独占：不上锁，各源并发初始化。
-            state[0] = 1;
-            state[1] = 0;
-            return true;
-        }
-        // 详情/播放占着：排队等它放手（不计时），排到了再按自己的 ext 初始化。
-        int result = acquireUnlimited();
-        if (result <= 0) {
-            SpiderDebug.log("site-context", "init canceled while waiting site=%s", siteKey);
-            return false;
-        }
-        state[0] = 1;
-        state[1] = 1;
-        return true;
-    }
-
-    /** init 结束：静态环境现在归这个源所有；真持过信号量的才释放。 */
+    /** init 结束：共享环境现在归这个源所有，它之前算出来的变量随之作废。 */
     public static void exitInit(String siteKey) {
-        int[] state = INIT_STATE.get();
-        if (state[0] > 0) {
-            state[0]--;
-            if (state[0] == 0) {
-                if (state[1] == 1) ENV.release();
-                INIT_STATE.remove();
-            }
-        }
         if (!TextUtils.isEmpty(siteKey)) {
             owner = siteKey;
             WARM.remove(siteKey);
-        }
-    }
-
-    private static void releaseStale() {
-        if (!held) return;
-        long now = System.currentTimeMillis();
-        if (holdStart > 0 && now - holdStart < HOLD_TIMEOUT_MS) {
-            SpiderDebug.log("site-context", "preempt previous hold");
-        } else {
-            SpiderDebug.log("site-context", "hold expired");
-        }
-        releaseEnv("preempt");
-    }
-
-    /** 不设时限的排队：拿到返回 1；被中断（任务被判取消）返回 -1。 */
-    private static int acquireUnlimited() {
-        try {
-            ENV.acquire();
-            return 1;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return -1;
-        }
-    }
-
-    /** 1=拿到，0=超时，-1=被中断（调用方正在被取消）。 */
-    private static int acquire(long timeoutSec, String tag) {
-        try {
-            boolean got = ENV.tryAcquire(timeoutSec, TimeUnit.SECONDS);
-            if (!got) SpiderDebug.log("site-context", "%s wait timeout", tag);
-            return got ? 1 : 0;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return -1;
         }
     }
 }

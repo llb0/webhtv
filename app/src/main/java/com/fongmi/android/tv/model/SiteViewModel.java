@@ -88,6 +88,11 @@ public class SiteViewModel extends ViewModel {
     private volatile String searchKeyword = "";
     private volatile boolean searchQuick;
     private volatile int searchTotal;
+    /**
+     * 搜索被"进详情"停掉：在跑的任务已经中断，还没出结果的源记在 {@link #searchRemaining} 里。
+     * 回到搜索界面时按这份名单重新发起，已出结果的源和计数都不动。
+     */
+    private volatile boolean searchPaused;
     private final AtomicInteger searchDone = new AtomicInteger();
     public SiteViewModel() {
         result = new MutableLiveData<>();
@@ -373,6 +378,15 @@ public class SiteViewModel extends ViewModel {
         // generation so an uncooperative old worker cannot starve the next search;
         // shutdownNow() remains best-effort because the JVM cannot forcibly stop it.
         ListeningExecutorService executor = searchExecutor = Task.newSearchExecutor(Setting.getSearchThread());
+        submitSites(epoch, tasks, keyword, quick, executor);
+    }
+
+    /**
+     * 把一批源提交到执行器。<b>先决条件：调用方已持有 {@link #searchLock}，
+     * epoch、keyword、quick 与本代一致。</b>首发和恢复共用这一段，唯一的区别是首发改过记账、
+     * 恢复沿用暂停时的记账。
+     */
+    private void submitSites(int epoch, List<Site> tasks, String keyword, boolean quick, ListeningExecutorService executor) {
         for (Site site : tasks) {
             AtomicLong startedAt = new AtomicLong(0);
             TimedCall call;
@@ -516,6 +530,55 @@ public class SiteViewModel extends ViewModel {
         searchProgress.postValue(SearchProgress.of(searchDone.incrementAndGet(), searchTotal));
     }
 
+    /**
+     * 进详情（以及随后的播放）把搜索停掉：正在跑的任务立刻中断，但<b>不丢弃</b>已出的结果、
+     * 也不清计数——还没出结果的源留在 {@link #searchRemaining} 里。
+     *
+     * <p>为什么不能只是排队等：搜索任务占着 jar 内部线程池，站源那套"变量预加载"（异步线程）
+     * 拿不到线程就算不出请求头里的签名，进详情只能拿到 45x；环境也一直被别的源改写。
+     * 所以详情要的是"搜索根本不跑"，而不是"搜索等一下再跑"。
+     *
+     * <p>中断是尽力而为（jar 可能不理 interruption），所以这里连池一起关掉：新派发一律拒绝，
+     * 不会再有源在详情期间被 init、把环境改写掉。
+     */
+    public void haltSearch() {
+        synchronized (searchLock) {
+            if (searchPaused) return;
+            searchPaused = true;
+            // 这一代的迟到回调全部作废：它们算的是被打断的那次请求，不该再记进进度。
+            searchEpoch.incrementAndGet();
+            searchFuture.forEach(future -> future.cancel(true));
+            searchFuture.clear();
+            if (searchExecutor != null) {
+                searchExecutor.shutdownNow();
+                searchExecutor = null;
+            }
+            SpiderDebug.log("search", "halt keyword=%s done=%d/%d pending=%d", searchKeyword, searchDone.get(), searchTotal, searchRemaining.size());
+        }
+    }
+
+    /**
+     * 回到搜索界面：把停下来时还没出结果的源重新发起一遍，已出结果的源不重搜，结果按到达顺序
+     * 继续追加，进度从停下来时的位置接着走（done 不清零、total 不变）。
+     */
+    public void continueSearch() {
+        synchronized (searchLock) {
+            if (!searchPaused) return;
+            searchPaused = false;
+            if (cleared || searchKeyword.isEmpty()) return;
+            List<Site> pending = new ArrayList<>(searchRemaining);
+            if (pending.isEmpty()) {
+                SpiderDebug.log("search", "continue skipped keyword=%s done=%d/%d", searchKeyword, searchDone.get(), searchTotal);
+                return;
+            }
+            int epoch = searchEpoch.incrementAndGet();
+            ListeningExecutorService executor = searchExecutor = Task.newSearchExecutor(Setting.getSearchThread());
+            SpiderDebug.log("search", "continue keyword=%s done=%d/%d pending=%d", searchKeyword, searchDone.get(), searchTotal, pending.size());
+            searchProgress.postValue(SearchProgress.of(searchDone.get(), searchTotal));
+            submitSites(epoch, pending, searchKeyword, searchQuick, executor);
+        }
+    }
+
     public int stopSearch() {
         synchronized (searchLock) {
             return stopSearchLocked();
@@ -523,6 +586,7 @@ public class SiteViewModel extends ViewModel {
     }
 
     private int stopSearchLocked() {
+        searchPaused = false;
         int epoch = searchEpoch.incrementAndGet();
         searchFuture.forEach(future -> future.cancel(true));
         searchFuture.clear();
