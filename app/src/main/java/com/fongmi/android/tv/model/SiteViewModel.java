@@ -68,18 +68,29 @@ public class SiteViewModel extends ViewModel {
      * 宿主不再需要为 ViewModel 的生命周期兜异常。
      */
     private volatile boolean cleared;
-    /** 环境被详情/播放占着时挂起的搜索；放开后原样重来一遍。 */
+    /** 环境被详情/播放占着时挂起的搜索：只带还没搜完的源，进度接着原来的单位算。 */
     private volatile SearchRequest pendingSearch;
-    /** 最近一次全源搜索的参数，供被独占打断后重来。 */
-    private volatile SearchRequest lastSearch;
+    /** 本代搜索还没出结果的源；出了结果（含失败）就从这里摘掉。 */
+    private final List<Site> searchRemaining = new CopyOnWriteArrayList<>();
+    private volatile String searchKeyword = "";
+    private volatile boolean searchQuick;
+    private volatile int searchTotal;
+    private final AtomicInteger searchDone = new AtomicInteger();
     private final SiteContext.Observer envObserver = new SiteContext.Observer() {
         @Override
         public void onHold(String siteKey) {
             synchronized (searchLock) {
                 if (cleared) return;
-                if (searchExecutor != null && lastSearch != null) pendingSearch = lastSearch;
+                // 没有在跑的搜索就不用挂起，免得释放后凭空搜一遍。
+                if (searchExecutor == null) {
+                    SpiderDebug.log("search", "hold but no running search site=%s", siteKey);
+                    return;
+                }
+                List<Site> remaining = new ArrayList<>(searchRemaining);
+                pendingSearch = remaining.isEmpty() ? null : new SearchRequest(remaining, searchKeyword, searchQuick, searchDone.get(), searchTotal);
                 stopSearchLocked();
-                SpiderDebug.log("search", "paused by env hold site=%s pending=%s", siteKey, pendingSearch != null);
+                // 已经搜到的结果留在原列表里不动，只有没出结果的源要重来。
+                SpiderDebug.log("search", "paused by env hold site=%s done=%d/%d remaining=%d", siteKey, searchDone.get(), searchTotal, remaining.size());
             }
         }
 
@@ -87,9 +98,16 @@ public class SiteViewModel extends ViewModel {
         public void onRelease() {
             SearchRequest request = pendingSearch;
             pendingSearch = null;
-            if (request == null || cleared) return;
-            SpiderDebug.log("search", "resume after env release keyword=%s sites=%d", request.keyword, request.sites.size());
-            searchContent(request.sites, request.keyword, request.quick);
+            if (request == null || request.sites.isEmpty() || cleared) return;
+            if (SiteContext.isHeld()) {
+                pendingSearch = request;
+                return;
+            }
+            synchronized (searchLock) {
+                if (cleared) return;
+                SpiderDebug.log("search", "resume after env release keyword=%s done=%d/%d remaining=%d", request.keyword, request.done, request.total, request.sites.size());
+                dispatchLocked(request.sites, request.keyword, request.quick, request.done, request.total, true);
+            }
         }
     };
 
@@ -294,110 +312,81 @@ public class SiteViewModel extends ViewModel {
         if (sites == null || sites.isEmpty()) return;
         if (SiteContext.isHeld()) {
             // 环境正被详情/播放占着：现在派发只会让每个源在 init 里干等，最后被 30s 任务超时
-            // 结算掉（进度照样 +1，结果一条没有）。挂起来，等 release 再整批派发。
-            pendingSearch = new SearchRequest(sites, keyword, quick);
+            // 结算掉（进度照样 +1，结果一条没有）。挂起来，等 release 再派剩下的源。
+            pendingSearch = new SearchRequest(sites, keyword, quick, 0, 0);
             SpiderDebug.log("search", "deferred env held keyword=%s sites=%d", keyword, sites.size());
             return;
         }
         synchronized (searchLock) {
             // 清理后不再新建搜索执行器：否则会为已死的 ViewModel 起一批无人接收的搜索。
             if (cleared) return;
-            lastSearch = new SearchRequest(sites, keyword, quick);
-            int epoch = stopSearchLocked();
             List<Site> tasks = new ArrayList<>();
             for (Site site : sites) {
                 if (quick && !site.isQuickSearch()) continue;
                 tasks.add(site);
             }
-            int total = tasks.size();
-            AtomicInteger completed = new AtomicInteger();
-            searchProgress.postValue(SearchProgress.start(total));
-            // A site spider may ignore interruption after its timeout. Isolate every
-            // generation so an uncooperative old worker cannot starve the next search;
-            // shutdownNow() remains best-effort because the JVM cannot forcibly stop it.
-            ListeningExecutorService executor = searchExecutor = Task.newSearchExecutor(Setting.getSearchThread());
-            for (Site site : tasks) {
-                long start = System.currentTimeMillis();
-                FluentFuture<Result> future = FluentFuture.from(executor.submit(SearchTask.create(site, keyword, quick))).withTimeout(Constant.TIMEOUT_SEARCH, TimeUnit.MILLISECONDS, Task.scheduler());
-                searchFuture.add(future);
-                future.addCallback(Task.callback(
-                        result -> {
-                            if (searchEpoch.get() != epoch) return;
-                            SiteHealthStore.recordSearch(site, true, result.getList().size(), System.currentTimeMillis() - start, "");
-                            postSearchResult(epoch, result);
-                            postSearchProgress(epoch, completed, total);
-                        },
-                        error -> {
-                            if (searchEpoch.get() != epoch) return;
-                            if (error instanceof CancellationException) return;
-                            SiteHealthStore.recordSearch(site, false, 0, System.currentTimeMillis() - start, error.getMessage());
-                            postSearchProgress(epoch, completed, total);
-                            error.printStackTrace();
-                        }
-                ), MoreExecutors.directExecutor());
-            }
+            dispatchLocked(tasks, keyword, quick, 0, tasks.size(), false);
+        }
+    }
+
+    /**
+     * 派发一代搜索。resume=true 表示这是被环境独占打断后接着搜：不清进度、不从 0 数，
+     * 只把还没出结果的源再派一次，已搜到的结果原样留在结果列表里。
+     */
+    private void dispatchLocked(List<Site> tasks, String keyword, boolean quick, int base, int total, boolean resume) {
+        int epoch = stopSearchLocked();
+        searchKeyword = keyword;
+        searchQuick = quick;
+        searchTotal = total;
+        searchDone.set(base);
+        searchRemaining.clear();
+        searchRemaining.addAll(tasks);
+        searchProgress.postValue(resume ? SearchProgress.of(base, total) : SearchProgress.start(total));
+        // A site spider may ignore interruption after its timeout. Isolate every
+        // generation so an uncooperative old worker cannot starve the next search;
+        // shutdownNow() remains best-effort because the JVM cannot forcibly stop it.
+        ListeningExecutorService executor = searchExecutor = Task.newSearchExecutor(Setting.getSearchThread());
+        for (Site site : tasks) {
+            long start = System.currentTimeMillis();
+            FluentFuture<Result> future = FluentFuture.from(executor.submit(SearchTask.create(site, keyword, quick))).withTimeout(Constant.TIMEOUT_SEARCH, TimeUnit.MILLISECONDS, Task.scheduler());
+            searchFuture.add(future);
+            future.addCallback(Task.callback(
+                    result -> {
+                        if (searchEpoch.get() != epoch) return;
+                        SiteHealthStore.recordSearch(site, true, result.getList().size(), System.currentTimeMillis() - start, "");
+                        markSearchDone(epoch, site);
+                        postSearchResult(epoch, result);
+                        postSearchProgress(epoch);
+                    },
+                    error -> {
+                        if (searchEpoch.get() != epoch) return;
+                        if (error instanceof CancellationException) return;
+                        SiteHealthStore.recordSearch(site, false, 0, System.currentTimeMillis() - start, error.getMessage());
+                        markSearchDone(epoch, site);
+                        postSearchProgress(epoch);
+                        error.printStackTrace();
+                    }
+            ), MoreExecutors.directExecutor());
+        }
+    }
+
+    /** 这个源已有结果（成功或失败）：从待搜集合摘掉，进度计数 +1。 */
+    private void markSearchDone(int epoch, Site site) {
+        if (searchEpoch.get() != epoch) return;
+        synchronized (searchLock) {
+            searchRemaining.remove(site);
         }
     }
 
     private void postSearchResult(int epoch, Result result) {
-        App.post(() -> {
-            if (searchEpoch.get() == epoch) search.setValue(result);
-        });
-    }
-
-    private void postSearchProgress(int epoch, AtomicInteger completed, int total) {
         if (searchEpoch.get() != epoch) return;
-        searchProgress.postValue(SearchProgress.of(completed.incrementAndGet(), total));
+        search.postValue(result);
     }
 
-    private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable) {
-        execute(type, liveData, callable, null, null);
-    }
-
-    private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError) {
-        if (cleared) return;
-        AtomicInteger taskId = Objects.requireNonNull(taskIds.get(type));
-        int currentId = taskId.incrementAndGet();
-        ListenableFuture<?> old = futures.get(type);
-        if (old != null) old.cancel(true);
-        ListeningExecutorService executor = type == TaskType.PLAYER ? playerExecutor : Task.executor();
-        FluentFuture<Result> future;
-        try {
-            future = FluentFuture.from(executor.submit(callable)).withTimeout(Constant.TIMEOUT_VOD, TimeUnit.MILLISECONDS, Task.scheduler());
-        } catch (RejectedExecutionException e) {
-            // 与 onCleared() 的竞态窗口：执行器已终止，本次请求作废即可。
-            return;
-        }
-        futures.put(type, future);
-        future.addCallback(Task.callback(
-                result -> {
-                    if (taskId.get() != currentId) return;
-                    if (type == TaskType.PLAYER) App.post(() -> {
-                        if (taskId.get() != currentId) return;
-                        if (onSuccess != null) onSuccess.accept(result);
-                        liveData.setValue(result);
-                    });
-                    else {
-                        if (onSuccess != null) onSuccess.accept(result);
-                        liveData.postValue(result);
-                    }
-                },
-                error -> {
-                    if (taskId.get() != currentId) return;
-                    if (error instanceof CancellationException) return;
-                    Result failure = error instanceof ExtractException ? Result.error(error.getMessage()) : Result.empty();
-                    if (type == TaskType.PLAYER) App.post(() -> {
-                        if (taskId.get() != currentId) return;
-                        if (onError != null) onError.accept(error);
-                        liveData.setValue(failure);
-                    });
-                    else {
-                        if (onError != null) onError.accept(error);
-                        liveData.postValue(failure);
-                    }
-                    error.printStackTrace();
-                }
-        ), MoreExecutors.directExecutor());
+    /** 绝对进度：已完成的源数接着原来的口径往上加，恢复后总数不变。 */
+    private void postSearchProgress(int epoch) {
+        if (searchEpoch.get() != epoch) return;
+        searchProgress.postValue(SearchProgress.of(searchDone.incrementAndGet(), searchTotal));
     }
 
     public int stopSearch() {
@@ -412,6 +401,8 @@ public class SiteViewModel extends ViewModel {
         int epoch = searchEpoch.incrementAndGet();
         searchFuture.forEach(future -> future.cancel(true));
         searchFuture.clear();
+        searchRemaining.clear();
+        searchDone.set(0);
         if (searchExecutor != null) {
             searchExecutor.shutdownNow();
             searchExecutor = null;
@@ -433,7 +424,8 @@ public class SiteViewModel extends ViewModel {
         isolatedPlayerExecutor.shutdownNow();
     }
 
-    private record SearchRequest(List<Site> sites, String keyword, boolean quick) {
+    /** 挂起的搜索：sites 是还没出结果的源，done/total 是原来的进度口径。 */
+    private record SearchRequest(List<Site> sites, String keyword, boolean quick, int done, int total) {
     }
 
     private enum TaskType {RESULT, PLAYER, ACTION}
