@@ -706,7 +706,10 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     }
 
     private void setCollect(Result result) {
-        if (mLeavingForPlayback || result == null || result.getList().isEmpty()) return;
+        if (result == null || result.getList().isEmpty()) return;
+        mViewModel.consumeSearchResult(result);
+        // 去播放途中不刷列表，但不能把结果丢掉：ViewModel 会先攒着，回到前台再按序补。
+        if (mLeavingForPlayback) return;
         mPaging.recordInitial(result.getVod().getSiteKey(), result.getPageCount(), SearchPageState.pageToken(result.getList()));
         applySearchResult(result);
     }
@@ -1105,6 +1108,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     protected void onResume() {
         super.onResume();
         mLeavingForPlayback = false;
+        if (mViewModel != null) for (Result result : mViewModel.drainSearchBacklog()) setCollect(result);
         if (canLoadImage()) Glide.with(this).resumeRequests();
     }
 

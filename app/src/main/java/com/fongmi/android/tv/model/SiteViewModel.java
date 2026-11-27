@@ -70,6 +70,11 @@ public class SiteViewModel extends ViewModel {
     private volatile boolean cleared;
     /** 环境被详情/播放占着时挂起的搜索：只带还没搜完的源，进度接着原来的单位算。 */
     private volatile SearchRequest pendingSearch;
+    /**
+     * 搜索页在后台（进详情、播放期间）时，LiveData 只会保留最后一个值，
+     * 中间几十个源的结果会被覆盖掉。这里按到达顺序排队，页面回到前台再按序取走。
+     */
+    private final List<Result> searchBacklog = new CopyOnWriteArrayList<>();
     /** 本代搜索还没出结果的源；出了结果（含失败）就从这里摘掉。 */
     private final List<Site> searchRemaining = new CopyOnWriteArrayList<>();
     private volatile long pauseAt;
@@ -353,6 +358,7 @@ public class SiteViewModel extends ViewModel {
         searchDone.set(base);
         searchRemaining.clear();
         searchRemaining.addAll(tasks);
+        searchBacklog.clear();
         searchProgress.postValue(resume ? SearchProgress.of(base, total) : SearchProgress.start(total));
         // A site spider may ignore interruption after its timeout. Isolate every
         // generation so an uncooperative old worker cannot starve the next search;
@@ -469,7 +475,21 @@ public class SiteViewModel extends ViewModel {
 
     private void postSearchResult(int epoch, Result result) {
         if (searchEpoch.get() != epoch) return;
+        if (result == null) return;
+        searchBacklog.add(result);
         search.postValue(result);
+    }
+
+    /** 页面在前台收到 LiveData 时，把同一条从待取队列里消掉，避免回前台重放时重复。 */
+    public void consumeSearchResult(Result result) {
+        if (result != null) searchBacklog.remove(result);
+    }
+
+    /** 页面回到前台时取走在后台攒下的结果，按到达顺序。 */
+    public List<Result> drainSearchBacklog() {
+        List<Result> items = new ArrayList<>(searchBacklog);
+        searchBacklog.clear();
+        return items;
     }
 
     /** 绝对进度：已完成的源数接着原来的口径往上加，恢复后总数不变。 */

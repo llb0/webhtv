@@ -394,6 +394,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private void setCollect(Result result) {
         if (result == null || result.getList().isEmpty()) return;
+        mViewModel.consumeSearchResult(result);
         String activeSiteKey = getActiveSiteKey();
         List<Vod> items = new ArrayList<>(result.getList());
         Collect raw = addMasterCollect(items);
@@ -813,6 +814,13 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         // 页面回到后台（进详情、切到别的页、锁屏）先停掉在跑的搜索，不留后台任务。
         if (mViewModel != null) mViewModel.pauseSearch();
         super.onStop();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // 进详情/播放期间 LiveData 只保留最后一个结果，其余几十个源的都在积压队列里，这里按序补上。
+        if (mViewModel != null) for (Result result : mViewModel.drainSearchBacklog()) setCollect(result);
     }
 
     @Override
