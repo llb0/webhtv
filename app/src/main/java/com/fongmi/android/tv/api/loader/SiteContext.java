@@ -35,9 +35,6 @@ import java.util.concurrent.TimeUnit;
  */
 public final class SiteContext {
 
-    /** init 排队上限：只短等，避免吃掉搜索任务的时间预算。 */
-    private static final long INIT_WAIT_SEC = 5;
-
     private static final long HOLD_TIMEOUT_MS = 120_000L;
     private static final Semaphore ENV = new Semaphore(1, true);
     private static final ThreadLocal<int[]> INIT_STATE = new ThreadLocal<int[]>() {
@@ -54,6 +51,14 @@ public final class SiteContext {
     /** 环境是否被某次详情占着（true 时别的 init 都在排队）。 */
     private static volatile boolean held = false;
     private static volatile long holdStart = 0L;
+    /** 每次占用/放手递增；进详情那条线程凭它证明"这一轮是我占的"。 */
+    private static volatile int holdGen = 0;
+    private static final ThreadLocal<int[]> HOLD_GEN = new ThreadLocal<int[]>() {
+        @Override
+        protected int[] initialValue() {
+            return new int[]{-1};
+        }
+    };
 
     private SiteContext() {
     }
@@ -106,6 +111,8 @@ public final class SiteContext {
             return;
         }
         held = true;
+        holdGen++;
+        HOLD_GEN.get()[0] = holdGen;
         holdStart = System.currentTimeMillis();
         SpiderDebug.log("site-context", "hold site=%s current=%s", site == null ? "" : site.getKey(), browsing);
         notifyHold(site == null ? "" : site.getKey());
@@ -126,14 +133,21 @@ public final class SiteContext {
         if (!held) return;
         held = false;
         holdStart = 0L;
+        holdGen++;
         ENV.release();
         SpiderDebug.log("site-context", "release reason=%s", reason);
         notifyRelease();
     }
 
     /**
-     * JarLoader 建 spider 时的 init：排队等环境空闲。
-     * 返回 false 表示没排上——调用方如果发现自己已被中断（搜索被取消），就该直接放弃这次 init。
+     * JarLoader 建 spider 时的 init。
+     *
+     * <p>只有"进详情→起播"这段是独占的：这时别的线程要 init 直接放弃（{@code skip}），
+     * 既不排队、也不无锁硬跑，因为排队会把搜索任务自己的超时预算吃光，硬跑会把详情
+     * 正在用的静态环境冲掉。
+     *
+     * <p>没有独占时（纯搜索、首页/分类刷新、换源）**不上锁、不等、直接 init**：
+     * 多源并发 init 之间互相覆盖是原有行为，跟影图一样谁先谁后不影响搜索。
      */
     public static boolean enterInit(String siteKey) {
         int[] state = INIT_STATE.get();
@@ -141,23 +155,19 @@ public final class SiteContext {
             state[0]++;
             return true;
         }
-        // 环境被详情/播放占着时，搜索线程干等 30s 正好把搜索任务自己的 30s 预算耗光，
-        // 等不到还硬 init 会把别人正在用的环境冲掉（日志里一批源同时 init timeout 就是这么来的）。
-        // 所以这里只短等，等不到就让调用方放弃这次 init，由页面暂停/续搜机制稍后重来。
-        int result = acquire(INIT_WAIT_SEC, "init");
-        state[0] = result;
-        if (result == 0) SpiderDebug.log("site-context", "init busy, skip init site=%s", siteKey);
-        else if (result < 0) SpiderDebug.log("site-context", "init interrupted, skip init site=%s", siteKey);
-        return result > 0;
+        if (held && HOLD_GEN.get()[0] != holdGen) {
+            // 详情/播放正占着，而这条线程不是占用方：这次 init 直接跳过。
+            SpiderDebug.log("site-context", "init skip, env held site=%s", siteKey);
+            return false;
+        }
+        state[0] = 1;
+        return true;
     }
 
     /** init 结束：静态环境现在归这个源所有。 */
     public static void exitInit(String siteKey) {
         int[] state = INIT_STATE.get();
-        if (state[0] > 0) {
-            state[0]--;
-            if (state[0] == 0) ENV.release();
-        }
+        if (state[0] > 0) state[0]--;
         if (!TextUtils.isEmpty(siteKey)) owner = siteKey;
         if (state[0] <= 0) INIT_STATE.remove();
     }
