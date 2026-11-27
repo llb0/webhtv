@@ -256,11 +256,11 @@ public class JarLoader {
                 spider.siteKey = key;
                 // init 会写 spider 的静态环境（XBPQ 的 xbpq 单例），与详情/播放的读窗口互斥；
                 // 读锁让各源的 init 之间仍然并发，只挡详情/播放那一段。
-                SiteContext.enterInit();
+                SiteContext.enterInit(key);
                 try {
                     spider.init(App.get(), ext);
                 } finally {
-                    SiteContext.exitInit();
+                    SiteContext.exitInit(key);
                 }
                 SpiderDebug.log("jar-loader", "spider init done site=%s api=%s jar=%s class=%s cost=%sms", key, api, jaKey, spider.getClass().getName(), System.currentTimeMillis() - start);
                 return spider;
