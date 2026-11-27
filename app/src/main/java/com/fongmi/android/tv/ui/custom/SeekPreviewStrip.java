@@ -986,12 +986,19 @@ public class SeekPreviewStrip extends FrameLayout {
             float trackHeight = dp(3);
             float top = height - dp(10);
             paint.setTextSize(dp(13));
+            paint.setShadowLayer(dp(2), 0, dp(1), 0xCC000000);
             paint.setColor(0xFFFFFFFF);
-            paint.setTextAlign(Paint.Align.LEFT);
-            canvas.drawText(format(cursorMs), dp(6), top - dp(7), paint);
+            // 总时长固定在右端；当前时间跟着游标走，标在它正上方，不能钉死在左边。
+            String current = format(cursorMs);
+            float dotX = dp(6) + (getWidth() - dp(12)) * clampRatio(progress);
+            float half = paint.measureText(current) / 2f;
+            float textX = Math.max(half + dp(6), Math.min(dotX, getWidth() - dp(6) - half));
+            paint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText(current, textX, top - dp(7), paint);
             paint.setTextAlign(Paint.Align.RIGHT);
             canvas.drawText(format(durationMs), getWidth() - dp(6), top - dp(7), paint);
             paint.setTextAlign(Paint.Align.LEFT);
+            paint.clearShadowLayer();
             paint.setColor(0xFF3A3A44);
             rect.set(dp(6), top, getWidth() - dp(6), top + trackHeight);
             canvas.drawRoundRect(rect, trackHeight / 2f, trackHeight / 2f, paint);
