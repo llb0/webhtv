@@ -52,8 +52,10 @@ public class DebugLogStore {
     private static synchronized DiagnosticLogBuffer create() {
         if (buffer == null) {
             DiagnosticLogBuffer.Limits limits = DiagnosticLogBuffer.Limits.standard();
+            // 时间线放在 filesDir：装新包、系统清缓存都不会动它，下载才拿得到上一轮的完整内容。
+            // cacheDir 只作为旧版本的迁移来源（RollingDiagnosticFile 会把遗留分段搬过来）。
             buffer = new DiagnosticLogBuffer(limits, new com.github.catvod.crawler.diagnostics.IncidentDiagnosticFile(new JournaledDiagnosticFile(
-                    new RollingDiagnosticFile(Init.context().getCacheDir(), limits), Init.context().getFilesDir()), Init.context().getCacheDir()),
+                    new RollingDiagnosticFile(Init.context().getFilesDir(), Init.context().getCacheDir(), limits), Init.context().getFilesDir()), Init.context().getCacheDir()),
                     clock());
             installCrashHandler();
         }

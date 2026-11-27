@@ -7,6 +7,8 @@ import com.fongmi.android.tv.bean.Site;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -62,7 +64,27 @@ public final class SiteContext {
         }
     };
 
+    /**
+     * 环境里已经跑过真实请求的源（key）。用途只有一个：判断进详情前要不要先预热。
+     *
+     * <p>jar 里由"变量预加载"算出来的东西（{{sign}}、{{client}} 这类写入-* 字段）是跟着规则
+     * 状态走的，一次 init 会把规则重建、这些值就没了。所以判据不是"这个源以前跑过"，而是
+     * "**这次 init 之后**跑过"：任何一次真实 init 都会把它从台账里划掉（见
+     * {@link #initOwner}、{@link #exitInit}），跑成功一次真实请求再重新记上。
+     */
+    private static final Set<String> WARM = ConcurrentHashMap.newKeySet();
+
     private SiteContext() {
+    }
+
+    /** 该源在当前环境里跑成功过至少一次真实请求（变量已由自己的规则算出来）。 */
+    public static boolean isWarm(Site site) {
+        return site != null && !TextUtils.isEmpty(site.getKey()) && WARM.contains(site.getKey());
+    }
+
+    /** 该源跑成功过一次真实请求：环境里它的变量已经就绪。 */
+    public static void markWarm(Site site) {
+        if (site != null && !TextUtils.isEmpty(site.getKey())) WARM.add(site.getKey());
     }
 
     /** 首页/分类取数据时记录"当前源"；回到列表浏览说明上一次详情没看到播放，环境该放手了。 */
@@ -97,17 +119,41 @@ public final class SiteContext {
      * 初始化免排队（见 {@link #enterInit}）。先 {@code beginRequest(site, null)} 还能先把上一个
      * 详情留下的占用清掉；顺序反了会在队列里等一个本该由自己释放的占用，详情卡死。
      */
-    public static void initOwner(Site site, Spider spider) {
-        if (site == null || spider == null) return;
-        if (TextUtils.equals(owner, site.getKey())) return;
+    public static boolean initOwner(Site site, Spider spider) {
+        if (site == null || spider == null) return false;
+        if (TextUtils.equals(owner, site.getKey())) return false;
         String was = owner;
         try {
             spider.init(App.get(), site.getExt());
             owner = site.getKey();
+            // 规则被重建：这个源写在规则里的变量（{{sign}} 这类）已经没了，得重新跑一次才算就绪。
+            WARM.remove(site.getKey());
             SpiderDebug.log("site-context", "reinit done site=%s was=%s current=%s", site.getKey(), was, browsing);
+            return true;
         } catch (Throwable e) {
             SpiderDebug.log("site-context", "reinit error site=%s error=%s", site.getKey(), e);
+            return false;
         }
+    }
+
+    /**
+     * 首页/分类这类"浏览请求"进入前的环境校验：**不拿锁、不排队**。
+     *
+     * <p>搜索会把别的源 init 上来，环境因此可能不属于当前浏览的源；直接复用"最近实例"就会
+     * 读到别人的环境（把状态放静态字段的 jar 尤其明显）。所以发起前比对 owner，不是本源就按
+     * 它的 ext 重建一次。浏览请求本身不占窗口：只有"进详情 → 正常起播"那段需要独占。
+     *
+     * <p>独占窗口内（从进详情到起播）不改写环境——那时任何 init 都会打坏详情/播放要用的
+     * 变量，这次请求沿用当前环境，下一次刷新会纠正。
+     */
+    public static void ensureOwner(Site site, Spider spider) {
+        if (site == null || spider == null) return;
+        if (TextUtils.equals(owner, site.getKey())) return;
+        if (held) {
+            SpiderDebug.log("site-context", "owner skip site=%s owner=%s held=true", site.getKey(), owner);
+            return;
+        }
+        initOwner(site, spider);
     }
 
     /** 放手：起播成功、播放报错、或者新详情抢占时调用。 */
@@ -174,7 +220,10 @@ public final class SiteContext {
                 INIT_STATE.remove();
             }
         }
-        if (!TextUtils.isEmpty(siteKey)) owner = siteKey;
+        if (!TextUtils.isEmpty(siteKey)) {
+            owner = siteKey;
+            WARM.remove(siteKey);
+        }
     }
 
     private static void releaseStale() {

@@ -95,6 +95,7 @@ public class SiteApi {
             Prefers.put("crash", false);
             SpiderDebug.log("home", home);
             SpiderDebug.log("homeVideo", video);
+            SiteContext.markWarm(site);
             Result result = Result.fromJson(home);
             List<Vod> list = Result.fromJson(video).getList();
             if (!list.isEmpty()) result.setList(list);
@@ -139,7 +140,12 @@ public class SiteApi {
         Site site = VodConfig.get().getSite(key);
         SiteContext.markBrowse(site);
         if (isSpider(site)) {
-            String categoryContent = site.recent().spider().categoryContent(tid, page, filter, extend);
+            Spider categorySpider = site.recent().spider();
+            // 分类不拿锁、不排队，但必须确认当前环境就是这个源的：搜索会把别的源 init 上来，
+            // 回来刷新分类时若直接复用"最近实例"，读到的可能是别人的环境（XBPQ 这类把状态放静态字段的 jar）。
+            SiteContext.ensureOwner(site, categorySpider);
+            String categoryContent = categorySpider.categoryContent(tid, page, filter, extend);
+            SiteContext.markWarm(site);
             SpiderDebug.log("category", categoryContent);
             return Result.fromJson(categoryContent);
         } else {
@@ -152,6 +158,33 @@ public class SiteApi {
             String categoryContent = call(site, params);
             SpiderDebug.log("category", categoryContent);
             return Result.fromType(site.getType(), categoryContent);
+        }
+    }
+
+    /**
+     * 进详情前的预热：只在该源"这次 init 之后还没跑过任何真实请求"时执行。
+     *
+     * <p>为什么需要它：XBPQ 这类源的请求头是 {@code web-sign${{sign}}#X-Client${{client}}}，
+     * {@code sign}/{@code client} 不是常量，而是规则里"变量预加载"临时拉站点 JS 算出来、再
+     * 写入规则的值。搜索会把环境 init 成别的源（静态实例的 jar 尤其），回到本源进详情时壳要
+     * 先 init 一次，规则随之重建、写入的变量一起没了。详情是这条链上的**第一个**请求，规则
+     * 来不及重算就把字面 {@code {{sign}}} 发出去，站点直接回 45x（见 3Qpc 的 458/457）。
+     *
+     * <p>预热就是按该源自己的规则跑一次只读的首页：请求头和 URL 会把"变量预加载"整条链走完，
+     * 变量重新写回规则，详情随后用的就是算好的值——等于把"从分类进详情"那条天然路径搬过来。
+     * 从分类/首页/搜索进详情时台账已经是热的，这里不会多发一次请求。
+     *
+     * <p>失败不阻断详情：预热只为把变量算出来，站点不给首页就当冷启动照旧发详情，由它自己报错。
+     */
+    private static void preheatIfCold(@NonNull Site site, @NonNull Spider spider) {
+        if (SiteContext.isWarm(site)) return;
+        long start = System.currentTimeMillis();
+        try {
+            String home = spider.homeContent(true);
+            SiteContext.markWarm(site);
+            SpiderDebug.log("preheat", "site=%s,ok,cost=%dms,size=%d", site.getKey(), System.currentTimeMillis() - start, home == null ? 0 : home.length());
+        } catch (Throwable e) {
+            SpiderDebug.log("preheat", "site=%s,error=%s,cost=%dms", site.getKey(), e, System.currentTimeMillis() - start);
         }
     }
 
@@ -193,7 +226,9 @@ public class SiteApi {
             SiteContext.beginRequest(site, null);
             Spider detailSpider = site.recent().spider();
             SiteContext.initOwner(site, detailSpider);
+            preheatIfCold(site, detailSpider);
             String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
+            SiteContext.markWarm(site);
             TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
             SpiderDebug.log("detail", ingress.getSanitizedJson());
             result = Result.fromJson(ingress.getSanitizedJson());
@@ -565,6 +600,7 @@ public class SiteApi {
         boolean hasPage = !page.equals("1");
         if (isSpider(site)) {
             String searchContent = hasPage ? site.spider().searchContent(keyword, quick, page) : site.spider().searchContent(keyword, quick);
+            SiteContext.markWarm(site);
             SpiderDebug.log("search", searchContent);
             Result result = Result.fromJson(searchContent);
             for (Vod vod : result.getList()) vod.setSite(site);
