@@ -42,21 +42,30 @@ public final class IdjPluginCollection {
         return plugins != null && plugins.isJsonArray();
     }
 
+    /** 一次合集安装的结果：新增、更新、内容未变、失败。 */
+    public static class Result {
+        public int added;
+        public int updated;
+        public int unchanged;
+        public int failed;
+    }
+
     /**
-     * 拉取并安装清单里的插件包。
+     * 拉取并安装清单里的插件包；本地已装过的包会与远端逐字节比对，远端变了就地覆盖并重装，
+     * 内容没变则完全跳过（不写盘、不重装，保留用户 settings.json / storage.json）。
      *
      * @param baseUrl  清单自身的地址，manifest 里的相对路径按它解析
      * @param root     清单根对象
      * @param progress 进度回调（调用方负责切主线程）
-     * @return 成功下载的包数量
+     * @return 本次新增/更新的统计
      */
-    public static int install(String baseUrl, JsonObject root, Progress progress) throws Exception {
+    public static Result install(String baseUrl, JsonObject root, Progress progress) throws Exception {
         JsonArray plugins = root.getAsJsonArray("plugins");
         knownCollectionUrl = baseUrl;
         File dir = IdjPluginStore.root();
         if (!dir.exists() && !dir.mkdirs()) throw new IOException("无法创建 tvbox/idj 目录");
         int total = plugins.size();
-        int done = 0;
+        Result result = new Result();
         for (int i = 0; i < total; i++) {
             JsonObject plugin = plugins.get(i) != null && plugins.get(i).isJsonObject() ? plugins.get(i).getAsJsonObject() : null;
             if (plugin == null) continue;
@@ -65,16 +74,40 @@ public final class IdjPluginCollection {
             String fileName = fileName(manifest);
             if (!fileName.endsWith(IdjPluginStore.SUFFIX)) fileName = fileName + IdjPluginStore.SUFFIX;
             String source = absolute(baseUrl, manifest);
-            if (progress != null) progress.onProgress("下载 " + fileName, i, total);
             String body = fetch(source);
             // 只收 JSON 包，避免把 404 页面写成插件文件后再被安装阶段静默跳过
-            if (TextUtils.isEmpty(body) || !body.contains("\"manifest\"")) continue;
-            Path.write(new File(dir, fileName), body.getBytes(StandardCharsets.UTF_8));
-            done++;
+            if (TextUtils.isEmpty(body) || !body.contains("\"manifest\"")) {
+                result.failed++;
+                continue;
+            }
+            File target = new File(dir, fileName);
+            boolean exists = target.exists();
+            // 远端没变就别动：既不覆盖包，也不触发重装，用户的 settings/storage 原样保留
+            if (exists && body.equals(readText(target))) {
+                result.unchanged++;
+                continue;
+            }
+            if (progress != null) progress.onProgress((exists ? "更新 " : "下载 ") + fileName, i, total);
+            Path.write(target, body.getBytes(StandardCharsets.UTF_8));
+            try {
+                // 逐包直接装：sync() 只在 version 变化时重装，同版本静默改包会漏掉
+                IdjPluginStore.install(target);
+                if (exists) result.updated++; else result.added++;
+            } catch (Throwable e) {
+                result.failed++;
+            }
         }
         IdjPluginStore.sync();
         if (progress != null) progress.onProgress("安装插件", total, total);
-        return done;
+        return result;
+    }
+
+    private static String readText(File file) {
+        try {
+            return Path.read(file);
+        } catch (Throwable e) {
+            return "";
+        }
     }
 
     private static String fetch(String url) {

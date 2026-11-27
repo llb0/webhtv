@@ -205,7 +205,7 @@ public final class UsageHelpDialog {
                             把 xx.idjplugin 放进存储根目录的 /tvbox/idj/，重新加载点播配置；是否加载由「来源屏蔽 → iDuanJu 插件站点」控制：勾选＝屏蔽，默认不屏蔽，和 sites-js 无关。
                             站点列表里出现“插件名 | IDJ”；同名插件版本变了会自动重装；安装失败只跳过该插件，不影响别的站点。
                             删除：手机端点站点右侧的删除按钮，电视端长按该站点；删除会连带清掉 /tvbox/idj/<id>/ 子目录和生成它的 .idjplugin 包，下次加载不会复活。
-                            也可以直接填「插件合集」接口（形如 {name, plugins:[{manifest:"plugin-packages/x.idjplugin",...}]}）：加载接口时会按清单把插件包下载到 /tvbox/idj/ 并安装；首页「更多 → 接口下载」对合集接口同样是下载这些插件包，不是导出站源配置。
+                            也可以直接填「插件合集」接口（形如 {name, plugins:[{manifest:"plugin-packages/x.idjplugin",...}]}）：加载接口时会按清单把插件包下载到 /tvbox/idj/ 并安装，并且每次加载都和远端比对一次包内容：远端更新过就覆盖重装（已存的插设置和插件数据不动），没更新则跳过；首页「更多 → 接口下载」对合集接口同样是下载这些插件包，不是导出站源配置。
                             """),
                     section("支持的插件", """
                             只支持清单 type 为 video / shortdrama、且 capabilities 同时声明 detail 与 play 的插件。
