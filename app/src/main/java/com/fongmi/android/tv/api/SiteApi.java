@@ -323,23 +323,19 @@ public class SiteApi {
             String fallbackReason;
             try {
                 Spider playerSpider = site.recent().spider();
-                // 与详情同理：写锁覆盖到 playerContent 返回，期间别的源改不了静态环境。
-                SiteContext.beginRequest(site, playerSpider);
-                try {
-                    String playerContent = playerSpider.playerContent(flag, requestId, VodConfig.get().getFlags());
-                    SpiderDebug.log("player", playerContent);
-                    Result result = Result.fromJson(playerContent);
-                    if (shouldFallbackPushSiteResult(key, result)) {
-                        fallbackReason = result == null ? "" : result.getMsg();
-                    } else {
-                        if (result.getFlag().isEmpty()) result.setFlag(flag);
-                        result.setUrl(source.fetch(result, playerType));
-                        result.setHeader(site.getHeader());
-                        result.setKey(key);
-                        return result;
-                    }
-                } finally {
-                    SiteContext.endRequest();
+                // 播放前不重建环境：详情阶段已经把本站点的环境准备好，并算出了 {{…}} 变量
+                // 和写入字段；这里再 init 一遍会把这些打回原样，播放反而出错。
+                String playerContent = playerSpider.playerContent(flag, requestId, VodConfig.get().getFlags());
+                SpiderDebug.log("player", playerContent);
+                Result result = Result.fromJson(playerContent);
+                if (shouldFallbackPushSiteResult(key, result)) {
+                    fallbackReason = result == null ? "" : result.getMsg();
+                } else {
+                    if (result.getFlag().isEmpty()) result.setFlag(flag);
+                    result.setUrl(source.fetch(result, playerType));
+                    result.setHeader(site.getHeader());
+                    result.setKey(key);
+                    return result;
                 }
             } catch (Exception e) {
                 if (PUSH.equals(key)) fallbackReason = e.getMessage();
