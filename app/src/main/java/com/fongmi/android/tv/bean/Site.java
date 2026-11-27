@@ -399,6 +399,15 @@ public class Site implements Parcelable {
         return idx >= 0 ? raw.substring(idx + 1) : raw;
     }
 
+    /** iDuanJu 插件站点：key 形如 IDJ_&lt;id&gt;，由 IdjPluginStore 生成。 */
+    public boolean isIdjPlugin() {
+        return getKey().startsWith("IDJ_") && getKey().length() > 4;
+    }
+
+    public String getIdjPluginId() {
+        return isIdjPlugin() ? getKey().substring(4) : "";
+    }
+
     public String getFileType() {
         if (!isFile()) return "";
         String raw = getKey().substring(0, getKey().length() - 5);

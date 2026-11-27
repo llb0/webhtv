@@ -196,6 +196,32 @@ public final class IdjPluginStore {
         return result;
     }
 
+    /**
+     * 删除一个插件站点：连带删除 tvbox/idj/&lt;id&gt;/ 子目录，以及生成该 id 的 .idjplugin 包。
+     * <p>
+     * 包必须一起删：sync() 每次加载配置都会从包重装，只删目录会让站点下次加载时复活。
+     */
+    public static boolean delete(String id) {
+        if (TextUtils.isEmpty(id) || !ID.matcher(id).matches()) return false;
+        File dir = new File(root(), id);
+        boolean ok = deleteTree(dir);
+        File[] packages = root().listFiles((d, name) -> name.endsWith(SUFFIX));
+        if (packages != null) for (File file : packages) {
+            if (id.equals(idOf(readManifest(file))) && file.exists()) file.delete();
+        }
+        Module.get().clear();
+        return ok;
+    }
+
+    private static boolean deleteTree(File file) {
+        if (file == null || !file.exists()) return true;
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) for (File child : children) deleteTree(child);
+        }
+        return file.delete();
+    }
+
     /** 供未来的导入入口使用：把用户选择的 idjplugin 安装到 tvbox/idj 下。 */
     public static boolean importPackage(File file) {
         try {

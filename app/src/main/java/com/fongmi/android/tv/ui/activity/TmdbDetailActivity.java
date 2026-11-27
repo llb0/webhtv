@@ -3060,8 +3060,11 @@ public class TmdbDetailActivity extends PlaybackActivity implements TrackDialog.
 
     private void fallbackToOriginalDetail(Vod loadedVod, String reason) {
         if (isFinishing() || isDestroyed()) return;
-        SpiderDebug.log("tmdb-detail-flow", "fallback direct reason=%s key=%s id=%s", reason, getKeyText(), getIdText());
-        VideoActivity.startDirectResolved(this, loadedVod);
+        SpiderDebug.log("tmdb-detail-flow", "fallback native detail reason=%s key=%s id=%s", reason, getKeyText(), getIdText());
+        // 站源没有 TMDB 数据时不能交给「直放」页：直放只播不展示详情，用户点开后直接全屏，
+        // 返回还会因为没有详情可退回而直接退出。这里回落到原生详情页，详情先上屏，播放从详情里发起。
+        VideoActivity.start(this, getKeyText(), getIdText(), loadedVod.getName(), loadedVod.getPic(),
+                loadedVod.getRemarks(), loadedVod.getContent());
         finish();
     }
 
