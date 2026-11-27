@@ -85,15 +85,17 @@ public class SiteViewModel extends ViewModel {
                 if (cleared) return;
                 if (searchExecutor != null) {
                     snapshotLocked();
+                    int done = searchDone.get();
+                    int total = searchTotal;
                     pendingArmed = true;
                     stopSearchLocked();
                     // 已经搜到的结果留在原列表里不动，只有没出结果的源要重来。
-                    SpiderDebug.log("search", "paused by env hold site=%s done=%d/%d", siteKey, searchDone.get(), searchTotal);
+                    SpiderDebug.log("search", "paused by env hold site=%s done=%d/%d", siteKey, done, total);
                 } else if (pendingSearch != null) {
                     // 搜索页先退到后台（页面 onStop 已把它软挂起），紧接着进详情：这才接管这份挂起。
                     boolean fresh = System.currentTimeMillis() - pauseAt <= ADOPT_WINDOW_MS;
                     pendingArmed = fresh && !pendingSearch.sites.isEmpty();
-                    SpiderDebug.log("search", "hold adopts page pause site=%s armed=%s done=%d/%d", siteKey, pendingArmed, searchDone.get(), searchTotal);
+                    SpiderDebug.log("search", "hold adopts page pause site=%s armed=%s done=%d/%d", siteKey, pendingArmed, pendingSearch.done, pendingSearch.total);
                 } else {
                     SpiderDebug.log("search", "hold but no running search site=%s", siteKey);
                 }
@@ -447,10 +449,13 @@ public class SiteViewModel extends ViewModel {
         synchronized (searchLock) {
             if (cleared || searchExecutor == null) return;
             snapshotLocked();
+            int done = searchDone.get();
+            int total = searchTotal;
+            int pending = pendingSearch == null ? 0 : pendingSearch.sites.size();
             pauseAt = System.currentTimeMillis();
             pendingArmed = false;
             stopSearchLocked();
-            SpiderDebug.log("search", "paused by page done=%d/%d pending=%d", searchDone.get(), searchTotal, pendingSearch == null ? 0 : pendingSearch.sites.size());
+            SpiderDebug.log("search", "paused by page done=%d/%d pending=%d", done, total, pending);
         }
     }
 
