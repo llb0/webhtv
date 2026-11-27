@@ -23,8 +23,11 @@ import java.util.concurrent.TimeUnit;
  * 脚本解析失败、渲染结果为空。
  *
  * <p>所以环境按"独占一段"来管：从进详情开始就占住，直到播放真正起播才放手——
- * 这期间别的源的 init 全部排队等着，谁也不能改写环境；详情里已经算出来的变量
- * （{{…}} 缓存值、写入-* 字段）也就不会被重算打回原样。播放正常起来了，搜索再继续。
+ * 这期间别的源的 init 直接跳过（不排队、也不无锁硬跑），谁都不能改写环境；详情里已经
+ * 算出来的变量（{{…}} 缓存值、写入-* 字段）也就不会被重算打回原样。播放正常起来了，搜索再继续。
+ *
+ * <p>反过来，**不进详情的时候环境不上锁**：纯搜索、首页/分类刷新、换源时各源照旧并发 init，
+ * 互相覆盖是原有行为（跟影图一样），搜索本身不依赖静态环境，没必要为它排队。
  *
  * <p>独占用的是公平信号量而不是线程锁：占用的线程（详情）和放手的时机（播放器起播回调）
  * 不在同一个线程上，锁没法跨线程释放，信号量可以。
@@ -116,6 +119,17 @@ public final class SiteContext {
         holdStart = System.currentTimeMillis();
         SpiderDebug.log("site-context", "hold site=%s current=%s", site == null ? "" : site.getKey(), browsing);
         notifyHold(site == null ? "" : site.getKey());
+        initOwner(site, spider);
+    }
+
+    /**
+     * 环境不属于这个源时按它的 ext 重建。
+     *
+     * <p>进详情的顺序是「先占环境、再取 spider」：spider 第一次创建会 init，而 init 只有
+     * 占用线程自己的那次才被放行（见 {@link #enterInit}）。所以必须先 {@code beginRequest(site, null)}
+     * 占住，拿到 spider 之后再调这里补重建，否则会拿到被跳过的空 spider、详情直接空白。
+     */
+    public static void initOwner(Site site, Spider spider) {
         if (site == null || spider == null) return;
         if (TextUtils.equals(owner, site.getKey())) return;
         String was = owner;

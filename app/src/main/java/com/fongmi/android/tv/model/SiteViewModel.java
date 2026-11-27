@@ -36,8 +36,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 public class SiteViewModel extends ViewModel {
@@ -255,10 +259,12 @@ public class SiteViewModel extends ViewModel {
         int requestId = isolatedPlayerId.incrementAndGet();
         cancelIsolatedFuture();
         FluentFuture<Result> future;
+        TimedCall call;
         try {
-            future = FluentFuture.from(isolatedPlayerExecutor.submit(
-                    () -> SiteApi.playerContentIsolated(key, flag, id, playerType)))
-                    .withTimeout(Constant.TIMEOUT_VOD, TimeUnit.MILLISECONDS, Task.scheduler());
+            call = submitTimed(isolatedPlayerExecutor,
+                    () -> SiteApi.playerContentIsolated(key, flag, id, playerType),
+                    Constant.TIMEOUT_VOD, new AtomicLong(0));
+            future = call.future;
         } catch (RejectedExecutionException e) {
             // 与 onCleared() 的竞态窗口：执行器已终止，本次请求作废即可。
             return cancelledFuture();
@@ -273,7 +279,7 @@ public class SiteViewModel extends ViewModel {
                     clearIsolatedFuture(requestId, future);
                 }),
                 error -> {
-                    if (error instanceof CancellationException) return;
+                    if (error instanceof CancellationException && !call.timedOut.get()) return;
                     App.post(() -> {
                         if (!isCurrentIsolatedRequest(requestId, future)) return;
                         if (onError != null) onError.accept(error);
@@ -317,17 +323,18 @@ public class SiteViewModel extends ViewModel {
     }
 
     public void searchContent(Site site, String keyword, boolean quick, String page) {
-        long start = System.currentTimeMillis();
+        AtomicLong startedAt = new AtomicLong(System.currentTimeMillis());
         execute(TaskType.RESULT, result, SearchTask.create(site, keyword, quick, page),
-                result -> SiteHealthStore.recordSearch(site, true, result.getList().size(), System.currentTimeMillis() - start, ""),
-                error -> SiteHealthStore.recordSearch(site, false, 0, System.currentTimeMillis() - start, error.getMessage()));
+                result -> SiteHealthStore.recordSearch(site, true, result.getList().size(), System.currentTimeMillis() - startedAt.get(), ""),
+                error -> SiteHealthStore.recordSearch(site, false, 0, System.currentTimeMillis() - startedAt.get(), error.getMessage()),
+                startedAt);
     }
 
     public void searchContent(List<Site> sites, String keyword, boolean quick) {
         if (sites == null || sites.isEmpty()) return;
         if (SiteContext.isHeld()) {
-            // 环境正被详情/播放占着：现在派发只会让每个源在 init 里干等，最后被 30s 任务超时
-            // 结算掉（进度照样 +1，结果一条没有）。挂起来，等 release 再派剩下的源。
+            // 环境正被详情/播放占着：这时候 init 会被跳过，派下去只会白跑一趟、还给进度 +1。
+            // 挂起来，等 release 再派剩下的源。
             pendingSearch = new SearchRequest(sites, keyword, quick, 0, 0);
             SpiderDebug.log("search", "deferred env held keyword=%s sites=%d", keyword, sites.size());
             return;
@@ -344,6 +351,52 @@ public class SiteViewModel extends ViewModel {
             }
             dispatchLocked(tasks, keyword, quick, 0, tasks.size(), false);
         }
+    }
+
+    /**
+     * 一次带超时的提交。
+     *
+     * <p>{@code future} 是本任务的句柄；{@code timedOut} 记下"这次取消是超时打的，不是用户/换代取消"，
+     * 回调据此区分：超时要照常结算（记失败、进度 +1），换代取消才可以默默忽略。
+     */
+    private static final class TimedCall {
+        final FluentFuture<Result> future;
+        final AtomicBoolean timedOut;
+
+        private TimedCall(FluentFuture<Result> future, AtomicBoolean timedOut) {
+            this.future = future;
+            this.timedOut = timedOut;
+        }
+    }
+
+    /**
+     * 提交一个带超时的任务，超时从**任务真正开始执行**计时，不含入队等待。
+     *
+     * <p>线程池空闲时两者等价；一旦前面有别的任务占着线程（几个源同时卡在 init / 网络里），
+     * 排队时间不能记到后面这个任务头上，否则会得出"还没轮到它动手就已经超时"的错误结论，
+     * 日志、耗时统计和站点健康记录都会失真。
+     *
+     * <p>真正的计时起点写进 {@code startedAt}，调用方的 cost 日志与健康记录都用这个数。
+     */
+    private static TimedCall submitTimed(ListeningExecutorService executor, Callable<Result> callable, long timeoutMs, AtomicLong startedAt) {
+        AtomicReference<ListenableFuture<?>> self = new AtomicReference<>();
+        AtomicBoolean timedOut = new AtomicBoolean(false);
+        Callable<Result> timed = () -> {
+            startedAt.set(System.currentTimeMillis());
+            ScheduledFuture<?> watchdog = Task.scheduler().schedule(() -> {
+                timedOut.set(true);
+                ListenableFuture<?> future = self.get();
+                if (future != null) future.cancel(true);
+            }, timeoutMs, TimeUnit.MILLISECONDS);
+            try {
+                return callable.call();
+            } finally {
+                watchdog.cancel(false);
+            }
+        };
+        FluentFuture<Result> future = FluentFuture.from(executor.submit(timed));
+        self.set(future);
+        return new TimedCall(future, timedOut);
     }
 
     /**
@@ -365,27 +418,44 @@ public class SiteViewModel extends ViewModel {
         // shutdownNow() remains best-effort because the JVM cannot forcibly stop it.
         ListeningExecutorService executor = searchExecutor = Task.newSearchExecutor(Setting.getSearchThread());
         for (Site site : tasks) {
-            long start = System.currentTimeMillis();
-            FluentFuture<Result> future = FluentFuture.from(executor.submit(SearchTask.create(site, keyword, quick))).withTimeout(Constant.TIMEOUT_SEARCH, TimeUnit.MILLISECONDS, Task.scheduler());
+            AtomicLong startedAt = new AtomicLong(0);
+            TimedCall call;
+            try {
+                call = submitTimed(executor, SearchTask.create(site, keyword, quick), Constant.TIMEOUT_SEARCH, startedAt);
+            } catch (RejectedExecutionException e) {
+                // 与 onCleared()/换代 的竞态：执行器已终止，这个源按"没出结果"记账即可。
+                SpiderDebug.log("search", "source rejected site=%s", site.getName());
+                markSearchDone(epoch, site);
+                postSearchProgress(epoch);
+                continue;
+            }
+            FluentFuture<Result> future = call.future;
             searchFuture.add(future);
             future.addCallback(Task.callback(
                     result -> {
                         if (searchEpoch.get() != epoch) return;
                         int items = result == null || result.getList() == null ? 0 : result.getList().size();
-                        SiteHealthStore.recordSearch(site, true, items, System.currentTimeMillis() - start, "");
+                        long cost = System.currentTimeMillis() - startedAt.get();
+                        SiteHealthStore.recordSearch(site, true, items, cost, "");
                         // 进度是"源数"不是"条目数"：把每个源出了几条也记一笔，免得 60/60 看起来像 60 条内容。
-                        SpiderDebug.log("search", "source done site=%s items=%d cost=%sms", site.getName(), items, System.currentTimeMillis() - start);
+                        SpiderDebug.log("search", "source done site=%s items=%d cost=%sms", site.getName(), items, cost);
                         markSearchDone(epoch, site);
                         postSearchResult(epoch, result);
                         postSearchProgress(epoch);
                     },
                     error -> {
                         if (searchEpoch.get() != epoch) return;
-                        if (error instanceof CancellationException) return;
-                        SiteHealthStore.recordSearch(site, false, 0, System.currentTimeMillis() - start, error.getMessage());
+                        boolean timeout = call.timedOut.get();
+                        // 换代/用户取消：这批结果已经作废，静默丢弃。
+                        if (error instanceof CancellationException && !timeout) return;
+                        long cost = System.currentTimeMillis() - startedAt.get();
+                        SiteHealthStore.recordSearch(site, false, 0, cost, timeout ? "timeout" : error.getMessage());
+                        SpiderDebug.log("search", "source %s site=%s cost=%sms err=%s",
+                                timeout ? "timeout" : "fail", site.getName(), cost,
+                                timeout ? "-" : String.valueOf(error.getMessage()));
                         markSearchDone(epoch, site);
                         postSearchProgress(epoch);
-                        error.printStackTrace();
+                        if (!timeout) error.printStackTrace();
                     }
             ), MoreExecutors.directExecutor());
         }
@@ -404,6 +474,10 @@ public class SiteViewModel extends ViewModel {
     }
 
     private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError) {
+        execute(type, liveData, callable, onSuccess, onError, new AtomicLong(0));
+    }
+
+    private void execute(TaskType type, MutableLiveData<Result> liveData, Callable<Result> callable, Consumer<Result> onSuccess, Consumer<Throwable> onError, AtomicLong startedAt) {
         if (cleared) return;
         AtomicInteger taskId = Objects.requireNonNull(taskIds.get(type));
         int currentId = taskId.incrementAndGet();
@@ -411,8 +485,10 @@ public class SiteViewModel extends ViewModel {
         if (old != null) old.cancel(true);
         ListeningExecutorService executor = type == TaskType.PLAYER ? playerExecutor : Task.executor();
         FluentFuture<Result> future;
+        TimedCall call;
         try {
-            future = FluentFuture.from(executor.submit(callable)).withTimeout(Constant.TIMEOUT_VOD, TimeUnit.MILLISECONDS, Task.scheduler());
+            call = submitTimed(executor, callable, Constant.TIMEOUT_VOD, startedAt);
+            future = call.future;
         } catch (RejectedExecutionException e) {
             // 与 onCleared() 的竞态窗口：执行器已终止，本次请求作废即可。
             return;
@@ -433,7 +509,7 @@ public class SiteViewModel extends ViewModel {
                 },
                 error -> {
                     if (taskId.get() != currentId) return;
-                    if (error instanceof CancellationException) return;
+                    if (error instanceof CancellationException && !call.timedOut.get()) return;
                     Result failure = error instanceof ExtractException ? Result.error(error.getMessage()) : Result.empty();
                     if (type == TaskType.PLAYER) App.post(() -> {
                         if (taskId.get() != currentId) return;
