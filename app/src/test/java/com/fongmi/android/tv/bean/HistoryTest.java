@@ -136,6 +136,45 @@ public class HistoryTest {
                 PlayerSetting.NONE, history.getKernelForFlag("高清线路1"));
     }
 
+    @Test
+    public void isRealVodName_rejectsProgressPlaceholders() {
+        assertTrue(History.isRealVodName("庆余年"));
+        assertTrue(History.isRealVodName("第3集 上"));
+
+        assertFalse(History.isRealVodName(null));
+        assertFalse(History.isRealVodName("   "));
+        assertFalse(History.isRealVodName("第3集"));
+        assertFalse(History.isRealVodName("3话"));
+        assertFalse(History.isRealVodName("第 12 回"));
+        assertFalse(History.isRealVodName("https://v.example.com/ep12.m3u8"));
+        assertFalse(History.isRealVodName("file:///sdcard/ep12.mkv"));
+        assertFalse(History.isRealVodName("-"));
+        assertFalse(History.isRealVodName("null"));
+        assertFalse(History.isRealVodName("undefined"));
+    }
+
+    @Test
+    public void preferStableVodName_keepsRealNameAgainstPlaceholders() {
+        assertEquals("庆余年", History.preferStableVodName("庆余年", "第12集"));
+        assertEquals("庆余年", History.preferStableVodName("庆余年", "https://v.example.com/12.m3u8"));
+        assertEquals("庆余年", History.preferStableVodName("庆余年", ""));
+        assertEquals("庆余年", History.preferStableVodName("庆余年", null));
+        assertEquals("庆余年", History.preferStableVodName("庆余年", "undefined"));
+    }
+
+    /**
+     * 上游同函数在“真实标题 → 另一个真实标题”时会采用新值；本项目有意保留已落库的真实标题，
+     * 避免同一部剧换源时列表片名来回跳动，需要改名仍走 setVodName。
+     */
+    @Test
+    public void preferStableVodName_keepsExistingRealTitleAndFillsBlanks() {
+        assertEquals("庆余年", History.preferStableVodName("第12集", "庆余年"));
+        assertEquals("庆余年", History.preferStableVodName("庆余年", "庆余年 第二季"));
+        assertEquals("第3集", History.preferStableVodName("第2集", "第3集"));
+        assertEquals("", History.preferStableVodName(null, null));
+        assertEquals("新剧名", History.preferStableVodName(null, "新剧名"));
+    }
+
     private static History coverHistory() {
         History history = new History();
         history.setKey("test@@@cover");
