@@ -23,14 +23,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class RollingDiagnosticFile implements DiagnosticLogBuffer.Persistence {
     public static final String FILE_NAME = "webhtv-debug-log.txt";
     private final File directory;
+    private final File legacyDirectory;
     private final DiagnosticLogBuffer.Limits limits;
     private final AtomicBoolean exportLeased = new AtomicBoolean();
     private List<String> savedPins = List.of();
     private long bytes, rotations;
     private volatile long exportBytes;
 
-    public RollingDiagnosticFile(File directory, DiagnosticLogBuffer.Limits limits) { this.directory = directory; this.limits = limits; }
+    public RollingDiagnosticFile(File directory, DiagnosticLogBuffer.Limits limits) { this(directory, null, limits); }
+
+    /**
+     * @param legacyDirectory 旧版本存放时间线的目录（cacheDir）；仅用于一次性迁移，之后不再使用。
+     *                        时间线必须放在 filesDir，否则装新包/系统清缓存会把整段历史带走，
+     *                        "下载"就只能拿到当前这一轮。
+     */
+    public RollingDiagnosticFile(File directory, File legacyDirectory, DiagnosticLogBuffer.Limits limits) {
+        this.directory = directory;
+        this.legacyDirectory = legacyDirectory;
+        this.limits = limits;
+    }
     private File segment(int index) { return new File(directory, FILE_NAME + (index == 0 ? "" : "." + index)); }
+    private File legacySegment(int index) { return new File(legacyDirectory, FILE_NAME + (index == 0 ? "" : "." + index)); }
     private File pins() { return new File(directory, FILE_NAME + ".pinned"); }
     private File exportFile() { return new File(directory, FILE_NAME + ".export"); }
 
@@ -48,6 +61,7 @@ public final class RollingDiagnosticFile implements DiagnosticLogBuffer.Persiste
 
     @Override public List<String> restore(int maxBytes) throws IOException {
         ensureDirectory();
+        migrateLegacy();
         if (!exportLeased.get()) delete(exportFile());
         ArrayDeque<String> recent = new ArrayDeque<>();
         int[] cost = {0};
@@ -61,7 +75,59 @@ public final class RollingDiagnosticFile implements DiagnosticLogBuffer.Persiste
         if (pins().exists()) replace(pins(), oldPins);
         for (String line : oldPins) retain(recent, line, maxBytes, cost);
         updateBytes();
-        return new ArrayList<>(recent);
+        ArrayList<String> result = new ArrayList<>(recent);
+        // 启动自检：分段的真实体量与首行时间写进时间线，用来区分"环形轮转覆盖"和"目录被清"。
+        result.add(0, "# diag.restore " + inventory());
+        return result;
+    }
+
+    /**
+     * 把旧版本留在 cacheDir 的分段搬到 filesDir。只在目标不存在时搬，搬成功就删源，
+     * 所以升级那一次之后历史仍然连续，"下载"不会因为换目录而断掉一轮。
+     */
+    private void migrateLegacy() {
+        if (legacyDirectory == null || !legacyDirectory.isDirectory() || legacyDirectory.equals(directory)) return;
+        for (int i = 0; i < limits.segments(); i++) {
+            File source = legacySegment(i), target = segment(i);
+            if (!source.isFile() || target.exists()) continue;
+            try {
+                copy(source, target);
+                if (source.length() == target.length()) delete(source);
+            } catch (IOException | RuntimeException ignored) {
+                // 迁移失败不影响本次启动：旧目录还在，下次启动会再试。
+            }
+        }
+    }
+
+    /** minSdk 24：不用 java.nio.file，手工搬运。 */
+    private void copy(File source, File target) throws IOException {
+        try (InputStream input = new FileInputStream(source); OutputStream output = new FileOutputStream(target)) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) > 0) output.write(buffer, 0, read);
+        }
+    }
+
+    /** 各分段的存在性、字节数、首行时间；一行内写完，便于在下载里直接看到。 */
+    private String inventory() {
+        StringBuilder text = new StringBuilder("segments=").append(limits.segments()).append(" dir=").append(directory == null ? "none" : directory.getPath());
+        for (int i = limits.segments() - 1; i >= 0; i--) {
+            File file = segment(i);
+            text.append(" | .").append(i).append(file.isFile() ? "" : "(missing)").append(':').append(file.isFile() ? file.length() : 0L);
+            if (file.isFile()) text.append(':').append(firstLineTime(file));
+        }
+        return text.toString();
+    }
+
+    private String firstLineTime(File file) {
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line = reader.readLine();
+            if (line == null) return "empty";
+            String text = DiagnosticText.clean(line).text();
+            return text.length() > 40 ? text.substring(0, 40) : text;
+        } catch (IOException | RuntimeException error) {
+            return "unreadable";
+        }
     }
 
     private List<String> readSanitizedTail(File file, int budget) throws IOException {
@@ -147,7 +213,7 @@ public final class RollingDiagnosticFile implements DiagnosticLogBuffer.Persiste
             long count = 0;
             try (OutputStream file = new BufferedOutputStream(new FileOutputStream(report))) {
                 DigestOutputStream hashed = new DigestOutputStream(file, digest);
-                byte[] preamble = (header + "# Pinned snapshots and cached capture window (may also occur in timeline)\n" + String.join("\n", pinned) + "\n# Retained timeline\n").getBytes(StandardCharsets.UTF_8);
+                byte[] preamble = (header + "# Pinned snapshots and cached capture window (may also occur in timeline)\n" + String.join("\n", pinned) + "\n# diag.segments " + inventory() + "\n# Retained timeline\n").getBytes(StandardCharsets.UTF_8);
                 hashed.write(preamble); count += preamble.length;
                 byte[] buffer = new byte[8192];
                 for (int i = limits.segments() - 1; i >= 0; i--) {

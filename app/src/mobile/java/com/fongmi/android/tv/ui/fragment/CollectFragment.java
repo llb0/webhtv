@@ -42,6 +42,7 @@ import com.fongmi.android.tv.databinding.FragmentCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.setting.SiteSearchScope;
 import com.fongmi.android.tv.theme.ThemeController;
 import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.setting.SiteHealthStore;
@@ -255,7 +256,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class).init();
-        mViewModel.getSearch().observe(this, this::setCollect);
+        mViewModel.getSearchTick().observe(this, tick -> drainSearch());
         mViewModel.getSearchProgress().observe(this, this::setSearchProgress);
         mViewModel.getResult().observe(this, this::setSearch);
     }
@@ -266,7 +267,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         mSites = new ArrayList<>();
         List<Site> scopeSites = new ArrayList<>();
         for (Site site : VodConfig.get().getSites()) {
-            if (!site.isSearchable()) continue;
+            if (!SiteSearchScope.isSearchable(site)) continue;
             if (!TextUtils.isEmpty(siteKey) && !site.getKey().equals(siteKey)) continue;
             scopeSites.add(site);
             // 选了分组就只把该组的站发给 worker：以前是全部站都搜一遍、再按分组把结果藏起来，
@@ -391,6 +392,12 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         requireActivity().invalidateOptionsMenu();
     }
 
+    /** 收到"有新结果"的信号就把队列里攒下的全部取走：合并多少次信号都不会漏结果。 */
+    private void drainSearch() {
+        if (mViewModel == null) return;
+        for (Result result : mViewModel.drainSearchBacklog()) setCollect(result);
+    }
+
     private void setCollect(Result result) {
         if (result == null || result.getList().isEmpty()) return;
         String activeSiteKey = getActiveSiteKey();
@@ -503,6 +510,9 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
             else FolderActivity.start(requireActivity(), item.getSiteKey(), Result.folder(item));
             return;
         }
+        // 进详情之前先把搜索按住：搜索不停，jar 的线程池就被别的源占着，本源算不出请求头里的变量，
+        // 详情只能拿到 45x；环境也会被并发改写。回到搜索界面时 onResume 会把没出结果的源接着发起。
+        if (mViewModel != null) mViewModel.haltSearch();
         String pic = item.getPic().isEmpty() ? getPic() : item.getPic();
         if (isHistoryResume()) HistoryResumeCoordinator.openSelected(requireActivity(), getHistoryResumeCid(), getHistoryResumeKey(), getHistoryResumeTargetCid(), item);
         else VideoActivity.collect(requireActivity(), item.getSiteKey(), item.getId(), item.getName(), pic, getWallPic(), getKeyword());
@@ -800,8 +810,18 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     @Override
     public void onHiddenChanged(boolean hidden) {
-        if (hidden) requireActivity().removeMenuProvider(this);
-        else initMenu();
+        if (hidden) {
+            requireActivity().removeMenuProvider(this);
+        } else initMenu();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // 回到搜索界面：把进详情时按住的搜索接着跑——没出结果的源重新发起，已出结果的不重搜，
+        // 进度接着暂停时的计数走。然后再把后台期间攒下的结果按序补上。
+        if (mViewModel != null) mViewModel.continueSearch();
+        drainSearch();
     }
 
     @Override

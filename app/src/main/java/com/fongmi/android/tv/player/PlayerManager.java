@@ -8957,6 +8957,7 @@ public void resetTrack(int type) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log("player", "state=%s spec=%s", stateName(state), debugSpec());
             publishPlaybackAutoContext(state != Player.STATE_IDLE);
             if (state == Player.STATE_READY) {
+                // 起播成功。环境不再靠锁独占（进详情时搜索已经停掉），这里不需要放手动作。
                 rememberDuration();
                 cancelBufferingStallWatchdog();
                 completeMpvDirectFirstFrame(state);

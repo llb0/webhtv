@@ -254,7 +254,20 @@ public class JarLoader {
                 }
                 Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
                 spider.siteKey = key;
-                spider.init(App.get(), ext);
+                // 一次 init 会改写该 jar 内部的共享状态。这里不排队也不等谁：正常并发 init。
+                // 只是进详情前会等"正在写的 init"落完（SiteContext.awaitQuiescent），免得详情刚
+                // 重建好的环境又被一个还没返回的 init 覆盖。
+                // 唯一不进的条件是任务已被取消（线程被中断）：被打断的派发不该再写一遍环境。
+                boolean envFree = SiteContext.enterInit(key);
+                if (!envFree || Thread.currentThread().isInterrupted()) {
+                    SpiderDebug.log("jar-loader", "spider init skipped site=%s api=%s jar=%s interrupted=true", key, api, jaKey);
+                    return new SpiderNull();
+                }
+                try {
+                    spider.init(App.get(), ext);
+                } finally {
+                    SiteContext.exitInit(key);
+                }
                 SpiderDebug.log("jar-loader", "spider init done site=%s api=%s jar=%s class=%s cost=%sms", key, api, jaKey, spider.getClass().getName(), System.currentTimeMillis() - start);
                 return spider;
             } catch (Throwable e) {
@@ -265,6 +278,31 @@ public class JarLoader {
                 return new SpiderNull();
             }
         });
+    }
+
+    /**
+     * 丢掉该站当前实例，重新创建一份（新实例 = 一次新的 init）。
+     *
+     * <p>为什么要换实例而不是在原实例上再 init 一次：jar 里有两份状态跟着 init 走——
+     * <ul>
+     *   <li>实例自己的 {@code rule}：原实例上再 init 会把它从站点配置重建，运行中算出来并写进
+     *       去的变量（{@code sign}、{@code client}）一起没了；</li>
+     *   <li>实例自己的变量缓存（{@code variableCache} 这类字段）：init 不重置它，于是下一次
+     *       预加载命中旧缓存直接返回，既不重新抓取也不再写入，值永远补不回来。</li>
+     * </ul>
+     * 换一个新实例，两者都是全新的；同时那次 init 会把 jar 里的"当前规则"切到本站，
+     * WebView 渲染回调（{@code [JavaBridge] 调用函数-js交互} 读静态的规则）才会读到本站的值。
+     * 旧实例直接丢弃，不在进详情这条路径上 destroy（搜索已停，这里没有别的线程在用它）。
+     */
+    public Spider recreateSpider(String namespace, String key, String api, String ext, String jar) {
+        try {
+            String spKey = Util.md5(jar) + BaseLoader.slot(namespace, key);
+            Spider removed = spiders.remove(spKey);
+            SpiderDebug.log("jar-loader", "spider recreate site=%s api=%s was=%s", key, api, removed == null ? "none" : removed.getClass().getName());
+        } catch (Throwable e) {
+            SpiderDebug.log("jar-loader", "spider recreate error site=%s api=%s error=%s", key, api, error(e));
+        }
+        return getSpider(namespace, key, api, ext, jar);
     }
 
     Spider getOrCreateSpider(String key, Supplier<Spider> factory) {
@@ -283,10 +321,14 @@ public class JarLoader {
                 if (Thread.currentThread().isInterrupted()) break;
                 created = factory.get();
                 if (created != null && !(created instanceof SpiderNull)) {
+                    // 被取消的初始化不能进缓存：init 可能只写了一半的静态环境，
+                    // 缓存下来这份残废实例会给后面每一次搜索都返回空结果。
+                    if (Thread.currentThread().isInterrupted()) {
+                        SpiderDebug.log("jar-loader", "spider init completed after cancel, discard key=%s", key);
+                        return new SpiderNull();
+                    }
                     spiders.put(key, created);
-                    if (!Thread.currentThread().isInterrupted()) return created;
-                    SpiderDebug.log("jar-loader", "spider init completed after cancel key=%s", key);
-                    return new SpiderNull();
+                    return created;
                 }
                 if (Thread.currentThread().isInterrupted() || attempt == SPIDER_INIT_ATTEMPTS) break;
                 SpiderDebug.log("jar-loader", "spider init retry key=%s attempt=%s", key, attempt + 1);

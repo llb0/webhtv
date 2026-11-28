@@ -40,6 +40,7 @@ import com.fongmi.android.tv.databinding.ActivityCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.setting.Setting;
+import com.fongmi.android.tv.setting.SiteSearchScope;
 import com.fongmi.android.tv.setting.SiteGroupOrderStore;
 import com.fongmi.android.tv.setting.SiteHealthStore;
 import com.fongmi.android.tv.ui.adapter.CollectAdapter;
@@ -322,7 +323,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
 
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class).init();
-        mViewModel.getSearch().observe(this, this::setCollect);
+        mViewModel.getSearchTick().observe(this, tick -> drainSearch());
         mViewModel.getSearchProgress().observe(this, this::setSearchProgress);
         mViewModel.getResult().observe(this, this::setSearch);
     }
@@ -348,7 +349,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         mSites = new ArrayList<>();
         List<Site> scopeSites = new ArrayList<>();
         for (Site site : VodConfig.get().getSites()) {
-            if (!site.isSearchable()) continue;
+            if (!SiteSearchScope.isSearchable(site)) continue;
             if (!siteKey.isEmpty() && !site.getKey().equals(siteKey)) continue;
             scopeSites.add(site);
             // 选了分组就只把该组的站发给 worker，别再全站搜一轮。
@@ -704,8 +705,19 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
         return (int) (getItemWidth(count) / SEARCH_CARD_RATIO);
     }
 
+    /** 收到"有新结果"的信号就把队列里攒下的全部取走：合并多少次信号都不会漏结果。 */
+    private void drainSearch() {
+        if (mViewModel == null) return;
+        for (Result result : mViewModel.drainSearchBacklog()) setCollect(result);
+    }
+
     private void setCollect(Result result) {
-        if (mLeavingForPlayback || result == null || result.getList().isEmpty()) return;
+        if (result == null || result.getList().isEmpty()) return;
+        // 去播放途中不刷列表，但结果不能丢：留在队列里，回到前台再用 drainSearch 补。
+        if (mLeavingForPlayback) {
+            mViewModel.restoreSearchResult(result);
+            return;
+        }
         mPaging.recordInitial(result.getVod().getSiteKey(), result.getPageCount(), SearchPageState.pageToken(result.getList()));
         applySearchResult(result);
     }
@@ -1104,6 +1116,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
     protected void onResume() {
         super.onResume();
         mLeavingForPlayback = false;
+        drainSearch();
         if (canLoadImage()) Glide.with(this).resumeRequests();
     }
 

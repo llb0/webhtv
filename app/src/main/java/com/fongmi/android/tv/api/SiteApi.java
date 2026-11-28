@@ -32,6 +32,7 @@ import com.fongmi.android.tv.utils.Sniffer;
 import com.fongmi.android.tv.utils.VodDetailCache;
 import com.fongmi.android.tv.web.WebHomeInlineVodStore;
 import com.github.catvod.crawler.Spider;
+import com.github.catvod.crawler.SpiderNull;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Prefers;
@@ -54,6 +55,8 @@ import okhttp3.Response;
 public class SiteApi {
 
     public static final String PUSH = "push_agent";
+    /** 进详情前等在跑的 init 落完的上限，见 {@link SiteContext#awaitQuiescent}。 */
+    private static final long DETAIL_QUIET_TIMEOUT_MS = 900L;
 
     public static String call(@NonNull Site site, @NonNull ArrayMap<String, String> params) throws IOException {
         if (!site.getExt().isEmpty()) params.put("extend", site.getExt());
@@ -95,6 +98,7 @@ public class SiteApi {
             Prefers.put("crash", false);
             SpiderDebug.log("home", home);
             SpiderDebug.log("homeVideo", video);
+            SiteContext.markWarm(site);
             Result result = Result.fromJson(home);
             List<Vod> list = Result.fromJson(video).getList();
             if (!list.isEmpty()) result.setList(list);
@@ -139,7 +143,12 @@ public class SiteApi {
         Site site = VodConfig.get().getSite(key);
         SiteContext.markBrowse(site);
         if (isSpider(site)) {
-            String categoryContent = site.recent().spider().categoryContent(tid, page, filter, extend);
+            Spider categorySpider = site.recent().spider();
+            // 分类不拿锁、不排队，但必须确认当前环境就是这个源的：搜索会把别的源 init 上来，
+            // 回来刷新分类时若直接复用"最近实例"，读到的可能是别人的环境（XBPQ 这类把状态放静态字段的 jar）。
+            SiteContext.ensureOwner(site, categorySpider);
+            String categoryContent = categorySpider.categoryContent(tid, page, filter, extend);
+            SiteContext.markWarm(site);
             SpiderDebug.log("category", categoryContent);
             return Result.fromJson(categoryContent);
         } else {
@@ -153,6 +162,51 @@ public class SiteApi {
             SpiderDebug.log("category", categoryContent);
             return Result.fromType(site.getType(), categoryContent);
         }
+    }
+
+    /**
+     * 进详情前的预热：只在该源"这次 init 之后还没跑过任何真实请求"时执行。
+     *
+     * <p>为什么需要它：XBPQ 这类源的请求头是 {@code web-sign${{sign}}#X-Client${{client}}}，
+     * {@code sign}/{@code client} 不是常量，而是规则里"变量预加载"临时拉站点 JS 算出来、再
+     * 写入规则的值。搜索会把环境 init 成别的源（静态实例的 jar 尤其），回到本源进详情时壳要
+     * 先 init 一次，规则随之重建、写入的变量一起没了。详情是这条链上的**第一个**请求，规则
+     * 来不及重算就把字面 {@code {{sign}}} 发出去，站点直接回 45x（见 3Qpc 的 458/457）。
+     *
+     * <p>预热先按该源自己的规则跑一次只读的首页，让它的规则链走一遍。但首页不一定够：有的源
+     * {@code homeContent} 走"分类数据直出"提前返回（日志里 3Qpc 的 {@code preheat ok,size=683} 就是
+     * 这一种），"变量预加载"没被执行，变量仍是空的。真正要解决的是"为什么会走到这个分支"，
+     * 而不是在这里补一次搜索：见 SiteContext.initOwner 的说明。
+     *
+     * <p>失败不阻断详情：预热只为把变量算出来，站点不给首页就当冷启动照旧发详情，由它自己报错。
+     */
+    private static void preheatIfCold(@NonNull Site site, @NonNull Spider spider) {
+        preheatIfCold(site, spider, false);
+    }
+
+    private static void preheatIfCold(@NonNull Site site, @NonNull Spider spider, boolean force) {
+        if (!force && SiteContext.isWarm(site)) return;
+        long start = System.currentTimeMillis();
+        try {
+            String home = spider.homeContent(true);
+            SpiderDebug.log("preheat", "site=%s,mode=home,ok,cost=%dms,size=%d,body=%s" , site.getKey(), System.currentTimeMillis() - start, home == null ? 0 : home.length(), clip(home));
+        } catch (Throwable e) {
+            SpiderDebug.log("preheat", "site=%s,mode=home,error=%s,cost=%dms", site.getKey(), e, System.currentTimeMillis() - start);
+        }
+    }
+
+    private static String clip(String text) {
+        if (text == null) return "";
+        String one = text.replace("\n", " ").replace("\r", " ");
+        return one.length() > 60 ? one.substring(0, 60) : one;
+    }
+
+    /** spider 详情返回体 → Result，顺带打日志（凭证字段先行剥离，避免落日志）。 */
+    @NonNull
+    private static Result parseSpiderDetail(String detailContent) {
+        TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
+        SpiderDebug.log("detail", ingress.getSanitizedJson());
+        return Result.fromJson(ingress.getSanitizedJson());
     }
 
     @NonNull
@@ -186,12 +240,34 @@ public class SiteApi {
         // 那是个副作用，缓存会吞掉它，见 cacheDetail 的说明。
         long beforeSpider = System.currentTimeMillis();
         if (isSpider(site)) {
-            Spider detailSpider = site.recent().spider();
-            SiteContext.prepare(site, detailSpider);
+            // 环境独占不靠锁，靠调度：进详情之前搜索已经真的停了（见 SiteViewModel.haltSearch），
+            // 这段没有别的源在跑，环境只属于本源。这里只确认归属，不是本源就按它的 ext 重建一次。
+            // 搜索已经停了，但在跑的 init 可能还在写环境（中断不了它）。等它们落完再重建本源环境，
+            // 否则详情刚建好的环境会被它最后写一次覆盖，变量又没了。
+            SiteContext.awaitQuiescent(DETAIL_QUIET_TIMEOUT_MS);
+            // 环境不是本源的，就换一个新实例（不是在原实例上再 init）：原实例再 init 会把它的规则
+            // 重建、把写进去的 sign/client 冲掉，而它的变量缓存不清，预加载命中缓存后不再重算。
+            boolean fresh = SiteContext.needsRebuild(site);
+            Spider detailSpider = fresh ? site.recreateSpider() : site.recent().spider();
+            if (detailSpider instanceof SpiderNull && fresh) {
+                SpiderDebug.log("detail", "fresh spider unavailable, fallback key=%s", key);
+                fresh = false;
+                detailSpider = site.recent().spider();
+            }
+            SiteContext.initOwner(site, detailSpider);
+            // fresh 时即使该源之前跑成功过也要预热：新实例的变量是空的，必须有一次 home 让 jar
+            // 执行 xbpqIni 把"变量预加载"线程点着。
+            preheatIfCold(site, detailSpider, fresh);
             String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
-            TmdbSourceCredentialIngress.Ingress ingress = TmdbSourceCredentialIngress.extractRootAndStrip(detailContent);
-            SpiderDebug.log("detail", ingress.getSanitizedJson());
-            result = Result.fromJson(ingress.getSanitizedJson());
+            result = parseSpiderDetail(detailContent);
+            if (fresh && result.getList().isEmpty()) {
+                // 新实例的预加载是异步的（首访实测约 1s），第一次详情发出去时 sign 可能还没写回来。
+                // 第二次不再重建，等它算完的通常就是这一次请求的时间。
+                SpiderDebug.log("detail", "fresh retry key=%s,id=%s", key, id);
+                detailContent = detailSpider.detailContent(Arrays.asList(requestId));
+                result = parseSpiderDetail(detailContent);
+            }
+            if (!result.getList().isEmpty()) SiteContext.markWarm(site);
         } else {
             ArrayMap<String, String> params = new ArrayMap<>();
             params.put("ac", ac(site.getType()));
@@ -317,7 +393,8 @@ public class SiteApi {
             String fallbackReason;
             try {
                 Spider playerSpider = site.recent().spider();
-                SiteContext.prepare(site, playerSpider);
+                // 播放前不重建环境：详情阶段已经把本站点的环境准备好，并算出了 {{…}} 变量
+                // 和写入字段；这里再 init 一遍会把这些打回原样，播放反而出错。
                 String playerContent = playerSpider.playerContent(flag, requestId, VodConfig.get().getFlags());
                 SpiderDebug.log("player", playerContent);
                 Result result = Result.fromJson(playerContent);
@@ -544,11 +621,22 @@ public class SiteApi {
     }
 
     @NonNull
+    /**
+     * 搜索前的必要前置：把该源的 spider 建好并按它自己的 ext 初始化。
+     *
+     * <p>这一步会为环境排队，属于"必不可少的逻辑"；搜索任务的时间预算从它完成之后才开始算，
+     * 所以排队多久都不算超时，只有初始化本身失败才会被结算成这个源没结果。
+     */
+    public static void prepareSpider(@NonNull Site site) {
+        if (isSpider(site)) site.recent().spider();
+    }
+
     public static Result searchContent(@NonNull Site site, @NonNull String keyword, boolean quick, @NonNull String page) throws Exception {
         SpiderDebug.log("search", "site=%s,keyword=%s,quick=%s,page=%s", site.getName(), keyword, quick, page);
         boolean hasPage = !page.equals("1");
         if (isSpider(site)) {
             String searchContent = hasPage ? site.spider().searchContent(keyword, quick, page) : site.spider().searchContent(keyword, quick);
+            SiteContext.markWarm(site);
             SpiderDebug.log("search", searchContent);
             Result result = Result.fromJson(searchContent);
             for (Vod vod : result.getList()) vod.setSite(site);

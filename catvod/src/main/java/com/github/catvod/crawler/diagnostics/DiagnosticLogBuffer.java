@@ -95,6 +95,8 @@ public final class DiagnosticLogBuffer implements AutoCloseable {
     private Thread writer;
     private volatile boolean enabled;
     private boolean stopped, clearPending, restorePending, restoredHistory;
+    /** 本进程是否已经做过一次恢复；由写线程置位、启动路径读取。 */
+    private volatile boolean restoredOnce;
     private int queueBytes, memoryBytes, pinnedBytes, highWatermark;
     private volatile long generation = 1;
     private long sequence, version, droppedNormal, droppedCritical, evictedMemory, evictedPinned;
@@ -118,13 +120,16 @@ public final class DiagnosticLogBuffer implements AutoCloseable {
             if (!enabled) {
                 enabled = true;
                 capturedAtNanos = clock.monotonicNanos();
-                if (restore && writer == null) restorePending = true;
-                else clearLocked();
-                if (writer == null) {
-                    writer = new Thread(this::runWriter, "webhtv-diagnostic-writer");
-                    writer.setDaemon(true);
-                    writer.start();
-                }
+                if (!restore) clearLocked();
+            }
+            // 恢复只在每个进程做一次。原先写成"writer 还没起才恢复"，一旦启动早期已有日志先
+            // 把 writer 拉起来，后面的 restoreEnabled() 就静默跳过恢复：磁盘上历史还在，页面却
+            // 看着像"重启就没了"。改成由 restoredOnce 记账，与 writer 是否已启动无关。
+            if (restore && !restoredOnce) restorePending = true;
+            if (writer == null) {
+                writer = new Thread(this::runWriter, "webhtv-diagnostic-writer");
+                writer.setDaemon(true);
+                writer.start();
             }
             lock.notifyAll();
         }
@@ -141,6 +146,7 @@ public final class DiagnosticLogBuffer implements AutoCloseable {
         lastFlushedSeq = lastProcessedSeq = 0;
         capturedAtNanos = clock.monotonicNanos();
         restoredHistory = restorePending = false;
+        restoredOnce = false;
         lastWriteError = "none";
         clearPending = true;
         if (exportRequest != null) { exportRequest.future.cancel(false); exportRequest = null; }
@@ -427,6 +433,7 @@ public final class DiagnosticLogBuffer implements AutoCloseable {
                 if (clear) persistence.clear();
                 if (restore) {
                     List<String> history = persistence.restore(limits.memoryBytes);
+                    restoredOnce = true;
                     synchronized (lock) {
                         if (epoch == generation && enabled) {
                             restoredHistory = !history.isEmpty();
