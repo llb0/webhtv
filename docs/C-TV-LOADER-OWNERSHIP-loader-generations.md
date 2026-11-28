@@ -58,3 +58,51 @@
 - Lead 复核：`BaseLoader`、`Module`、Python/Cat、依赖、JNI 均未修改；现有 50 项 LRU 与查找规则保持；独立双参 Spider 仍使用兼容的共享缓存路径，而经 Loader 创建的 Spider 不再访问它。
 
 **QuickJS recovery anchor：** 缓存归属子项达成双端验收；以守卫提交和本地恢复标签为交付点。唯一后续候选：增加 JS owner 退役与迟到发布门控，再让 BaseLoader 交换实例；本阶段不包含该行为。
+
+## QuickJS 子项：JS loader 退役与换代
+
+基线：`dev2@e8f941a8b52b4b58b32b2b186cbd6add40978fdb`，工作树干净；用户继续上一阶段明确列出的 JS 换代。生产范围：`BaseLoader`、`JsLoader`；`SpiderInit` 仅提取已有失败回收，Python 的 map/重试路径保持。保留 App 公开调用参数、命名空间、recent 和代理语义；不改变 Python、Cat、QuickJS/JNI、依赖和播放器。不开 PR，不推送。
+
+| 等级 | 核对证据（2026-11-28，UTC+8） | 取舍与局限 |
+| --- | --- | --- |
+| A | 本仓 `JsLoader.clear/getSpider/proxy`、`SpiderInit.load`、`BaseLoader.clear/awaitClear/dex/activePluginKeys`；[OpenJDK 21 ConcurrentHashMap](https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java) 的 `clear` 与 `computeIfAbsent` | 当前同一 map 上的清理与初始化可能争用 bin 监视器；clear 前遍历销毁还看不到未发布的实例。JS 换代不能把旧 Jar 查找接到新的全局指针；缓存整理应保留队列中尚未销毁的活动脚本。 |
+| A | [FongMi/TV 8b499e0972b93f6173eac0e0414485c6b894294a](https://github.com/FongMi/TV/commit/8b499e0972b93f6173eac0e0414485c6b894294a.patch) 与[冻结树 SpiderLoader](https://github.com/FongMi/TV/blob/4512b4c9f82534ff66acfde06ccdd68f35b074f0/app/src/main/java/com/fongmi/android/tv/api/loader/SpiderLoader.java#L42) | 借鉴先标记关闭、按 key 协调初始化、短锁发布和关闭后销毁未采用实例。上游 FutureTask.cancel 的中断/失败共享不直接照搬，保留本地失败重试和串行清理。相关后续、成熟实现和取消语义见前两子项；无适用的独立算法、设备性能或二进制升级研究。 |
+| A | 本机锁定 `wrapper-android 3.2.3` 的 `javap`：`QuickJSLoader.init` 只调用 `System.loadLibrary`；`quickjs.crawler.Loader` 本地 Java 代码 | 新 loader 构造在清理队列锁外；不新增 native 上下文或线程。Java/JNI 行为改动以实际设备验收为准，本阶段不宣称测过设备。 |
+
+**取舍：** 不改会留下清理阻塞与漏回收；直接移植上游会更改运行时构造、等待/失败合同。窄适配：BaseLoader 在入队时一起退役并替换 Jar/JS 指针，旧 JS 仍走原串行队列；每个生产 JS owner 固定自身的 Jar 解引用。JS 初始化在同槽互斥下、但不持 owner 或缓存清理锁执行，经同一短锁检查退役/发布；退役后才完成的实例只销毁一次。销毁期间仍保留旧活动 key，namespaced recent/代理只接受当前实例。不会强行中断脚本或已经进入代理的调用。
+
+**验收/回滚：** 屏障暂停旧 init，旧队列释毕、新世代同 key 可用，放行 A 得 SpiderNull 且只销毁一次；另阻塞已缓存实例的销毁，验证切换立即可见、旧 key 在清理期间被保护、清理结束后新实例与代理不被误删。保留同槽成功复用、失败重试、旧 QuickJS 缓存回归及双端相关测试；一次守卫提交/标签，`git revert` 可回滚，无数据迁移。
+
+**红灯：** Leanback 本次报告（Gradle exit 1）新增屏障 2/2 失败，分别是旧初始化仍悬挂时 clear Future 超时，以及旧 destroy 悬挂时 owner 没有换代；两条均为业务断言。
+
+**验证与复核：** 两条屏障由红转绿：旧 JS 初始化未释放时，原队列已经完成该次清理，新世代同槽可以加载；旧初始化随后完成，只销毁一次并返回 SpiderNull。旧缓存实例的 destroy 未释放时，新 owner 也已可用，旧 owner 不再提供 cached Spider/recent 代理，活跃文件键仍由 BaseLoader 保护直到旧清理结束。新键、代理及缓存保持可用。
+
+- ARM64 Debug 定向测试 Gradle exit 0，Leanback **83/83**（16 类），Mobile **49/49**（11 类），XML 为本次运行（2026-11-28T02:15:07Z），无失败或跳过。Leanback 含两条新屏障、QuickJS 缓存隔离、JS/Python 失败诊断 11 项与代理兼容/消费者 20 项。Windows JVM 临时关闭 Conscrypt，不改运行时或断言。
+- 锁与范围：同 key 初始化互斥，临时槽在最后一个调用退出时释放，不持 owner 状态锁运行脚本或销毁；销毁/发布所有权随退役检查互斥。生产创建的 JS loader 只引用同代 Jar；串行队列、awaitClear、Py/Cat 清理顺序及失败回收行为不变。无真实站源/真机 JNI 验证；已进入插件的调用不会被强制中断。
+
+**JS 换代 recovery anchor：** JS 子项达成双端验收，以守卫提交和本地恢复标签为交付点。唯一后续候选：先勘察 Python 进程级运行时、模块和取消的归属，再决定是否单独隔离，不复用 JS 换代假设。
+
+## Python 子项：入口模块按实例隔离
+
+基线：`dev2@3520db51ebf55167e02e733bf8d029b957c50587`，工作树干净。上一轮明确建议的 Python 入口子项，本轮不切换 PyLoader、不停止或重启 Python、不改依赖的导入和下载。产出只本地提交。
+
+| 等级 | 核对证据（2026-11-28，UTC+8） | 适配与限制 |
+| --- | --- | --- |
+| A | 本仓 `Loader.spider/source/scriptName`、`Spider.destroy`、`app.spider/destroy`、`base/spider.py` 的普通依赖加载、`PythonSubtitleScriptRuntime`；同一实际桥接在 CPython 3.10.11 与 emulator-5556 / Chaquopy 3.10.19 的基线 | 同源两个对象共用模块字典；加载失败可污染活跃实例。设备基线还验证 Java Future.cancel 后已进入 Python 的调用会继续，本子项不改取消。保留按源命名的缓存、脚本位置和离线回退。 |
+| A | [CPython 3.10.19 importlib 源码](https://github.com/python/cpython/blob/v3.10.19/Lib/importlib/_bootstrap.py)（`_load_unlocked`）、[Python 3.10 import 参考](https://docs.python.org/3.10/reference/import.html#the-module-cache) | 建 spec/module、执行前注册，失败时回收；采用同样语义，但用本次已获取的源码避免回读共享磁盘文件。模块名变化是隔离所需；保留 __file__/__spec__ 和正常入口内导入。 |
+| A | [Chaquopy PyObject.close 文档](https://chaquo.com/chaquopy/doc/current/java/com/chaquo/python/PyObject.html#close()) | 同一 Python 对象的 Java 代理可能共享。Java 只关闭内部一次性返回元组，不强行关闭共享 app 或可能仍在调用的 Spider 代理。回收职责是入口 sys.modules 登记，不是进程 unload。 |
+| B | [FongMi/TV 8b499e0972b93f6173eac0e0414485c6b894294a](https://github.com/FongMi/TV/commit/8b499e0972b93f6173eac0e0414485c6b894294a.patch)，见前几子项的精确上游和后续评估 | 上游换代仅提供退役设计先例，不能代替 WebHTV Chaquopy 入口隔离。不移植新 runtime，不做进程、GIL 或普通依赖隔离。没有新增算法或性能/二进制主张，不需独立论文或设备矩阵。 |
+
+**取舍与实施：** 保持原样会让同源模块被就地重执行；直接换 loader 不能分离 Python 字典，按站源分解释器或全局清缓存会改生产契约。只调整 `Loader` ↔ `app.spider` 私有返回协议：每次入口建立新 module，Java 保留具体登记对象；执行/创建失败或销毁时只按身份移除该登记，其他实例不受影响。保持 Java 入口签名、脚本方法和原路径缓存及副作用时序，除入口执行不再回读共享缓存外不动磁盘逻辑。旧包与新包无需数据迁移，一个提交可 `git revert`。
+
+**验收：** CPython 3.10 同源计数、执行/实例创建失败、销毁与异常、注册身份、原绑定路径和相同源文件写入交错；双端 Android Java 编译与 loader/字幕相关回归。用 5556 隔离包走实际视频和字幕消费者，不覆盖已有安装。台账链接不变。
+
+**红灯：** 主机 CPython 3.10.11 对旧版运行 6 项，5 项因同源重置、失败污染、构造或销毁后残留、共享文件回读而失败；替代登记对照通过。
+
+**验证与复核：** 同源两实例保留同一 Python 缓存文件路径，但拥有不同的已注册入口模块。失败执行或构造只撤回本次登记；正常销毁或销毁异常都不删其他模块。注入共享文件替换后，仍执行本次已取得的源码；保留 Python 标准 module spec、脚本位置与普通依赖导入。
+
+- CPython 3.10.11：6 项新归属回归全绿，Python 全组 **55/55**。Windows 首轮在完全未修改的并发文件写入用例遇到文件占用；以持有目标文件的句柄做 A/B 对照，旧版与候选版均为 `WinError 5`，均保全旧字节，完整复跑通过，未修改写入或失败断言。
+- ARM64 Debug：构建 exit 0，Leanback loader **63/63**、Mobile **49/49**，本次 XML 无失败或跳过。`emulator-5556`（API 28、ARM64 转译）设备 **2/2** 通过（2.076s）：真实视频 PyLoader 与字幕 runtime 同源计数及销毁隔离，失败加载不改活跃入口和登记数。两个隔离包已卸载，原有三个包路径和普通 APK 输出保持不变。日志：`F:/temp/webhtv-python-entry-5556-0gVVVJ/device.log`。
+- Lead 复核：仅内部 Python 返回值保留模块归属，Java 既有 Spider 构造保留。缓存、离线下载路径和运行时启动不变。不处理第三方普通依赖的全局共享，不加 PyLoader 换代或强制中断，也无真机或外部站源播放结论。
+
+**Python 入口 recovery anchor：** 本子项达成主机、双端和 5556 验收，以守卫提交与本地恢复标签为交付点。唯一后续候选：用屏障验证 PyLoader 退役挡住迟到发布，不依赖中断 CPython。
