@@ -57,7 +57,7 @@
             android:exported="false"
             android:launchMode="singleTop" />
 
-        <!-- 只读追剧日历：由追更页以 Activity Result 打开，身份交回原页定位。 -->
+        <!-- 只读追剧日历：由追更页直接启动，点某集续播或打开详情，不再回传身份。 -->
         <activity
             android:name=".ui.activity.FollowingCalendarActivity"
             android:exported="false"
