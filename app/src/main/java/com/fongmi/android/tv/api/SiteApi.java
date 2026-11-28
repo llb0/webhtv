@@ -189,7 +189,7 @@ public class SiteApi {
         long start = System.currentTimeMillis();
         try {
             String home = spider.homeContent(true);
-            SpiderDebug.log("preheat", "site=%s,mode=home,ok,cost=%dms,size=%d" , site.getKey(), System.currentTimeMillis() - start, home == null ? 0 : home.length());
+            SpiderDebug.log("preheat", "site=%s,mode=home,ok,cost=%dms,size=%d,body=%s" , site.getKey(), System.currentTimeMillis() - start, home == null ? 0 : home.length(), clip(home));
         } catch (Throwable e) {
             SpiderDebug.log("preheat", "site=%s,mode=home,error=%s,cost=%dms", site.getKey(), e, System.currentTimeMillis() - start);
         }
