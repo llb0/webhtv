@@ -3313,6 +3313,10 @@
     <string name="voice_site_not_found">没有叫“%1$s”的站点</string>
     <string name="voice_play_detail_failed">“%1$s”详情获取失败，已打开详情页，请手动选择线路</string>
     <string name="voice_remote_title">语音遥控器</string>
+    <string name="voice_remote_prev_ep">上一集</string>
+    <string name="voice_remote_vol_down">音量−</string>
+    <string name="voice_remote_vol_up">音量+</string>
+    <string name="voice_remote_next_ep">下一集</string>
     <string name="voice_remote_menu">菜单</string>
     <string name="voice_remote_up">上</string>
     <string name="voice_remote_down">下</string>

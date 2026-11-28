@@ -3324,6 +3324,10 @@
     <string name="voice_site_not_found">No site named "%1$s"</string>
     <string name="voice_play_detail_failed">Could not load the detail page for "%1$s"; opened the detail page instead</string>
     <string name="voice_remote_title">Voice Remote</string>
+    <string name="voice_remote_prev_ep">Prev ep</string>
+    <string name="voice_remote_vol_down">Vol−</string>
+    <string name="voice_remote_vol_up">Vol+</string>
+    <string name="voice_remote_next_ep">Next ep</string>
     <string name="voice_remote_menu">Menu</string>
     <string name="voice_remote_up">Up</string>
     <string name="voice_remote_down">Down</string>

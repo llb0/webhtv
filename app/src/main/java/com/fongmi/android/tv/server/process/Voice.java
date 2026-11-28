@@ -1,6 +1,8 @@
 package com.fongmi.android.tv.server.process;
 
 import android.app.Activity;
+import android.content.Context;
+import android.media.AudioManager;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
@@ -96,6 +98,8 @@ public class Voice implements Process {
             case CONTROL_PAUSE -> control("pause");
             case CONTROL_NEXT -> control("next");
             case CONTROL_PREV -> control("prev");
+            case CONTROL_VOLUME_UP -> control("volume_up");
+            case CONTROL_VOLUME_DOWN -> control("volume_down");
             default -> Nano.ok("unknown");
         };
     }
@@ -1397,8 +1401,11 @@ public class Voice implements Process {
     }
 
     private Response control(String type) {
+        if (TextUtils.isEmpty(type)) return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "no-playback");
+        // 音量只依赖前台界面和系统音频，不要求正在播放：暂停在首页也能调。
+        if (isVolume(type)) return volume(type);
         PlaybackService service = Server.get().getService();
-        if (service == null || TextUtils.isEmpty(type)) return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "no-playback");
+        if (service == null) return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "no-playback");
         switch (type) {
             case "play" -> App.post(() -> service.player().play());
             case "pause" -> App.post(() -> service.player().pause());
@@ -1408,6 +1415,24 @@ public class Voice implements Process {
                 return Nano.ok("unknown");
             }
         }
+        return Nano.ok("control:" + type);
+    }
+
+    private static boolean isVolume(String type) {
+        return "volume_up".equals(type) || "volume_down".equals(type);
+    }
+
+    /**
+     * 音量增减走系统媒体音量，与遥控器上的音量键同一通道（界面上会显示系统音量条）。
+     * 对端可能连续下发多次，这里每次都独立调整一次，不做合并。
+     */
+    private Response volume(String type) {
+        if (App.activity() == null) return Nano.error(Response.Status.SERVICE_UNAVAILABLE, "app-not-open");
+        int direction = "volume_up".equals(type) ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER;
+        App.post(() -> {
+            AudioManager manager = (AudioManager) App.get().getSystemService(Context.AUDIO_SERVICE);
+            if (manager != null) manager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI);
+        });
         return Nano.ok("control:" + type);
     }
 
