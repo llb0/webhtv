@@ -32,6 +32,8 @@ import com.fongmi.android.tv.utils.Sniffer;
 import com.fongmi.android.tv.utils.VodDetailCache;
 import com.fongmi.android.tv.web.WebHomeInlineVodStore;
 import com.github.catvod.crawler.Spider;
+
+import org.json.JSONObject;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Prefers;
@@ -42,6 +44,7 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -226,6 +229,40 @@ public class SiteApi {
         return true;
     }
 
+    /**
+     * 只读诊断：把 jar 内部规则对象里跟"进详情能不能发出正确请求头"直接相关的几项打出来。
+     *
+     * <p>为什么需要它：`XBPQ` 的 `变量预加载` 只在 {@code xbpqIni()} 里启动异步线程
+     * （{@code bl} 必须含 {@code {{ }}}）。壳看不到 jar 的规则，只能看到"有没有抓站点 JS"的日志，
+     * 无法区分"没这条规则"和"有规则但线程没跑"。这里反射读一次键集合与三项值，只在日志开关
+     * 打开时执行，不参与任何判断，也不改任何行为。
+     */
+    private static void dumpSpiderRule(String stage, @NonNull Site site, @NonNull Spider spider) {
+        if (!SpiderDebug.isEnabled()) return;
+        try {
+            Field field = spider.getClass().getDeclaredField("rule");
+            field.setAccessible(true);
+            Object value = field.get(spider);
+            if (!(value instanceof JSONObject)) {
+                SpiderDebug.log("diag-rule", "stage=%s site=%s rule=not-json class=%s", stage, site.getKey(), value == null ? "null" : value.getClass().getName());
+                return;
+            }
+            JSONObject rule = (JSONObject) value;
+            String preload = rule.optString("变量预加载");
+            SpiderDebug.log("diag-rule", "stage=%s site=%s keys=%d hasPreload=%s preload=%s home=%s header=%s",
+                    stage, site.getKey(), rule.length(), rule.has("变量预加载"),
+                    clip(preload), clip(rule.optString("主页url")), clip(rule.optString("请求头")));
+        } catch (Throwable e) {
+            SpiderDebug.log("diag-rule", "stage=%s site=%s error=%s", stage, site.getKey(), e);
+        }
+    }
+
+    private static String clip(String text) {
+        if (text == null) return "";
+        String one = text.replace("\n", " ").replace("\r", " ");
+        return one.length() > 60 ? one.substring(0, 60) : one;
+    }
+
     /** spider 详情返回体 → Result，顺带打日志（凭证字段先行剥离，避免落日志）。 */
     @NonNull
     private static Result parseSpiderDetail(String detailContent) {
@@ -273,7 +310,9 @@ public class SiteApi {
             Spider detailSpider = site.recent().spider();
             SiteContext.initOwner(site, detailSpider);
             boolean cold = !SiteContext.isWarm(site);
+            dumpSpiderRule("before-preheat", site, detailSpider);
             preheatIfCold(site, detailSpider);
+            dumpSpiderRule("after-preheat", site, detailSpider);
             String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
             result = parseSpiderDetail(detailContent);
             if (cold && result.getList().isEmpty()) {
