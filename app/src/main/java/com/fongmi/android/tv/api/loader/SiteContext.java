@@ -90,30 +90,31 @@ public final class SiteContext {
      * <p>进详情的顺序是「先取 spider、再确认归属」：spider 首次创建本身就会 init，那次 init 之后
      * 环境已经归本源，这里的比对不会重复 init 一遍。
      */
-    public static boolean initOwner(Site site, Spider spider) {
-        if (site == null || spider == null) return false;
-        if (TextUtils.equals(owner, site.getKey())) return false;
-        String was = owner;
-        owner = site.getKey();
-        // 不在这里再 init 一次。
-        //
-        // spider 是按 siteKey 缓存的独立实例，每个实例的 init 只在创建时跑一次。对已有实例重复
-        // init 会把它自己的规则状态重建一遍：XBPQ 那类 jar 把"变量预加载"算出来的 {{sign}} 存在
-        // 自己身上，重建后这份值就没了；而预加载线程通常带"只算一次"的标记，第二次 init 之后
-        // 不会再算，于是请求头里的 {{sign}} 原样发出去，详情/播放就是 45x。
-        // 影图日志（xbpq-log.txt、影图完整日志）里同一个源只 init 一次，之后一路读到 sign；
-        // webhtv 日志里搜索进详情恰好有 "reinit done was=XBPQ_厂长资源"，分类进详情没有，
-        // 结果一失败一成功——差别就在这一次多余的 init。
-        SpiderDebug.log("site-context", "adopt site=%s was=%s current=%s", site.getKey(), was, browsing);
-        return false;
+    /** 通道里那份"当前规则"（jar 里的静态实例）是否已经属于这个源。 */
+    public static boolean needsRebuild(Site site) {
+        if (site == null || TextUtils.isEmpty(site.getKey())) return false;
+        boolean need = !TextUtils.equals(owner, site.getKey());
+        SpiderDebug.log("site-context", "owner site=%s owner=%s rebuild=%s", site.getKey(), owner, need);
+        return need;
     }
 
     /**
-     * 首页/分类这类"浏览请求"进入前的环境校验：不是本源就按它的 ext 重建一次。
+     * 环境不属于这个源时该做什么：<b>换一个新实例</b>，不是在原实例上再 init 一次。
      *
-     * <p>全源搜索会不断把环境 init 成别的源，回到本源刷新分类时直接复用"最近实例"就会读到别人的
-     * 环境（把状态放静态字段的 jar 尤其明显）。
+     * <p>为什么不能再 init：jar 的 init 会把实例自己的 {@code rule} 从站点配置重建，运行中由
+     * "变量预加载"写进去的 {@code sign}/{@code client} 一起没了；而实例的变量缓存（{@code
+     * variableCache}）init 不重置，下一次预加载命中旧缓存直接返回，既不抓取也不再写入。
+     * 换新实例则两者都归零，同时那次 init 会把 jar 内静态的"当前规则"切到本站——WebView 渲染
+     * 回调（{@code [JavaBridge] 调用函数-js交互}）读的正是它，原来那份是上一个初始化过的源的。
      */
+    public static boolean initOwner(Site site, Spider spider) {
+        if (site == null || spider == null) return false;
+        if (TextUtils.equals(owner, site.getKey())) return false;
+        SpiderDebug.log("site-context", "adopt site=%s was=%s current=%s", site.getKey(), owner, browsing);
+        owner = site.getKey();
+        return false;
+    }
+
     public static void ensureOwner(Site site, Spider spider) {
         initOwner(site, spider);
     }

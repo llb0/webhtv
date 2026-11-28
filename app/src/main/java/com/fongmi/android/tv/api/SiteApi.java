@@ -32,6 +32,7 @@ import com.fongmi.android.tv.utils.Sniffer;
 import com.fongmi.android.tv.utils.VodDetailCache;
 import com.fongmi.android.tv.web.WebHomeInlineVodStore;
 import com.github.catvod.crawler.Spider;
+import com.github.catvod.crawler.SpiderNull;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Prefers;
@@ -180,7 +181,11 @@ public class SiteApi {
      * <p>失败不阻断详情：预热只为把变量算出来，站点不给首页就当冷启动照旧发详情，由它自己报错。
      */
     private static void preheatIfCold(@NonNull Site site, @NonNull Spider spider) {
-        if (SiteContext.isWarm(site)) return;
+        preheatIfCold(site, spider, false);
+    }
+
+    private static void preheatIfCold(@NonNull Site site, @NonNull Spider spider, boolean force) {
+        if (!force && SiteContext.isWarm(site)) return;
         long start = System.currentTimeMillis();
         try {
             String home = spider.homeContent(true);
@@ -240,11 +245,28 @@ public class SiteApi {
             // 搜索已经停了，但在跑的 init 可能还在写环境（中断不了它）。等它们落完再重建本源环境，
             // 否则详情刚建好的环境会被它最后写一次覆盖，变量又没了。
             SiteContext.awaitQuiescent(DETAIL_QUIET_TIMEOUT_MS);
-            Spider detailSpider = site.recent().spider();
+            // 环境不是本源的，就换一个新实例（不是在原实例上再 init）：原实例再 init 会把它的规则
+            // 重建、把写进去的 sign/client 冲掉，而它的变量缓存不清，预加载命中缓存后不再重算。
+            boolean fresh = SiteContext.needsRebuild(site);
+            Spider detailSpider = fresh ? site.recreateSpider() : site.recent().spider();
+            if (detailSpider instanceof SpiderNull && fresh) {
+                SpiderDebug.log("detail", "fresh spider unavailable, fallback key=%s", key);
+                fresh = false;
+                detailSpider = site.recent().spider();
+            }
             SiteContext.initOwner(site, detailSpider);
-            preheatIfCold(site, detailSpider);
+            // fresh 时即使该源之前跑成功过也要预热：新实例的变量是空的，必须有一次 home 让 jar
+            // 执行 xbpqIni 把"变量预加载"线程点着。
+            preheatIfCold(site, detailSpider, fresh);
             String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
             result = parseSpiderDetail(detailContent);
+            if (fresh && result.getList().isEmpty()) {
+                // 新实例的预加载是异步的（首访实测约 1s），第一次详情发出去时 sign 可能还没写回来。
+                // 第二次不再重建，等它算完的通常就是这一次请求的时间。
+                SpiderDebug.log("detail", "fresh retry key=%s,id=%s", key, id);
+                detailContent = detailSpider.detailContent(Arrays.asList(requestId));
+                result = parseSpiderDetail(detailContent);
+            }
             if (!result.getList().isEmpty()) SiteContext.markWarm(site);
         } else {
             ArrayMap<String, String> params = new ArrayMap<>();

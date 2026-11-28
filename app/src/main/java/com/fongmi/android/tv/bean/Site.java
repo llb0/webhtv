@@ -537,6 +537,12 @@ public class Site implements Parcelable {
         return BaseLoader.get().getSpider(getNamespace(), getKey(), getApi(), getExt(), getJar());
     }
 
+    /** 丢弃本站的 spider 实例并重新创建（只影响 jar 源，其它类型照常返回缓存实例）。 */
+    public Spider recreateSpider() {
+        BaseLoader.get().setRecent(getNamespace(), getKey(), getApi(), getJar());
+        return BaseLoader.get().recreateSpider(getNamespace(), getKey(), getApi(), getExt(), getJar());
+    }
+
     public void save() {
         AppDatabase.get().getSiteDao().insertOrUpdate(this);
     }

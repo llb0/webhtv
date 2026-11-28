@@ -143,6 +143,13 @@ public class BaseLoader {
         else return new SpiderNull();
     }
 
+    /** 丢掉该站的 spider 实例并按同一份 ext 重新创建（见 {@link JarLoader#recreateSpider}）。 */
+    public Spider recreateSpider(String namespace, String key, String api, String ext, String jar) {
+        // 只有 jar 源按实例缓存 spider，py/js 由各自的 loader 管，这里保持原路径。
+        if (isCsp(api)) return jarLoader.recreateSpider(namespace, key, api, ext, jar);
+        return getSpider(namespace, key, api, ext, jar);
+    }
+
     public Spider getSpider(String key) {
         Site site = VodConfig.get().getSite(key);
         Live live = LiveConfig.get().getLive(key);
