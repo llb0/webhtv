@@ -763,6 +763,10 @@ public class History implements Diffable<History> {
     /**
      * 与封面策略保持一致：只补空/占位标题，已有真实标题不被后续播放或远端进度覆盖。
      * 显示投影需要改标题时直接走 {@link #setVodName(String)}，不要经过这里。
+     *
+     * 与上游同函数的差异（有意保留）：上游在“真实标题 → 另一个真实标题”时采用新值，
+     * 本项目保留已落库的真实标题，避免同一部剧在不同源之间切换时列表片名跳动。
+     * 上游新加的 EPISODE_ONLY_NAME 占位过滤与本实现一致，无需重复引入。
      */
     public static String preferStableVodName(String existing, String incoming) {
         String stable = existing == null ? "" : existing;

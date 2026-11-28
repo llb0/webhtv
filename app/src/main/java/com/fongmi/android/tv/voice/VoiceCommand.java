@@ -19,6 +19,8 @@ public record VoiceCommand(Type type, String arg) {
         CONTROL_PAUSE,
         CONTROL_NEXT,
         CONTROL_PREV,
+        CONTROL_VOLUME_UP,
+        CONTROL_VOLUME_DOWN,
         NONE
     }
 

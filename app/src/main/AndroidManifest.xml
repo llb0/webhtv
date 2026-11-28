@@ -57,6 +57,13 @@
             android:exported="false"
             android:launchMode="singleTop" />
 
+        <!-- 只读追剧日历：由追更页直接启动，点某集续播或打开详情，不再回传身份。 -->
+        <activity
+            android:name=".ui.activity.FollowingCalendarActivity"
+            android:exported="false"
+            android:label="@string/following_calendar_entry"
+            android:theme="@style/Theme.App" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.provider"

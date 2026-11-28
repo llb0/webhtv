@@ -99,6 +99,10 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
     private int winWidth;
     /** 当前目标端类型：tv / mobile（来自 /voice?cmd=ping 的回包）。 */
     private String targetType = "tv";
+    /** 当前面板是否为横屏形态（画面在左、按钮在右），折叠只在竖屏触控面板生效。 */
+    private boolean landscape;
+    /** 触控面板按钮组是否展开；默认收起，只留底部一条横条，画面撑开。 */
+    private boolean sheetExpanded;
     private long lastMoveSent;
     /** 还没发出去的移动点（归一化坐标），攒一批一起发，手势才连续。 */
     private final java.util.List<int[]> pendingMoves = new java.util.ArrayList<>();
@@ -162,6 +166,14 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
         key(binding.right, "right");
         key(binding.ok, "ok");
         binding.mode.setOnClickListener(view -> toggleMode());
+        mediaKey(binding.prevEp, "prev", R.string.voice_remote_prev_ep);
+        mediaKey(binding.nextEp, "next", R.string.voice_remote_next_ep);
+        mediaKey(binding.volDown, "volume_down", R.string.voice_remote_vol_down);
+        mediaKey(binding.volUp, "volume_up", R.string.voice_remote_vol_up);
+        binding.sheetHandle.setOnClickListener(view -> {
+            sheetExpanded = !sheetExpanded;
+            applySheet();
+        });
         // 手机远程没有按键区，用右上角这个返回代替手势返回
         key(binding.mobileBack, "back");
         applyInputMode();
@@ -347,6 +359,35 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
         run(() -> request(target, "cmd=nav&k=" + key + selfParam(target), token(target)));
     }
 
+    private void mediaKey(com.google.android.material.button.MaterialButton button, String type, int labelRes) {
+        button.setOnClickListener(view -> control(type, labelRes));
+    }
+
+    /**
+     * 播放控制（上一集/下一集/音量±）走 control 接口：对端在同一个地方执行，
+     * 语音与按键不会各有一套行为；401 与方向键一样进配对流程。
+     */
+    private void control(String type, int labelRes) {
+        String target = Prefers.getString(KEY_TARGET, "");
+        if (TextUtils.isEmpty(target)) {
+            chooseDevice();
+            return;
+        }
+        show(R.string.voice_overlay_sending);
+        run(() -> {
+            Result result = request(target, "cmd=control&type=" + type + selfParam(target), token(target));
+            handler.post(() -> {
+                if (result.code == 401) {
+                    if (isLocal(target)) show(str(R.string.voice_overlay_failed, "401"));
+                    else pair(target, "");
+                    return;
+                }
+                if (result.code != 200) show(str(R.string.voice_key_failed, result.code + " " + result.body));
+                else show(str(R.string.voice_nav_done, str(labelRes)));
+            });
+        });
+    }
+
     /** 发一个方向/菜单键给目标设备，由它投给当前前台界面。 */
     private void nav(String key, boolean hold) {
         String target = Prefers.getString(KEY_TARGET, "");
@@ -421,7 +462,7 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
 
     /**
      * 按键区形态：
-     * 远程是手机 → 没有方向键语义，整块按键区隐藏，只留语音/文本；
+     * 远程是手机 → 没有方向键语义，藏方向盘和返回行，媒体行（上下集/音量）保留；
      * 远程是电视 → 默认方向键盘，右上角可切到触摸板（模拟鼠标）。
      */
     private void applyRemoteUi() {
@@ -430,12 +471,13 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
         int mode = Prefers.getInt(KEY_MODE, 0);
         // 手机端没有方向键语义，但一样能被触摸板"点"：固定给触控面板，不给切换按钮
         boolean touchpad = mobile || mode == 1;
-        // 触摸板模式只藏方向盘：返回/菜单/首页是任何形态都要用的，不能跟着一起藏
-        binding.keyArea.setVisibility(mobile ? android.view.View.GONE : android.view.View.VISIBLE);
+        // 触摸板模式只藏方向盘：返回/媒体行是任何形态都要用的，不能跟着一起藏。
+        // 手机对端没有方向键语义，但媒体行（上下集/音量）照样有用，所以按键区本身不再整块隐藏。
         int dpad = touchpad ? android.view.View.GONE : android.view.View.VISIBLE;
-        binding.up.setVisibility(dpad);
-        binding.down.setVisibility(dpad);
-        binding.dpadRow.setVisibility(dpad);
+        binding.keyArea.setVisibility(android.view.View.VISIBLE);
+        binding.dpadWrap.setVisibility(mobile ? android.view.View.GONE : dpad);
+        binding.rowFirst.setVisibility(mobile ? android.view.View.GONE : android.view.View.VISIBLE);
+        binding.rowMedia.setVisibility(android.view.View.VISIBLE);
         binding.pad.setVisibility(touchpad ? android.view.View.VISIBLE : android.view.View.GONE);
         applyLayout(touchpad && "tv".equals(targetType) && !padRotate());
         if (touchpad) startFrames(); else stopFrames();
@@ -443,6 +485,19 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
         binding.mode.setVisibility(TextUtils.isEmpty(Prefers.getString(KEY_TARGET, "")) || mobile ? android.view.View.GONE : android.view.View.VISIBLE);
         binding.mobileBack.setVisibility(mobile ? android.view.View.VISIBLE : android.view.View.GONE);
         binding.mode.setText(mode == 1 ? R.string.voice_mode_keys : R.string.voice_mode_touchpad);
+        applySheet();
+    }
+
+    /**
+     * 触控面板的按钮组折叠：竖屏触控形态下默认收起，只在底部留一条横条，画面吃满剩余高度；
+     * 点横条展开完整按钮组，画面按剩余空间等比压缩；再点收回。按键形态与横屏形态不折叠。
+     */
+    private void applySheet() {
+        if (binding == null) return;
+        boolean sheetMode = binding.pad.getVisibility() == android.view.View.VISIBLE && !landscape;
+        boolean collapsed = sheetMode && !sheetExpanded;
+        binding.sheetHandle.setVisibility(sheetMode ? android.view.View.VISIBLE : android.view.View.GONE);
+        binding.rightSide.setVisibility(collapsed ? android.view.View.GONE : android.view.View.VISIBLE);
     }
 
     /**
@@ -451,6 +506,7 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
      */
     private void applyLayout(boolean landscape) {
         if (binding == null) return;
+        this.landscape = landscape;
         android.widget.LinearLayout body = binding.body;
         android.widget.LinearLayout right = binding.rightSide;
         android.widget.LinearLayout.LayoutParams left = (android.widget.LinearLayout.LayoutParams) binding.padWrap.getLayoutParams();
@@ -468,6 +524,7 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
             binding.rowSecond.setOrientation(android.widget.LinearLayout.VERTICAL);
             binding.rowFirst.setOrientation(android.widget.LinearLayout.HORIZONTAL);
             moveInputToRoot();
+            moveMediaRowOut();
             moveFirstRowOut();
         } else {
             left.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT;
@@ -490,6 +547,7 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
             binding.rowFirst.setOrientation(android.widget.LinearLayout.HORIZONTAL);
             moveInputBack();
             moveFirstRowIn();
+            moveMediaRowIn();
         }
         int pad = (int) com.fongmi.android.tv.utils.ResUtil.dp2px(landscape ? 6 : 16);
         binding.getRoot().setPadding(pad, binding.getRoot().getPaddingTop(), pad, binding.getRoot().getPaddingBottom());
@@ -519,7 +577,29 @@ public class VoiceControlDialog extends DialogFragment implements NsdDeviceDisco
         binding.rowFirst.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         android.widget.LinearLayout.LayoutParams params = new android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
         params.topMargin = (int) com.fongmi.android.tv.utils.ResUtil.dp2px(8);
-        binding.getRoot().addView(binding.rowFirst, binding.getRoot().getChildCount(), params);
+        int index = binding.getRoot().indexOfChild(binding.sheetHandle);
+        binding.getRoot().addView(binding.rowFirst, index < 0 ? binding.getRoot().getChildCount() : index, params);
+    }
+
+    /** 横屏时媒体行也跟着铺到画面下方，位于返回行之上。 */
+    private void moveMediaRowOut() {
+        android.view.ViewGroup parent = (android.view.ViewGroup) binding.rowMedia.getParent();
+        if (parent == null || parent.getId() == R.id.rootVoice) return;
+        parent.removeView(binding.rowMedia);
+        android.widget.LinearLayout.LayoutParams params = new android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = (int) com.fongmi.android.tv.utils.ResUtil.dp2px(6);
+        int index = binding.getRoot().indexOfChild(binding.sheetHandle);
+        binding.getRoot().addView(binding.rowMedia, index < 0 ? binding.getRoot().getChildCount() : index, params);
+    }
+
+    /** 竖屏时媒体行放回按键区，排在返回行下面。 */
+    private void moveMediaRowIn() {
+        android.view.ViewGroup parent = (android.view.ViewGroup) binding.rowMedia.getParent();
+        if (parent == binding.keyArea) return;
+        if (parent != null) parent.removeView(binding.rowMedia);
+        android.widget.LinearLayout.LayoutParams params = new android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = (int) com.fongmi.android.tv.utils.ResUtil.dp2px(6);
+        binding.keyArea.addView(binding.rowMedia, binding.keyArea.getChildCount(), params);
     }
 
     /** 竖屏时放回按键区（方向盘下面）。 */

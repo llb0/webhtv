@@ -124,6 +124,12 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp"
         android:orientation="vertical">
+        <LinearLayout
+            android:id="@+id/dpadWrap"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/up"
@@ -203,6 +209,7 @@
             android:text="@string/voice_remote_down"
             android:textSize="13sp"
             app:cornerRadius="26dp" />
+            </LinearLayout>
     </LinearLayout>
 
     <!-- 返回/菜单/首页：属于按键遥控区，紧跟方向盘，左右边缘与方向盘对齐 -->
@@ -264,6 +271,83 @@
             android:textSize="13sp"
             app:cornerRadius="20dp" />
     </LinearLayout>
+    <!-- 媒体行：上一集 / 音量− / 音量+ / 下一集，紧跟在返回/菜单/首页下面 -->
+    <LinearLayout
+        android:id="@+id/rowMedia"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/prevEp"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="0dp"
+            android:layout_marginEnd="4dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:text="@string/voice_remote_prev_ep"
+            android:textSize="13sp"
+            app:cornerRadius="20dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/volDown"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:text="@string/voice_remote_vol_down"
+            android:textSize="13sp"
+            app:cornerRadius="20dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/volUp"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:text="@string/voice_remote_vol_up"
+            android:textSize="13sp"
+            app:cornerRadius="20dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/nextEp"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:text="@string/voice_remote_next_ep"
+            android:textSize="13sp"
+            app:cornerRadius="20dp" />
+    </LinearLayout>
+
 
     <!-- 语音/文本指令区：输入框 + 设备/发送/说话 -->
     <EditText
@@ -356,5 +440,21 @@
     </LinearLayout>
 </LinearLayout>
     </LinearLayout>
+    
+    <!-- 触控面板底部横条：单击展开/收起下方按钮组 -->
+    <FrameLayout
+        android:id="@+id/sheetHandle"
+        android:layout_width="match_parent"
+        android:layout_height="26dp"
+        android:layout_marginTop="4dp"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="44dp"
+            android:layout_height="5dp"
+            android:layout_gravity="center"
+            android:alpha="0.55"
+            android:background="@drawable/shape_voice_sheet_handle" />
+    </FrameLayout>
     </LinearLayout>
 

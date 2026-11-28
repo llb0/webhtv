@@ -24,6 +24,8 @@ public final class VoiceCommandParser {
     private static final String[] PREV_WORDS = {"上一集", "上一个", "上集", "prev", "previous"};
     private static final String[] PAUSE_WORDS = {"暂停", "停止", "pause", "停一下"};
     private static final String[] PLAY_WORDS = {"继续", "继续播放", "恢复播放", "接着放", "play", "resume"};
+    private static final String[] VOLUME_UP_WORDS = {"音量加", "音量+", "音量大", "调大音量", "调高音量", "声音大点", "声音调大", "大声点", "开大点", "volume up", "louder"};
+    private static final String[] VOLUME_DOWN_WORDS = {"音量减", "音量-", "音量小", "调小音量", "调低音量", "声音小点", "声音调小", "小声点", "关小点", "volume down", "quieter"};
 
     private static final String[] SEARCH_VERBS = {"搜索", "搜一下", "搜", "查找", "查一下", "找一下", "找"};
     private static final String[] PLAY_VERBS = {"播放", "看一下", "看看", "看"};
@@ -69,6 +71,9 @@ public final class VoiceCommandParser {
         if (matchesAny(text, PREV_WORDS) && text.length() <= 8) return VoiceCommand.control(VoiceCommand.Type.CONTROL_PREV);
         if (matchesAny(text, PAUSE_WORDS) && text.length() <= 8) return VoiceCommand.control(VoiceCommand.Type.CONTROL_PAUSE);
         if (matchesAny(text, PLAY_WORDS) && text.length() <= 8) return VoiceCommand.control(VoiceCommand.Type.CONTROL_PLAY);
+        // 音量放在最后：词里常带"声音/大点"这类泛词，先让暂停、播放等精确短句命中。
+        if (matchesAny(text, VOLUME_UP_WORDS)) return VoiceCommand.control(VoiceCommand.Type.CONTROL_VOLUME_UP);
+        if (matchesAny(text, VOLUME_DOWN_WORDS)) return VoiceCommand.control(VoiceCommand.Type.CONTROL_VOLUME_DOWN);
         return null;
     }
 

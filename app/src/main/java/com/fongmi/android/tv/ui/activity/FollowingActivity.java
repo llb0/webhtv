@@ -148,6 +148,8 @@ public class FollowingActivity extends AppCompatActivity implements FollowingAda
             load();
         });
         binding.alistImport.setOnClickListener(view -> showServerImportDialog());
+        // 日历里点某集会直接续播或打开详情，不再把身份回传到本页，所以这里只要普通启动。
+        binding.calendar.setOnClickListener(view -> startActivity(FollowingCalendarActivity.intent(this)));
         load();
     }
 

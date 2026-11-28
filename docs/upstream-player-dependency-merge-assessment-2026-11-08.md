@@ -137,6 +137,7 @@
 - 预计需要的验证 / 未完成门槛：mock HTTP：无Content-Disposition、BOM、CRLF、空白、64KiB边界、HTML/MP4、非2xx、重定向、认证、超时取消；验证原媒体URL不误解析。
 
 ### C-TV-LIVE-AUTH — 3. 来源限定的HLS认证上下文（Exo→MPV适配）
+- 唯一任务记录：[C-TV-LIVE-AUTH-exo-origin-scope.md](C-TV-LIVE-AUTH-exo-origin-scope.md)（本轮仅 Exo 窄单元）
 - 所属审查分类：player（实际Exo/MPV/common按适配所有权分阶段）
 - 建议：实施设计/先Exo窄适配，MPV并行证明后分阶段启用
 - 涉及仓库及完整 commit ID：
@@ -219,6 +220,7 @@
 - 预计需要的验证 / 未完成门槛：失败factory、失败init、destroy二次失败、重试成功、A/B同名模块互不污染、标准流日志保留；不先构建整个runtime。
 
 ### C-TV-LOADER-OWNERSHIP — 共享loader owner世代、取消和清理隔离（优先）
+- 唯一任务记录：[C-TV-LOADER-OWNERSHIP-loader-generations.md](C-TV-LOADER-OWNERSHIP-loader-generations.md)（本次仅 Jar 子项）
 - 所属审查分类：common（实际Exo/MPV/common按适配所有权分阶段）
 - 建议：实施
 - 涉及仓库及完整 commit ID：
