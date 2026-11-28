@@ -38,6 +38,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private final ExecutorService executor;
     private final DexClassLoader dex;
     private final String api;
+    private final Module modules;
 
     private QuickJSContext ctx;
     private JSObject jsObject;
@@ -46,9 +47,14 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private boolean cat;
 
     public Spider(String api, DexClassLoader dex) {
+        this(api, dex, Module.get());
+    }
+
+    Spider(String api, DexClassLoader dex, Module modules) {
         this.executor = Executors.newSingleThreadExecutor();
         this.api = api;
         this.dex = dex;
+        this.modules = modules;
     }
 
     /** clan://idj/&lt;id&gt;/source.js 是 iDuanJu idj1 插件，走专门的宿主桥与适配器。 */
@@ -194,7 +200,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
             @Override
             public byte[] getModuleBytecode(String moduleName) {
-                return ctx.compileModule(Module.get().fetch(moduleName), moduleName);
+                return ctx.compileModule(modules.fetch(moduleName), moduleName);
             }
         });
     }
@@ -211,7 +217,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private void createObj() {
         String spider = "__JS_SPIDER__";
         String global = "globalThis." + spider;
-        String content = Module.get().fetch(api);
+        String content = modules.fetch(api);
         if (content == null) throw new IllegalStateException("JS source not found: " + api);
         if (isIdj()) {
             ctx.evaluate(Asset.read("js/lib/idj-prelude.js"));
