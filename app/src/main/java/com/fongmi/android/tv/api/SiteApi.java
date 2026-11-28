@@ -32,8 +32,6 @@ import com.fongmi.android.tv.utils.Sniffer;
 import com.fongmi.android.tv.utils.VodDetailCache;
 import com.fongmi.android.tv.web.WebHomeInlineVodStore;
 import com.github.catvod.crawler.Spider;
-
-import org.json.JSONObject;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Prefers;
@@ -44,7 +42,6 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -57,8 +54,6 @@ import okhttp3.Response;
 public class SiteApi {
 
     public static final String PUSH = "push_agent";
-    /** 冷源变量链（抓站点 JS → 截取 → 写回规则）的落地窗口，见 {@link #reheatBySearch}。 */
-    private static final long PREHEAT_SETTLE_MS = 150L;
     /** 进详情前等在跑的 init 落完的上限，见 {@link SiteContext#awaitQuiescent}。 */
     private static final long DETAIL_QUIET_TIMEOUT_MS = 900L;
 
@@ -179,8 +174,8 @@ public class SiteApi {
      *
      * <p>预热先按该源自己的规则跑一次只读的首页，让它的规则链走一遍。但首页不一定够：有的源
      * {@code homeContent} 走"分类数据直出"提前返回（日志里 3Qpc 的 {@code preheat ok,size=683} 就是
-     * 这一种），"变量预加载"没被执行，变量仍是空的。所以详情拿不到内容时还会再来一次
-     * {@link #reheatBySearch}——那一次走的搜索路径一定执行变量链。
+     * 这一种），"变量预加载"没被执行，变量仍是空的。真正要解决的是"为什么会走到这个分支"，
+     * 而不是在这里补一次搜索：见 SiteContext.initOwner 的说明。
      *
      * <p>失败不阻断详情：预热只为把变量算出来，站点不给首页就当冷启动照旧发详情，由它自己报错。
      */
@@ -192,68 +187,6 @@ public class SiteApi {
             SpiderDebug.log("preheat", "site=%s,mode=home,ok,cost=%dms,size=%d,body=%s" , site.getKey(), System.currentTimeMillis() - start, home == null ? 0 : home.length(), clip(home));
         } catch (Throwable e) {
             SpiderDebug.log("preheat", "site=%s,mode=home,error=%s,cost=%dms", site.getKey(), e, System.currentTimeMillis() - start);
-        }
-    }
-
-    /**
-     * 冷源第一次详情拿不到内容时的第二次尝试：用本源自己的一次搜索把"变量链"真正走完。
-     *
-     * <p>首页预热不一定够：有的源 {@code homeContent} 走的是"分类数据直出"分支（提前返回），
-     * 规则里"变量预加载"那条链没被执行，请求头里的 {@code {{sign}}} 仍是字面占位符，详情照样 45x。
-     * 而搜索路径一定会执行它（日志里同一源搜索时能看到 {@code 源码工具结果} → {@code 写入-sign}
-     * → {@code 获取到变量 sign} 完整一段）。所以这里按最近一次搜索的关键词，对本源重放一次搜索。
-     *
-     * <p>变量是 jar 自己另起线程抓站点 JS、截取、写回规则字段算出来的，抓完到写回是毫秒级（同一
-     * 环境实测 27ms），所以搜索返回后再给一个 {@link #PREHEAT_SETTLE_MS} 的落地窗口，让重试的详情
-     * 拿到算好的值。没有关键词（用户没搜索过）时只等窗口，不额外发请求。
-     */
-    private static boolean reheatBySearch(@NonNull Site site, @NonNull Spider spider) {
-        String keyword = SiteContext.lastKeyword();
-        long start = System.currentTimeMillis();
-        try {
-            if (TextUtils.isEmpty(keyword)) {
-                SpiderDebug.log("preheat", "site=%s,mode=none,cost=%dms", site.getKey(), System.currentTimeMillis() - start);
-            } else {
-                spider.searchContent(keyword, true);
-                SpiderDebug.log("preheat", "site=%s,mode=search,keyword=%s,cost=%dms", site.getKey(), keyword, System.currentTimeMillis() - start);
-            }
-        } catch (Throwable e) {
-            SpiderDebug.log("preheat", "site=%s,mode=search,error=%s,cost=%dms", site.getKey(), e, System.currentTimeMillis() - start);
-        }
-        try {
-            Thread.sleep(PREHEAT_SETTLE_MS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * 只读诊断：把 jar 内部规则对象里跟"进详情能不能发出正确请求头"直接相关的几项打出来。
-     *
-     * <p>为什么需要它：`XBPQ` 的 `变量预加载` 只在 {@code xbpqIni()} 里启动异步线程
-     * （{@code bl} 必须含 {@code {{ }}}）。壳看不到 jar 的规则，只能看到"有没有抓站点 JS"的日志，
-     * 无法区分"没这条规则"和"有规则但线程没跑"。这里反射读一次键集合与三项值，只在日志开关
-     * 打开时执行，不参与任何判断，也不改任何行为。
-     */
-    private static void dumpSpiderRule(String stage, @NonNull Site site, @NonNull Spider spider) {
-        if (!SpiderDebug.isEnabled()) return;
-        try {
-            Field field = spider.getClass().getDeclaredField("rule");
-            field.setAccessible(true);
-            Object value = field.get(spider);
-            if (!(value instanceof JSONObject)) {
-                SpiderDebug.log("diag-rule", "stage=%s site=%s rule=not-json class=%s", stage, site.getKey(), value == null ? "null" : value.getClass().getName());
-                return;
-            }
-            JSONObject rule = (JSONObject) value;
-            String preload = rule.optString("变量预加载");
-            SpiderDebug.log("diag-rule", "stage=%s site=%s keys=%d hasPreload=%s preload=%s home=%s header=%s",
-                    stage, site.getKey(), rule.length(), rule.has("变量预加载"),
-                    clip(preload), clip(rule.optString("主页url")), clip(rule.optString("请求头")));
-        } catch (Throwable e) {
-            SpiderDebug.log("diag-rule", "stage=%s site=%s error=%s", stage, site.getKey(), e);
         }
     }
 
@@ -309,21 +242,9 @@ public class SiteApi {
             SiteContext.awaitQuiescent(DETAIL_QUIET_TIMEOUT_MS);
             Spider detailSpider = site.recent().spider();
             SiteContext.initOwner(site, detailSpider);
-            boolean cold = !SiteContext.isWarm(site);
-            dumpSpiderRule("before-preheat", site, detailSpider);
             preheatIfCold(site, detailSpider);
-            dumpSpiderRule("after-preheat", site, detailSpider);
             String detailContent = detailSpider.detailContent(Arrays.asList(requestId));
             result = parseSpiderDetail(detailContent);
-            if (cold && result.getList().isEmpty()) {
-                // 冷源第一次拿不到内容：变量链多半还没走完，详情带着字面 {{sign}} 被站方回 45x。
-                // 用本源的一次搜索把链路走完，再要一次详情；成功与否都以第二次为准。
-                SpiderDebug.log("detail", "cold retry key=%s,id=%s", key, id);
-                if (reheatBySearch(site, detailSpider)) {
-                    detailContent = detailSpider.detailContent(Arrays.asList(requestId));
-                    result = parseSpiderDetail(detailContent);
-                }
-            }
             if (!result.getList().isEmpty()) SiteContext.markWarm(site);
         } else {
             ArrayMap<String, String> params = new ArrayMap<>();

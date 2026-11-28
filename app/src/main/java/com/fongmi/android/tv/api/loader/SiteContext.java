@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@code SiteViewModel.pauseSearch}），详情到起播这段没有别的源在跑，也就没有需要排队的初始化。
  * 这里只做两件事：
  * <ul>
- *   <li>{@link #initOwner}：进详情时确认环境属于本源的，不属于就按本源 ext 重建；</li>
+ *   <li>{@link #initOwner}：进详情时确认环境属于本源的，只记账，不重复 init（实例按站独立）；</li>
  *   <li>{@link #ensureOwner}：首页/分类刷新前同样确认一次，避免读到别的源留下的那份环境。</li>
  * </ul>
  */
@@ -94,17 +94,18 @@ public final class SiteContext {
         if (site == null || spider == null) return false;
         if (TextUtils.equals(owner, site.getKey())) return false;
         String was = owner;
-        try {
-            spider.init(App.get(), site.getExt());
-            owner = site.getKey();
-            // 规则被重建：这个源写在规则里的变量（{{sign}} 这类）已经没了，得重新跑一次才算就绪。
-            WARM.remove(site.getKey());
-            SpiderDebug.log("site-context", "reinit done site=%s was=%s current=%s", site.getKey(), was, browsing);
-            return true;
-        } catch (Throwable e) {
-            SpiderDebug.log("site-context", "reinit error site=%s error=%s", site.getKey(), e);
-            return false;
-        }
+        owner = site.getKey();
+        // 不在这里再 init 一次。
+        //
+        // spider 是按 siteKey 缓存的独立实例，每个实例的 init 只在创建时跑一次。对已有实例重复
+        // init 会把它自己的规则状态重建一遍：XBPQ 那类 jar 把"变量预加载"算出来的 {{sign}} 存在
+        // 自己身上，重建后这份值就没了；而预加载线程通常带"只算一次"的标记，第二次 init 之后
+        // 不会再算，于是请求头里的 {{sign}} 原样发出去，详情/播放就是 45x。
+        // 影图日志（xbpq-log.txt、影图完整日志）里同一个源只 init 一次，之后一路读到 sign；
+        // webhtv 日志里搜索进详情恰好有 "reinit done was=XBPQ_厂长资源"，分类进详情没有，
+        // 结果一失败一成功——差别就在这一次多余的 init。
+        SpiderDebug.log("site-context", "adopt site=%s was=%s current=%s", site.getKey(), was, browsing);
+        return false;
     }
 
     /**
